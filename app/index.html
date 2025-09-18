@@ -1,14 +1,206 @@
 <!doctype html>
-<html lang="de" class="h-full">
+<html lang="de" class="h-full opidb">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OP Item DB</title>
     <meta name="description" content="Community-driven OPSUCHT OP Item-Datenbank" />
     <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/assets/css/design.css" />
   </head>
-  <body class="h-full bg-slate-950 text-slate-100 font-sans antialiased">
-    <div id="root" class="h-full"></div>
+  <body class="opidb h-full bg-slate-950 text-slate-100 font-sans antialiased">
+    <div id="root" class="h-full" data-app-initialized="true">
+      <div class="app-shell min-h-full flex flex-col">
+        <header class="app-shell__header relative z-50 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur">
+          <div class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
+            <div class="flex items-center gap-3">
+              <span class="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-300">
+                <span class="text-sm font-semibold uppercase tracking-wide">OP</span>
+              </span>
+              <div>
+                <p class="text-xs uppercase tracking-wide text-slate-500">V 0.9</p>
+                <h1 class="app-shell__title text-lg font-semibold text-slate-100">OP ITEM DATENBANK</h1>
+              </div>
+            </div>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                class="app-shell__menu-btn inline-flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 md:hidden"
+                data-js="mobile-menu-btn"
+                data-menu-target="mobile-menu"
+                aria-expanded="false"
+                aria-controls="app-menu"
+              >
+                <span class="relative flex h-2.5 w-4 flex-col justify-between">
+                  <span class="block h-0.5 rounded bg-current"></span>
+                  <span class="block h-0.5 rounded bg-current"></span>
+                  <span class="block h-0.5 rounded bg-current"></span>
+                </span>
+                Menü
+              </button>
+              <nav
+                id="app-menu"
+                class="app-shell__menu flex flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sm text-slate-200 shadow-lg shadow-emerald-500/10 md:flex-row md:items-center md:gap-6 md:border-transparent md:bg-transparent md:p-0 md:shadow-none"
+                data-js="mobile-menu"
+                hidden
+                aria-hidden="true"
+              >
+                <a
+                  href="#item-grid"
+                  class="rounded-xl px-3 py-2 transition hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                  data-js="scroll-link"
+                  data-menu-close="true"
+                >
+                  Zur Liste
+                </a>
+              </nav>
+            </div>
+          </div>
+        </header>
+        <main class="app-shell__main flex-1 pb-32 md:pb-16">
+          <section class="relative mx-auto w-full max-w-6xl px-6 pt-12">
+            <div class="relative overflow-hidden rounded-3xl border border-slate-800/70 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-950 p-8 shadow-2xl shadow-emerald-500/10 sm:p-10 lg:p-12">
+              <div class="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl" aria-hidden="true">
+                <div class="absolute -right-24 top-1/2 h-64 w-64 -translate-y-1/2 rounded-full bg-emerald-500/10 blur-3xl"></div>
+                <div class="absolute -left-16 -top-16 h-40 w-40 rounded-full bg-indigo-500/10 blur-3xl"></div>
+              </div>
+              <div class="relative z-10 flex flex-col gap-10">
+                <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div class="flex items-start gap-4">
+                    <span class="inline-flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
+                      <span class="text-xl font-semibold">OP</span>
+                    </span>
+                    <div class="space-y-4">
+                      <div>
+                        <p class="text-xs uppercase tracking-[0.45em] text-emerald-300/80">OP Item Datenbank</p>
+                        <p class="mt-3 text-4xl font-bold text-slate-50 sm:text-5xl">Finde was du suchst…</p>
+                      </div>
+                      <p class="max-w-2xl text-base text-slate-400">
+                        Durchsuche die Datenbank, filtere nach Seltenheit und entdecke dein neues Lieblingsitem.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <form class="app-search space-y-8" data-js="search-form" role="search" aria-label="Items durchsuchen">
+                  <label class="block" for="app-search-input">
+                    <span class="sr-only">Nach Items suchen</span>
+                    <div class="relative">
+                      <span class="pointer-events-none absolute inset-y-0 left-4 flex items-center text-slate-500">
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          stroke-width="1.5"
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          class="h-5 w-5"
+                          aria-hidden="true"
+                        >
+                          <path d="m21 21-4.35-4.35" />
+                          <circle cx="11" cy="11" r="7" />
+                        </svg>
+                      </span>
+                      <input
+                        id="app-search-input"
+                        class="app-search__input w-full rounded-2xl border border-slate-800 bg-slate-950/80 py-4 pl-12 pr-4 text-base text-slate-100 placeholder:text-slate-500 shadow-inner shadow-slate-950/40 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                        name="search"
+                        type="search"
+                        data-js="search-input"
+                        placeholder="Nach Items suchen…"
+                        autocomplete="off"
+                      />
+                    </div>
+                  </label>
+                  <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <label class="block w-full sm:max-w-xs" for="app-filter-rarity">
+                      <span class="text-sm font-medium text-slate-300">Seltenheit</span>
+                      <select
+                        id="app-filter-rarity"
+                        class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                        name="rarity"
+                        data-js="filter-rarity"
+                      >
+                        <option value="">Alle Seltenheiten</option>
+                        <option value="gewöhnlich">Gewöhnlich</option>
+                        <option value="selten">Selten</option>
+                        <option value="episch">Episch</option>
+                        <option value="legendär">Legendär</option>
+                      </select>
+                    </label>
+                    <button
+                      type="submit"
+                      class="app-search__submit inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    >
+                      Suchen
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </section>
+          <section class="mx-auto w-full max-w-6xl px-6 py-12">
+            <div class="space-y-6">
+              <div class="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <h2 class="text-lg font-semibold text-slate-100">Suchergebnisse</h2>
+                  <p class="text-sm text-slate-500">Live-Aktualisierung der Ergebnisse entsprechend deiner Suche.</p>
+                </div>
+                <span class="text-xs uppercase tracking-[0.3em] text-slate-600">Live-Ansicht</span>
+              </div>
+              <div class="rounded-2xl border border-slate-800/70 bg-slate-900/40 p-6 shadow-inner shadow-slate-950/40">
+                <div
+                  id="item-grid"
+                  class="app-shell__grid min-h-[320px] space-y-4"
+                  data-js="grid"
+                  aria-live="polite"
+                  aria-busy="false"
+                ></div>
+                <div class="app-shell__empty mt-6" data-js="empty-state" hidden></div>
+              </div>
+            </div>
+          </section>
+        </main>
+      </div>
+      <div
+        class="app-modal fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+        data-js="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-hidden="true"
+        hidden
+      >
+        <div class="app-modal__backdrop absolute inset-0" data-js="modal-backdrop" tabindex="-1"></div>
+        <div
+          class="app-modal__dialog relative z-10 w-full max-w-2xl rounded-2xl border border-slate-800/80 bg-slate-950 p-6 shadow-2xl shadow-emerald-500/10"
+          role="document"
+        >
+          <button
+            type="button"
+            class="app-modal__close absolute right-4 top-4 rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            data-js="modal-close"
+            aria-label="Schließen"
+          >
+            <span class="sr-only">Schließen</span>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12" />
+              <path d="m18 6-12 12" />
+            </svg>
+          </button>
+          <div class="app-modal__body space-y-4 text-sm text-slate-200" data-js="modal-body"></div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="/assets/js/app.js"></script>
   </body>
 </html>
