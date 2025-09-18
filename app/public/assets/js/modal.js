@@ -19,17 +19,60 @@ function getFocusableElements(container) {
     'select:not([disabled])',
     'textarea:not([disabled])',
     '[tabindex]:not([tabindex="-1"])',
+    '[contenteditable]:not([contenteditable="false"])',
   ];
 
   return qsa(selectors.join(','), container).filter((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
+
     if (element.hasAttribute('disabled')) {
       return false;
     }
+
     if (element.getAttribute('aria-hidden') === 'true') {
       return false;
     }
+
+    if (element.hidden) {
+      return false;
+    }
+
+    if (element.closest('[hidden]')) {
+      return false;
+    }
+
+    if (element.closest('[aria-hidden="true"]')) {
+      return false;
+    }
+
+    if (element.closest('[inert]')) {
+      return false;
+    }
+
     return true;
   });
+}
+
+function refreshFocusableItems(modal) {
+  if (!modal) {
+    focusableItems = [];
+    return focusableItems;
+  }
+
+  focusableItems = getFocusableElements(modal);
+
+  if (focusableItems.length === 0) {
+    if (modal.getAttribute('tabindex') !== '-1') {
+      modal.setAttribute('tabindex', '-1');
+    }
+    focusableItems = [modal];
+  } else if (modal.getAttribute('tabindex') === '-1') {
+    modal.removeAttribute('tabindex');
+  }
+
+  return focusableItems;
 }
 
 function handleKeydown(event) {
@@ -47,22 +90,55 @@ function handleKeydown(event) {
     return;
   }
 
-  if (focusableItems.length === 0) {
+  const modal = activeModal;
+  const items = refreshFocusableItems(modal);
+  const first = items[0];
+  const last = items[items.length - 1];
+  const isShiftPressed = event.shiftKey;
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+  if (!activeElement || !modal.contains(activeElement)) {
     event.preventDefault();
+    const fallback = isShiftPressed ? last : first;
+    if (fallback instanceof HTMLElement) {
+      fallback.focus();
+    }
     return;
   }
 
-  const first = focusableItems[0];
-  const last = focusableItems[focusableItems.length - 1];
-  const isShiftPressed = event.shiftKey;
-  const activeElement = document.activeElement;
-
   if (isShiftPressed && activeElement === first) {
     event.preventDefault();
-    last.focus();
+    if (last instanceof HTMLElement) {
+      last.focus();
+    }
   } else if (!isShiftPressed && activeElement === last) {
     event.preventDefault();
-    first.focus();
+    if (first instanceof HTMLElement) {
+      first.focus();
+    }
+  }
+}
+
+function handleFocusIn(event) {
+  if (!activeModal) {
+    return;
+  }
+
+  const modal = activeModal;
+  refreshFocusableItems(modal);
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (!modal.contains(target)) {
+    const [first] = focusableItems;
+    if (first instanceof HTMLElement) {
+      window.requestAnimationFrame(() => {
+        first.focus();
+      });
+    }
   }
 }
 
@@ -87,20 +163,27 @@ function bindModalEvents(modal) {
   }
 
   modal.addEventListener('keydown', handleKeydown);
+  modal.addEventListener('focusin', handleFocusIn);
   modalEventsBound = true;
 }
 
 function prepareFocus(modal) {
-  focusableItems = getFocusableElements(modal);
-
-  if (focusableItems.length === 0) {
-    modal.setAttribute('tabindex', '-1');
-    focusableItems = [modal];
-  }
-
-  const target = focusableItems[0];
+  const items = refreshFocusableItems(modal);
+  const target = items[0];
   window.requestAnimationFrame(() => {
-    target.focus();
+    if (target instanceof HTMLElement) {
+      try {
+        target.focus({ preventScroll: true });
+        return;
+      } catch (error) {
+        // Fallback to standard focus call below.
+        void error;
+      }
+    }
+
+    if (target && typeof target.focus === 'function') {
+      target.focus();
+    }
   });
 }
 
