@@ -10,6 +10,7 @@ import {
   subscribe,
 } from './state.js';
 import { getItems, loadItemById } from './api.js';
+
 import {
   buildItemDetailView,
   buildMissingItemDetail,
@@ -19,13 +20,16 @@ import {
 } from './ui.js';
 import { closeModal, isModalOpen, openModal } from './modal.js';
 
+
 const MIN_SKELETON_COUNT = 6;
 const MAX_SKELETON_COUNT = 12;
 const SEARCH_DEBOUNCE_MS = 250;
 const URL_SEARCH_KEY = 'q';
 const URL_CATEGORY_KEY = 'cat';
+
 const URL_ITEM_KEY = 'item';
 const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
+
 
 let activeRequestId = 0;
 let ignoreNextMenuClick = false;
@@ -35,10 +39,12 @@ let backToTopBound = false;
 let historyBound = false;
 let searchDebounceId = 0;
 let hasInitialDataLoaded = false;
+
 let pendingModalItemId = null;
 let currentModalItemId = null;
 let modalCloseHistoryMode = 'replace';
 let activeModalRequestToken = 0;
+
 
 function getMenuElement(button) {
   if (!button) {
@@ -72,6 +78,7 @@ function setMenuExpanded(expand) {
   menu.setAttribute('aria-hidden', String(!shouldExpand));
   menu.dataset.menuOpen = String(shouldExpand);
 }
+
 
 function createLayout() {
   const root = refs.root;
@@ -167,11 +174,13 @@ function registerEventListeners() {
     grid.dataset.clickBound = 'true';
   }
 
+
   const modal = refs.modal;
   if (modal && modal.dataset.actionsBound !== 'true') {
     modal.addEventListener('click', handleModalClick);
     modal.dataset.actionsBound = 'true';
   }
+
 
   registerMenuToggle();
   setupSmoothScroll();
@@ -370,6 +379,7 @@ function scrollToTop({ focusFirst } = {}) {
   }
 }
 
+
 function cancelPendingSearchUpdate() {
   if (searchDebounceId) {
     window.clearTimeout(searchDebounceId);
@@ -381,6 +391,7 @@ function normalizeForComparison(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+
 function normalizeItemId(value) {
   if (value === null || value === undefined) {
     return '';
@@ -388,6 +399,7 @@ function normalizeItemId(value) {
 
   return String(value).trim();
 }
+
 
 function sanitizeFilters(filters = {}) {
   const sanitized = {};
@@ -534,6 +546,7 @@ function readUrlState() {
   const category = (params.get(URL_CATEGORY_KEY) ?? '').toString();
   const itemParam = (params.get(URL_ITEM_KEY) ?? '').toString();
 
+
   const filters = {};
   if (category.trim()) {
     filters.rarity = category.trim();
@@ -543,6 +556,7 @@ function readUrlState() {
     searchQuery: query.trim(),
     filters,
     itemId: itemParam.trim(),
+
   };
 }
 
@@ -564,13 +578,17 @@ function hydrateStateFromUrl({ skipRender = true } = {}) {
     return;
   }
 
+
   const { searchQuery, filters, itemId } = readUrlState();
+
   const snapshot = getState();
 
   let shouldResetPage = false;
 
+
   const normalizedItemId = normalizeItemId(itemId);
   pendingModalItemId = normalizedItemId || null;
+
 
   if (searchQuery !== snapshot.searchQuery) {
     setSearchQuery(searchQuery);
@@ -589,11 +607,13 @@ function hydrateStateFromUrl({ skipRender = true } = {}) {
   if (!skipRender && hasInitialDataLoaded) {
     applyFiltersAndRender();
 
+
     if (pendingModalItemId) {
       openItemDetails(pendingModalItemId, { history: 'none' });
     } else if (isModalOpen()) {
       closeItemModal({ historyMode: 'none' });
     }
+
   }
 }
 
@@ -705,6 +725,7 @@ function handleFilterChange(event) {
   updateUrlFromState({ replace: false });
 }
 
+
 function handleSearchSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -748,6 +769,7 @@ function handleSearchSubmit(event) {
 
   applyFiltersAndRender();
   updateUrlFromState({ replace: false });
+
 }
 
 function handleGridClick(event) {
@@ -760,6 +782,7 @@ function handleGridClick(event) {
   if (!itemId) {
     return;
   }
+
 
   openItemDetails(itemId, { history: 'push' });
 }
@@ -1036,6 +1059,7 @@ function maybeOpenItemFromUrl({ history = 'replace' } = {}) {
 
   openItemDetails(normalizedId, { history });
   return true;
+
 }
 
 async function loadAndRenderItems() {
@@ -1047,7 +1071,9 @@ async function loadAndRenderItems() {
     setPageSize(skeletonCount);
   }
 
+
   hasInitialDataLoaded = false;
+
   renderSkeleton(skeletonCount);
 
   try {

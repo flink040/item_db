@@ -6,6 +6,7 @@ let previouslyFocused = null;
 let modalEventsBound = false;
 let onCloseCallback = null;
 
+
 function getFocusableElements(container) {
   if (!container) {
     return [];
@@ -104,10 +105,12 @@ function prepareFocus(modal) {
 }
 
 export function openModal(contentEl, options = {}) {
+
   const modal = refs.modal;
   if (!modal) {
     return;
   }
+
 
   const { labelledBy, ariaLabel, onClose } = options ?? {};
 
@@ -123,6 +126,7 @@ export function openModal(contentEl, options = {}) {
   }
 
   onCloseCallback = typeof onClose === 'function' ? onClose : null;
+
 
   bindModalEvents(modal);
 
@@ -141,6 +145,7 @@ export function openModal(contentEl, options = {}) {
   if (!wasOpen) {
     previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   }
+
   activeModal = modal;
 
   modal.removeAttribute('hidden');
@@ -157,6 +162,7 @@ export function closeModal() {
   }
 
   const modal = activeModal;
+
   activeModal = null;
   modal.classList.remove('is-open');
   modal.setAttribute('aria-hidden', 'true');
@@ -168,7 +174,6 @@ export function closeModal() {
   }
 
   focusableItems = [];
-
   if (previouslyFocused) {
     previouslyFocused.focus();
   }

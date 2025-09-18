@@ -357,6 +357,7 @@ export function renderGrid(items = []) {
 }
 
 export function renderEmptyState(message = 'Keine Einträge gefunden.', details = '') {
+
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
 
