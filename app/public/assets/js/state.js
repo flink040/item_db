@@ -80,8 +80,10 @@ export function setSearchQuery(query = '') {
 export function setPage(page = 1) {
   const value = Number.parseInt(page, 10);
   if (!Number.isNaN(value) && value > 0) {
-    state.page = value;
-    notify();
+    if (state.page !== value) {
+      state.page = value;
+      notify();
+    }
   }
   return state.page;
 }
@@ -89,8 +91,10 @@ export function setPage(page = 1) {
 export function setPageSize(size) {
   const value = Number.parseInt(size, 10);
   if (!Number.isNaN(value) && value > 0) {
-    state.pageSize = value;
-    notify();
+    if (state.pageSize !== value) {
+      state.pageSize = value;
+      notify();
+    }
   }
   return state.pageSize;
 }
