@@ -1,4 +1,5 @@
 import { refs } from './dom.js';
+
 import {
   getState,
   setFilters,
@@ -11,6 +12,7 @@ import {
 import { getItems, loadItemById } from './api.js';
 import { renderEmptyState, renderGrid, renderSkeleton } from './ui.js';
 import { openModal } from './modal.js';
+
 
 const MIN_SKELETON_COUNT = 6;
 const MAX_SKELETON_COUNT = 12;
@@ -54,6 +56,7 @@ function setMenuExpanded(expand) {
   menu.dataset.menuOpen = String(shouldExpand);
 }
 
+
 function createLayout() {
   const root = refs.root;
   if (!root || root.dataset.appInitialized === 'true') {
@@ -69,6 +72,7 @@ function createLayout() {
           class="app-shell__menu-btn"
           data-js="mobile-menu-btn"
           data-menu-target="mobile-menu"
+
           aria-expanded="false"
           aria-controls="app-menu"
         >
@@ -76,6 +80,7 @@ function createLayout() {
         </button>
         <nav id="app-menu" class="app-shell__menu" data-js="mobile-menu" hidden>
           <a href="#item-grid" data-js="scroll-link" data-menu-close="true">Zur Liste</a>
+
         </nav>
       </header>
       <main class="app-shell__main">
@@ -134,6 +139,7 @@ function registerEventListeners() {
     grid.addEventListener('click', handleGridClick);
   }
 
+
   registerMenuToggle();
   setupSmoothScroll();
   setupBackToTop();
@@ -157,6 +163,7 @@ function registerMenuToggle() {
   if (!button || !menu) {
     return;
   }
+
 
   if (button.dataset.menuBound === 'true') {
     return;
@@ -436,6 +443,7 @@ async function loadAndRenderItems() {
       pageSize: skeletonCount,
       search: snapshot.searchQuery,
       filters: snapshot.filters,
+
     });
 
     if (requestId !== activeRequestId) {

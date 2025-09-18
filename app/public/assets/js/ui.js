@@ -208,6 +208,7 @@ export function renderGrid(items = []) {
     return;
   }
 
+
   if (!Array.isArray(items) || items.length === 0) {
     renderEmptyState();
     return;
@@ -222,11 +223,13 @@ export function renderGrid(items = []) {
 
   grid.innerHTML = '';
   grid.appendChild(wrapper);
+
   grid.setAttribute('aria-busy', 'false');
 
   if (empty) {
     empty.hidden = true;
     empty.innerHTML = '';
+
   }
 }
 
@@ -252,6 +255,7 @@ export function renderEmptyState(message = 'Keine Einträge gefunden.') {
 export function renderSkeleton(count = 6) {
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
+
   if (!grid) {
     return;
   }
@@ -273,5 +277,6 @@ export function renderSkeleton(count = 6) {
   if (empty) {
     empty.hidden = true;
     empty.innerHTML = '';
+
   }
 }
