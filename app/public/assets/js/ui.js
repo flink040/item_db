@@ -201,13 +201,138 @@ function createSkeletonCard() {
   return article;
 }
 
+function createDetailDefinition(term, value) {
+  const definitionTerm = document.createElement('dt');
+  definitionTerm.className = 'text-xs font-semibold uppercase tracking-[0.2em] text-slate-500';
+  definitionTerm.textContent = term;
+
+  const definition = document.createElement('dd');
+  definition.className = 'text-sm leading-relaxed text-slate-300';
+  definition.textContent = normalizeLabel(value, 'Unbekannt');
+
+  return [definitionTerm, definition];
+}
+
+function createActionButton(label) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60';
+  button.textContent = label;
+  return button;
+}
+
+export function buildItemDetailView(item) {
+  const safeId = normalizeLabel(item.id ?? item.slug ?? item.name, '').toLowerCase() || 'item';
+  const titleId = `item-detail-title-${safeId}`;
+
+  const container = document.createElement('div');
+  container.className = 'space-y-6';
+
+  const header = document.createElement('header');
+  header.className = 'space-y-2';
+  container.appendChild(header);
+
+  const slug = document.createElement('p');
+  slug.className = 'text-xs uppercase tracking-[0.3em] text-slate-500';
+  slug.textContent = formatSlug(item);
+  header.appendChild(slug);
+
+  const title = document.createElement('h2');
+  title.className = 'text-xl font-semibold text-slate-100';
+  title.id = titleId;
+  title.textContent = normalizeLabel(item.name, 'Unbenanntes Item');
+  header.appendChild(title);
+
+  if (item.subtitle) {
+    const subtitle = document.createElement('p');
+    subtitle.className = 'text-sm text-slate-400';
+    subtitle.textContent = normalizeLabel(item.subtitle, '');
+    header.appendChild(subtitle);
+  }
+
+  const description = document.createElement('p');
+  description.className = 'text-sm leading-relaxed text-slate-400';
+  description.textContent = normalizeLabel(
+    item.description,
+    'Für dieses Item liegt keine Beschreibung vor.',
+  );
+  container.appendChild(description);
+
+  const metaList = document.createElement('dl');
+  metaList.className = 'grid gap-4 sm:grid-cols-2';
+
+  const rarityMeta = getRarityMeta(item.rarity);
+  [
+    ['Seltenheit', rarityMeta.label],
+    ['Typ', item.type],
+    ['Material', item.material],
+    ['Kategorie', item.category ?? item.collection],
+    ['Level', item.level ? String(item.level) : ''],
+  ]
+    .filter(([, value]) => normalizeLabel(value, ''))
+    .forEach(([term, value]) => {
+      const [termEl, definitionEl] = createDetailDefinition(term, value);
+      metaList.append(termEl, definitionEl);
+    });
+
+  if (Array.isArray(item.tags) && item.tags.length > 0) {
+    const [termEl, definitionEl] = createDetailDefinition('Tags', item.tags.join(', '));
+    metaList.append(termEl, definitionEl);
+  }
+
+  container.appendChild(metaList);
+
+  const actions = document.createElement('div');
+  actions.className = 'flex flex-wrap justify-end gap-3 pt-4';
+
+  const permalinkButton = createActionButton('Link kopieren');
+  permalinkButton.dataset.modalAction = 'copy-permalink';
+  permalinkButton.dataset.itemId = String(item.id ?? safeId);
+  actions.appendChild(permalinkButton);
+
+  const closeButton = createActionButton('Schließen');
+  closeButton.dataset.modalAction = 'dismiss';
+  actions.appendChild(closeButton);
+
+  container.appendChild(actions);
+
+  return { element: container, titleId };
+}
+
+export function buildMissingItemDetail(itemId) {
+  const titleId = `item-detail-title-${normalizeLabel(itemId, '').toLowerCase() || 'unbekannt'}`;
+  const container = document.createElement('div');
+  container.className = 'space-y-4';
+
+  const title = document.createElement('h2');
+  title.className = 'text-xl font-semibold text-slate-100';
+  title.id = titleId;
+  title.textContent = 'Item konnte nicht geladen werden';
+  container.appendChild(title);
+
+  const message = document.createElement('p');
+  message.className = 'text-sm leading-relaxed text-slate-400';
+  message.textContent = 'Bitte versuche es später erneut oder wähle ein anderes Item aus der Liste.';
+  container.appendChild(message);
+
+  const actions = document.createElement('div');
+  actions.className = 'flex justify-end pt-2';
+
+  const closeButton = createActionButton('Schließen');
+  closeButton.dataset.modalAction = 'dismiss';
+  actions.appendChild(closeButton);
+
+  container.appendChild(actions);
+
+  return { element: container, titleId };
+}
+
 export function renderGrid(items = []) {
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
   if (!grid) {
     return;
   }
-
 
   if (!Array.isArray(items) || items.length === 0) {
     renderEmptyState();
@@ -257,7 +382,6 @@ export function renderEmptyState(message = 'Keine Einträge gefunden.', details 
       detailsText.textContent = details;
       panel.appendChild(detailsText);
     }
-
 
     empty.innerHTML = '';
     empty.appendChild(panel);

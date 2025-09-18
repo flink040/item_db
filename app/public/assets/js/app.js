@@ -10,8 +10,15 @@ import {
   subscribe,
 } from './state.js';
 import { getItems, loadItemById } from './api.js';
-import { renderEmptyState, renderGrid, renderSkeleton } from './ui.js';
-import { openModal } from './modal.js';
+
+import {
+  buildItemDetailView,
+  buildMissingItemDetail,
+  renderEmptyState,
+  renderGrid,
+  renderSkeleton,
+} from './ui.js';
+import { closeModal, isModalOpen, openModal } from './modal.js';
 
 
 const MIN_SKELETON_COUNT = 6;
@@ -19,6 +26,8 @@ const MAX_SKELETON_COUNT = 12;
 const SEARCH_DEBOUNCE_MS = 250;
 const URL_SEARCH_KEY = 'q';
 const URL_CATEGORY_KEY = 'cat';
+
+const URL_ITEM_KEY = 'item';
 const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
 
 
@@ -30,6 +39,11 @@ let backToTopBound = false;
 let historyBound = false;
 let searchDebounceId = 0;
 let hasInitialDataLoaded = false;
+
+let pendingModalItemId = null;
+let currentModalItemId = null;
+let modalCloseHistoryMode = 'replace';
+let activeModalRequestToken = 0;
 
 
 function getMenuElement(button) {
@@ -159,6 +173,14 @@ function registerEventListeners() {
     grid.addEventListener('click', handleGridClick);
     grid.dataset.clickBound = 'true';
   }
+
+
+  const modal = refs.modal;
+  if (modal && modal.dataset.actionsBound !== 'true') {
+    modal.addEventListener('click', handleModalClick);
+    modal.dataset.actionsBound = 'true';
+  }
+
 
   registerMenuToggle();
   setupSmoothScroll();
@@ -369,6 +391,16 @@ function normalizeForComparison(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
 
+
+function normalizeItemId(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  return String(value).trim();
+}
+
+
 function sanitizeFilters(filters = {}) {
   const sanitized = {};
   Object.entries(filters || {}).forEach(([key, value]) => {
@@ -512,6 +544,8 @@ function readUrlState() {
   const params = new URLSearchParams(window.location.search);
   const query = (params.get(URL_SEARCH_KEY) ?? '').toString();
   const category = (params.get(URL_CATEGORY_KEY) ?? '').toString();
+  const itemParam = (params.get(URL_ITEM_KEY) ?? '').toString();
+
 
   const filters = {};
   if (category.trim()) {
@@ -521,6 +555,8 @@ function readUrlState() {
   return {
     searchQuery: query.trim(),
     filters,
+    itemId: itemParam.trim(),
+
   };
 }
 
@@ -542,10 +578,17 @@ function hydrateStateFromUrl({ skipRender = true } = {}) {
     return;
   }
 
-  const { searchQuery, filters } = readUrlState();
+
+  const { searchQuery, filters, itemId } = readUrlState();
+
   const snapshot = getState();
 
   let shouldResetPage = false;
+
+
+  const normalizedItemId = normalizeItemId(itemId);
+  pendingModalItemId = normalizedItemId || null;
+
 
   if (searchQuery !== snapshot.searchQuery) {
     setSearchQuery(searchQuery);
@@ -563,6 +606,14 @@ function hydrateStateFromUrl({ skipRender = true } = {}) {
 
   if (!skipRender && hasInitialDataLoaded) {
     applyFiltersAndRender();
+
+
+    if (pendingModalItemId) {
+      openItemDetails(pendingModalItemId, { history: 'none' });
+    } else if (isModalOpen()) {
+      closeItemModal({ historyMode: 'none' });
+    }
+
   }
 }
 
@@ -732,53 +783,283 @@ function handleGridClick(event) {
     return;
   }
 
-  showItemDetails(itemId);
+
+  openItemDetails(itemId, { history: 'push' });
 }
 
-function buildModalContent(item) {
-  const container = document.createElement('div');
-  container.className = 'app-modal__content';
-
-  const title = document.createElement('h2');
-  title.className = 'app-modal__title';
-  title.textContent = item.name;
-
-  const description = document.createElement('p');
-  description.className = 'app-modal__description';
-  description.textContent = item.description || 'Keine Beschreibung verfügbar.';
-
-  const details = document.createElement('dl');
-  details.className = 'app-modal__meta';
-
-  const metaEntries = [
-    ['Seltenheit', item.rarity || 'unbekannt'],
-    ['Typ', item.type || 'unbekannt'],
-    ['Material', item.material || 'unbekannt'],
-  ];
-
-  metaEntries.forEach(([label, value]) => {
-    const term = document.createElement('dt');
-    term.textContent = label;
-    const definition = document.createElement('dd');
-    definition.textContent = value;
-    details.append(term, definition);
-  });
-
-  container.append(title, description, details);
-  return container;
-}
-
-async function showItemDetails(itemId) {
-  try {
-    const item = await loadItemById(itemId);
-    openModal(buildModalContent(item));
-  } catch (error) {
-    console.error('Fehler beim Laden eines Items', error);
-    const fallback = document.createElement('div');
-    fallback.className = 'app-modal__error';
-    fallback.textContent = 'Details konnten nicht geladen werden.';
-    openModal(fallback);
+async function handleModalClick(event) {
+  const actionTarget = event.target instanceof Element ? event.target.closest('[data-modal-action]') : null;
+  if (!actionTarget) {
+    return;
   }
+
+  const action = actionTarget.dataset.modalAction;
+  if (action === 'dismiss') {
+    event.preventDefault();
+    closeItemModal({ historyMode: 'replace' });
+    return;
+  }
+
+  if (action === 'copy-permalink') {
+    event.preventDefault();
+    await handleCopyPermalink(actionTarget);
+  }
+}
+
+async function handleCopyPermalink(trigger) {
+  const itemId = trigger.dataset.itemId || currentModalItemId || pendingModalItemId;
+  if (!itemId) {
+    return;
+  }
+
+  const permalink = buildItemPermalink(itemId);
+  try {
+    const success = await copyToClipboard(permalink);
+    showCopyFeedback(trigger, success);
+  } catch (error) {
+    console.error('Fehler beim Kopieren des Permalinks', error);
+    showCopyFeedback(trigger, false);
+  }
+}
+
+async function copyToClipboard(text) {
+  if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch (error) {
+      return fallbackCopyToClipboard(text);
+    }
+  }
+
+  return fallbackCopyToClipboard(text);
+}
+
+function fallbackCopyToClipboard(text) {
+  if (typeof document === 'undefined' || !document.body) {
+    return false;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'absolute';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+
+  const selection = document.getSelection();
+  const previousRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0) : null;
+
+  textarea.select();
+  textarea.setSelectionRange(0, text.length);
+
+  let succeeded = false;
+  try {
+    succeeded = document.execCommand('copy');
+  } catch (error) {
+    succeeded = false;
+  }
+
+  document.body.removeChild(textarea);
+
+  if (selection) {
+    selection.removeAllRanges();
+    if (previousRange) {
+      selection.addRange(previousRange);
+    }
+  }
+
+  return succeeded;
+}
+
+function showCopyFeedback(button, success) {
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+
+  const originalLabel = button.dataset.originalLabel ?? button.textContent ?? 'Link kopieren';
+  if (!button.dataset.originalLabel) {
+    button.dataset.originalLabel = originalLabel.trim() || 'Link kopieren';
+  }
+
+  const previousTimeout = button.dataset.copyTimeoutId ? Number.parseInt(button.dataset.copyTimeoutId, 10) : 0;
+  if (previousTimeout) {
+    window.clearTimeout(previousTimeout);
+  }
+
+  button.textContent = success ? 'Link kopiert' : 'Link konnte nicht kopiert werden';
+  button.dataset.copyState = success ? 'success' : 'error';
+
+  const timeoutId = window.setTimeout(() => {
+    button.textContent = button.dataset.originalLabel || 'Link kopieren';
+    delete button.dataset.copyState;
+    delete button.dataset.copyTimeoutId;
+  }, success ? 1600 : 2400);
+
+  button.dataset.copyTimeoutId = String(timeoutId);
+}
+
+function buildItemPermalink(itemId) {
+  const normalizedId = normalizeItemId(itemId);
+  if (!normalizedId) {
+    return '';
+  }
+
+  if (typeof window === 'undefined') {
+    return normalizedId;
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set(URL_ITEM_KEY, normalizedId);
+  return url.toString();
+}
+
+function updateItemParam(itemId, { replace = false } = {}) {
+  if (typeof window === 'undefined' || typeof window.history === 'undefined') {
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const normalizedId = normalizeItemId(itemId);
+
+  if (normalizedId) {
+    params.set(URL_ITEM_KEY, normalizedId);
+  } else {
+    params.delete(URL_ITEM_KEY);
+  }
+
+  const queryString = params.toString();
+  const newRelativeUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
+  const currentRelativeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+  if (newRelativeUrl === currentRelativeUrl) {
+    return;
+  }
+
+  try {
+    if (replace) {
+      window.history.replaceState(null, '', newRelativeUrl);
+    } else {
+      window.history.pushState(null, '', newRelativeUrl);
+    }
+  } catch (error) {
+    // Ignore unsupported history updates.
+  }
+}
+
+function closeItemModal({ historyMode = 'replace' } = {}) {
+  if (!isModalOpen()) {
+    return;
+  }
+
+  modalCloseHistoryMode = historyMode;
+  closeModal();
+}
+
+function handleItemModalClose() {
+  const closingId = currentModalItemId;
+  currentModalItemId = null;
+  pendingModalItemId = null;
+
+  if (!closingId) {
+    modalCloseHistoryMode = 'replace';
+    return;
+  }
+
+  if (modalCloseHistoryMode === 'replace') {
+    updateItemParam(null, { replace: true });
+  } else if (modalCloseHistoryMode === 'push') {
+    updateItemParam(null, { replace: false });
+  }
+
+  modalCloseHistoryMode = 'replace';
+}
+
+function openItemDetails(itemId, { history = 'push' } = {}) {
+  const normalizedId = normalizeItemId(itemId);
+  if (!normalizedId) {
+    return;
+  }
+
+  pendingModalItemId = normalizedId;
+  const requestToken = ++activeModalRequestToken;
+
+  if (history === 'push') {
+    updateItemParam(normalizedId, { replace: false });
+  } else if (history === 'replace') {
+    updateItemParam(normalizedId, { replace: true });
+  }
+
+  const mountView = (view) => {
+    if (requestToken !== activeModalRequestToken || !view) {
+      return;
+    }
+
+    let content = null;
+    if (view.element instanceof HTMLElement) {
+      content = view.element;
+    } else if (view instanceof HTMLElement) {
+      content = view;
+    }
+
+    if (!content) {
+      const fallback = document.createElement('div');
+      fallback.className = 'space-y-4';
+      const message = document.createElement('p');
+      message.className = 'text-sm leading-relaxed text-slate-400';
+      message.textContent = 'Details konnten nicht angezeigt werden.';
+      fallback.appendChild(message);
+      content = fallback;
+    }
+
+    const labelledBy = typeof view.titleId === 'string' ? view.titleId : undefined;
+
+    modalCloseHistoryMode = 'replace';
+    currentModalItemId = normalizedId;
+    pendingModalItemId = null;
+
+    openModal(content, {
+      labelledBy,
+      ariaLabel: labelledBy ? undefined : 'Item-Details',
+      onClose: handleItemModalClose,
+    });
+  };
+
+  const snapshot = getState();
+  const knownItem = snapshot.allItems.find((entry) => normalizeItemId(entry.id) === normalizedId);
+
+  if (knownItem) {
+    mountView(buildItemDetailView(knownItem));
+    return;
+  }
+
+  loadItemById(normalizedId)
+    .then((item) => {
+      if (requestToken !== activeModalRequestToken) {
+        return;
+      }
+
+      mountView(buildItemDetailView(item));
+    })
+    .catch((error) => {
+      if (requestToken !== activeModalRequestToken) {
+        return;
+      }
+
+      console.error('Fehler beim Laden eines Items', error);
+      mountView(buildMissingItemDetail(normalizedId));
+    });
+}
+
+function maybeOpenItemFromUrl({ history = 'replace' } = {}) {
+  const normalizedId = normalizeItemId(pendingModalItemId);
+  if (!normalizedId) {
+    return false;
+  }
+
+  openItemDetails(normalizedId, { history });
+  return true;
+
 }
 
 async function loadAndRenderItems() {
@@ -799,7 +1080,6 @@ async function loadAndRenderItems() {
     const response = await getItems({
       page: 1,
       pageSize: FETCH_ALL_PAGE_SIZE,
-
     });
 
     if (requestId !== activeRequestId) {
@@ -809,18 +1089,23 @@ async function loadAndRenderItems() {
     setAllItems(response.items);
     hasInitialDataLoaded = true;
     applyFiltersAndRender();
+    if (pendingModalItemId) {
+      maybeOpenItemFromUrl({ history: 'replace' });
+    }
   } catch (error) {
     console.error('Fehler beim Laden der Items', error);
     hasInitialDataLoaded = true;
     setAllItems([]);
     setItems([]);
     renderEmptyState('Die Liste konnte nicht geladen werden.');
+    if (pendingModalItemId) {
+      maybeOpenItemFromUrl({ history: 'replace' });
+    }
   }
 }
 
 function registerStateSync() {
   const sync = (snapshot) => {
-
     const input = refs.searchInput;
     if (input && input.value !== snapshot.searchQuery) {
       input.value = snapshot.searchQuery;
@@ -835,7 +1120,6 @@ function registerStateSync() {
 
   sync(getState());
   subscribe(sync);
-
 }
 
 function init() {
@@ -843,7 +1127,6 @@ function init() {
   registerStateSync();
   hydrateStateFromUrl();
   registerEventListeners();
-
   loadAndRenderItems();
 }
 

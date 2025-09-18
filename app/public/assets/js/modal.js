@@ -4,6 +4,8 @@ let activeModal = null;
 let focusableItems = [];
 let previouslyFocused = null;
 let modalEventsBound = false;
+let onCloseCallback = null;
+
 
 function getFocusableElements(container) {
   if (!container) {
@@ -102,11 +104,29 @@ function prepareFocus(modal) {
   });
 }
 
-export function openModal(contentEl) {
+export function openModal(contentEl, options = {}) {
+
   const modal = refs.modal;
   if (!modal) {
     return;
   }
+
+
+  const { labelledBy, ariaLabel, onClose } = options ?? {};
+
+  if (labelledBy) {
+    modal.setAttribute('aria-labelledby', labelledBy);
+    modal.removeAttribute('aria-label');
+  } else if (ariaLabel) {
+    modal.setAttribute('aria-label', ariaLabel);
+    modal.removeAttribute('aria-labelledby');
+  } else {
+    modal.removeAttribute('aria-labelledby');
+    modal.removeAttribute('aria-label');
+  }
+
+  onCloseCallback = typeof onClose === 'function' ? onClose : null;
+
 
   bindModalEvents(modal);
 
@@ -121,7 +141,11 @@ export function openModal(contentEl) {
     }
   }
 
-  previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const wasOpen = Boolean(activeModal);
+  if (!wasOpen) {
+    previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }
+
   activeModal = modal;
 
   modal.removeAttribute('hidden');
@@ -138,8 +162,11 @@ export function closeModal() {
   }
 
   const modal = activeModal;
+
+  activeModal = null;
   modal.classList.remove('is-open');
   modal.setAttribute('aria-hidden', 'true');
+  modal.setAttribute('aria-modal', 'false');
   modal.setAttribute('hidden', '');
 
   if (modal.getAttribute('tabindex') === '-1') {
@@ -147,10 +174,23 @@ export function closeModal() {
   }
 
   focusableItems = [];
-  activeModal = null;
-
   if (previouslyFocused) {
     previouslyFocused.focus();
   }
   previouslyFocused = null;
+
+  const callback = onCloseCallback;
+  onCloseCallback = null;
+
+  if (typeof callback === 'function') {
+    try {
+      callback();
+    } catch (error) {
+      console.error('Modal close handler failed', error);
+    }
+  }
+}
+
+export function isModalOpen() {
+  return Boolean(activeModal);
 }
