@@ -1,0 +1,34 @@
+:root {
+  color-scheme: light;
+  --font-sans: 'Inter', 'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  --color-background: 248 250 252;
+  --color-foreground: 15 23 42;
+  --color-muted: 100 116 139;
+  --color-primary: 99 102 241;
+  --color-primary-foreground: 248 250 252;
+  --color-accent: 14 165 233;
+  --color-shadow: 15 23 42;
+  --radius-sm: 0.5rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1rem;
+  --radius-full: 9999px;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2.5rem;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --color-background: 10 12 21;
+    --color-foreground: 226 232 240;
+    --color-muted: 148 163 184;
+    --color-primary: 129 140 248;
+    --color-primary-foreground: 15 23 42;
+    --color-accent: 45 212 191;
+    --color-shadow: 15 23 42;
+  }
+}
