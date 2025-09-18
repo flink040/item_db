@@ -1,6 +1,6 @@
 name = "op-item-db-api"
 main = "src/index.ts"
-compatibility_date = "2025-09-18"
+compatibility_date = "2025-07-18"
 
 [vars]
 SUPABASE_URL = "https://pgrtmdxmewsxixzubqpr.supabase.co"
