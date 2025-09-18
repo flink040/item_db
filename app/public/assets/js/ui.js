@@ -221,6 +221,164 @@ function createActionButton(label) {
   return button;
 }
 
+const paginationButtonClass = 'inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60';
+
+function ensurePaginationContainer() {
+  const grid = refs.gridContainer;
+  const parent = grid?.parentElement;
+
+  if (!grid || !parent) {
+    return null;
+  }
+
+  let container = parent.querySelector('[data-js="pagination"]');
+  if (!container) {
+    container = document.createElement('div');
+    container.dataset.js = 'pagination';
+    container.className = 'app-pagination mt-6 border-t border-slate-800/60 pt-6';
+    parent.appendChild(container);
+  }
+
+  return container;
+}
+
+function clearPagination() {
+  const container = ensurePaginationContainer();
+  if (!container) {
+    return;
+  }
+
+  container.hidden = true;
+  container.innerHTML = '';
+}
+
+function normalizePageSizeOptions(currentSize, providedOptions = []) {
+  const unique = new Set();
+
+  if (Array.isArray(providedOptions)) {
+    providedOptions.forEach((size) => {
+      if (Number.isFinite(size) && size > 0) {
+        unique.add(Math.floor(size));
+      }
+    });
+  }
+
+  if (Number.isFinite(currentSize) && currentSize > 0) {
+    unique.add(Math.floor(currentSize));
+  }
+
+  return Array.from(unique)
+    .filter((size) => size > 0)
+    .sort((a, b) => a - b);
+}
+
+function renderPagination(meta = {}, { disabled = false } = {}) {
+  const container = ensurePaginationContainer();
+  if (!container) {
+    return;
+  }
+
+  const totalItems = Number.isFinite(meta.totalItems) ? meta.totalItems : 0;
+  const pageSize = Number.isFinite(meta.pageSize) && meta.pageSize > 0 ? Math.floor(meta.pageSize) : 1;
+  const rawPage = Number.isFinite(meta.page) && meta.page > 0 ? Math.floor(meta.page) : 1;
+
+  if (totalItems <= 0) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const currentPage = Math.min(Math.max(rawPage, 1), totalPages);
+  const pageSizes = normalizePageSizeOptions(pageSize, meta.pageSizes);
+
+  const shouldShowControls = totalPages > 1 || pageSizes.length > 1;
+  if (!shouldShowControls) {
+    container.hidden = true;
+    container.innerHTML = '';
+    return;
+  }
+
+  container.hidden = false;
+  container.innerHTML = '';
+  container.setAttribute('aria-live', 'polite');
+
+  const layout = document.createElement('div');
+  layout.className = 'flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between';
+  container.appendChild(layout);
+
+  const infoBlock = document.createElement('div');
+  infoBlock.className = 'space-y-1';
+  layout.appendChild(infoBlock);
+
+  const pageInfo = document.createElement('p');
+  pageInfo.className = 'text-xs uppercase tracking-[0.3em] text-slate-500';
+  pageInfo.textContent = `Seite ${currentPage} von ${totalPages}`;
+  infoBlock.appendChild(pageInfo);
+
+  const totalInfo = document.createElement('p');
+  totalInfo.className = 'text-sm text-slate-400';
+  totalInfo.textContent = `${totalItems} Ergebnisse`;
+  infoBlock.appendChild(totalInfo);
+
+  const controlBlock = document.createElement('div');
+  controlBlock.className = 'flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-4';
+  layout.appendChild(controlBlock);
+
+  const nav = document.createElement('div');
+  nav.className = 'flex items-center gap-2';
+  controlBlock.appendChild(nav);
+
+  const prevButton = document.createElement('button');
+  prevButton.type = 'button';
+  prevButton.dataset.pageAction = 'prev';
+  prevButton.className = paginationButtonClass;
+  prevButton.textContent = 'Zurück';
+  prevButton.disabled = disabled || currentPage <= 1;
+  nav.appendChild(prevButton);
+
+  const nextButton = document.createElement('button');
+  nextButton.type = 'button';
+  nextButton.dataset.pageAction = 'next';
+  nextButton.className = paginationButtonClass;
+  nextButton.textContent = 'Vor';
+  nextButton.disabled = disabled || currentPage >= totalPages;
+  nav.appendChild(nextButton);
+
+  if (totalPages <= 1) {
+    nav.hidden = true;
+  }
+
+  if (pageSizes.length > 1) {
+    const sizeWrapper = document.createElement('label');
+    sizeWrapper.className = 'flex items-center gap-2 text-xs text-slate-400';
+    sizeWrapper.setAttribute('aria-label', 'Elemente pro Seite');
+
+    const sizeLabel = document.createElement('span');
+    sizeLabel.className = 'uppercase tracking-[0.2em] text-slate-500';
+    sizeLabel.textContent = 'Pro Seite';
+    sizeWrapper.appendChild(sizeLabel);
+
+    const select = document.createElement('select');
+    select.dataset.js = 'page-size';
+    select.className = 'rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40';
+    select.disabled = disabled;
+
+    pageSizes.forEach((size) => {
+      const option = document.createElement('option');
+      option.value = String(size);
+      option.textContent = String(size);
+      if (size === pageSize) {
+        option.selected = true;
+      }
+      select.appendChild(option);
+    });
+
+    sizeWrapper.appendChild(select);
+    controlBlock.appendChild(sizeWrapper);
+  }
+}
+
 export function buildItemDetailView(item) {
   const safeId = normalizeLabel(item.id ?? item.slug ?? item.name, '').toLowerCase() || 'item';
   const titleId = `item-detail-title-${safeId}`;
@@ -327,7 +485,7 @@ export function buildMissingItemDetail(itemId) {
   return { element: container, titleId };
 }
 
-export function renderGrid(items = []) {
+export function renderGrid(items = [], meta = {}) {
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
   if (!grid) {
@@ -354,6 +512,8 @@ export function renderGrid(items = []) {
     empty.hidden = true;
     empty.innerHTML = '';
   }
+
+  renderPagination(meta, { disabled: false });
 }
 
 export function renderEmptyState(message = 'Keine Einträge gefunden.', details = '') {
@@ -386,9 +546,11 @@ export function renderEmptyState(message = 'Keine Einträge gefunden.', details 
     empty.innerHTML = '';
     empty.appendChild(panel);
   }
+
+  clearPagination();
 }
 
-export function renderSkeleton(count = 6) {
+export function renderSkeleton(count = 6, meta) {
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
   if (!grid) {
@@ -412,5 +574,11 @@ export function renderSkeleton(count = 6) {
   if (empty) {
     empty.hidden = true;
     empty.innerHTML = '';
+  }
+
+  if (meta) {
+    renderPagination(meta, { disabled: true });
+  } else {
+    clearPagination();
   }
 }

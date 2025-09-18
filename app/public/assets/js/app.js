@@ -26,9 +26,13 @@ const MAX_SKELETON_COUNT = 12;
 const SEARCH_DEBOUNCE_MS = 250;
 const URL_SEARCH_KEY = 'q';
 const URL_CATEGORY_KEY = 'cat';
+const URL_PAGE_KEY = 'page';
+const URL_PAGE_SIZE_KEY = 'per';
 
 const URL_ITEM_KEY = 'item';
 const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
+const DEFAULT_PAGE_SIZES = [6, 9, 12];
+const PAGINATION_SKELETON_DELAY_MS = 220;
 
 
 let activeRequestId = 0;
@@ -39,6 +43,7 @@ let backToTopBound = false;
 let historyBound = false;
 let searchDebounceId = 0;
 let hasInitialDataLoaded = false;
+let paginationRenderTimeoutId = 0;
 
 let pendingModalItemId = null;
 let currentModalItemId = null;
@@ -186,6 +191,7 @@ function registerEventListeners() {
   setupSmoothScroll();
   setupBackToTop();
   bindHistoryListener();
+  bindPaginationEvents();
 }
 
 function toggleMobileMenu(force) {
@@ -387,6 +393,13 @@ function cancelPendingSearchUpdate() {
   }
 }
 
+function cancelPendingPaginationRender() {
+  if (paginationRenderTimeoutId) {
+    window.clearTimeout(paginationRenderTimeoutId);
+    paginationRenderTimeoutId = 0;
+  }
+}
+
 function normalizeForComparison(value) {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
@@ -503,26 +516,63 @@ function buildEmptyStateCopy(searchQuery, filters) {
   };
 }
 
-function applyFiltersAndRender({ skipRender = false } = {}) {
+function applyFiltersAndRender({ skipRender = false, showSkeleton = false } = {}) {
+  cancelPendingPaginationRender();
+
   const snapshot = getState();
   const filteredItems = filterItems(snapshot.allItems, snapshot.searchQuery, snapshot.filters);
 
+  const rawPageSize = Number.isFinite(snapshot.pageSize) && snapshot.pageSize > 0 ? Math.floor(snapshot.pageSize) : MIN_SKELETON_COUNT;
+  const pageSize = Math.max(1, rawPageSize);
+  const totalItems = filteredItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+  let currentPage = Number.isFinite(snapshot.page) && snapshot.page > 0 ? Math.floor(snapshot.page) : 1;
+  if (currentPage > totalPages) {
+    currentPage = totalPages;
+    setPage(currentPage);
+  }
+
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedItems = filteredItems.slice(startIndex, startIndex + pageSize);
+
   if (hasInitialDataLoaded) {
-    setItems(filteredItems);
+    setItems(paginatedItems);
   }
 
   if (!hasInitialDataLoaded || skipRender) {
-    return filteredItems;
+    return paginatedItems;
   }
 
-  if (filteredItems.length > 0) {
-    renderGrid(filteredItems);
+  const paginationMeta = {
+    totalItems,
+    page: currentPage,
+    pageSize,
+    pageSizes: getPageSizeOptions(pageSize),
+  };
+
+  const renderContent = () => {
+    if (paginatedItems.length > 0) {
+      renderGrid(paginatedItems, paginationMeta);
+    } else {
+      const emptyCopy = buildEmptyStateCopy(snapshot.searchQuery, snapshot.filters);
+      renderEmptyState(emptyCopy.message, emptyCopy.details);
+    }
+
+    bindPaginationEvents();
+    paginationRenderTimeoutId = 0;
+  };
+
+  if (showSkeleton) {
+    const skeletonCount = Math.max(1, Math.min(pageSize, MAX_SKELETON_COUNT));
+    renderSkeleton(skeletonCount, paginationMeta);
+    bindPaginationEvents();
+    paginationRenderTimeoutId = window.setTimeout(renderContent, PAGINATION_SKELETON_DELAY_MS);
   } else {
-    const emptyCopy = buildEmptyStateCopy(snapshot.searchQuery, snapshot.filters);
-    renderEmptyState(emptyCopy.message, emptyCopy.details);
+    renderContent();
   }
 
-  return filteredItems;
+  return paginatedItems;
 }
 
 function getSkeletonCount(baseValue) {
@@ -536,6 +586,18 @@ function getSkeletonCount(baseValue) {
   return Math.floor(Math.random() * range) + MIN_SKELETON_COUNT;
 }
 
+function getPageSizeOptions(currentSize) {
+  const options = new Set(DEFAULT_PAGE_SIZES);
+
+  if (Number.isFinite(currentSize) && currentSize > 0) {
+    options.add(Math.floor(currentSize));
+  }
+
+  return Array.from(options)
+    .filter((size) => size > 0)
+    .sort((a, b) => a - b);
+}
+
 function readUrlState() {
   if (typeof window === 'undefined') {
     return { searchQuery: '', filters: {} };
@@ -545,6 +607,8 @@ function readUrlState() {
   const query = (params.get(URL_SEARCH_KEY) ?? '').toString();
   const category = (params.get(URL_CATEGORY_KEY) ?? '').toString();
   const itemParam = (params.get(URL_ITEM_KEY) ?? '').toString();
+  const pageParam = (params.get(URL_PAGE_KEY) ?? '').toString();
+  const perParam = (params.get(URL_PAGE_SIZE_KEY) ?? '').toString();
 
 
   const filters = {};
@@ -552,11 +616,15 @@ function readUrlState() {
     filters.rarity = category.trim();
   }
 
+  const parsedPage = Number.parseInt(pageParam, 10);
+  const parsedPer = Number.parseInt(perParam, 10);
+
   return {
     searchQuery: query.trim(),
     filters,
     itemId: itemParam.trim(),
-
+    page: Number.isNaN(parsedPage) || parsedPage <= 0 ? undefined : parsedPage,
+    pageSize: Number.isNaN(parsedPer) || parsedPer <= 0 ? undefined : parsedPer,
   };
 }
 
@@ -573,17 +641,15 @@ function areFiltersEqual(current, next) {
   return currentKeys.every((key) => normalizeForComparison(currentSanitized[key]) === normalizeForComparison(nextSanitized[key]));
 }
 
-function hydrateStateFromUrl({ skipRender = true } = {}) {
+function hydrateStateFromUrl({ skipRender = true, showSkeleton = false } = {}) {
   if (typeof window === 'undefined') {
     return;
   }
 
 
-  const { searchQuery, filters, itemId } = readUrlState();
+  const { searchQuery, filters, itemId, page, pageSize } = readUrlState();
 
   const snapshot = getState();
-
-  let shouldResetPage = false;
 
 
   const normalizedItemId = normalizeItemId(itemId);
@@ -592,20 +658,35 @@ function hydrateStateFromUrl({ skipRender = true } = {}) {
 
   if (searchQuery !== snapshot.searchQuery) {
     setSearchQuery(searchQuery);
-    shouldResetPage = true;
   }
 
   if (!areFiltersEqual(snapshot.filters, filters)) {
     setFilters(filters, { replace: true });
-    shouldResetPage = true;
   }
 
-  if (shouldResetPage) {
-    setPage(1);
+  let pageChanged = false;
+  let pageSizeChanged = false;
+
+  if (typeof pageSize === 'number' && pageSize > 0 && pageSize !== snapshot.pageSize) {
+    setPageSize(pageSize);
+    pageSizeChanged = true;
+  }
+
+  const targetPage = typeof page === 'number' && page > 0 ? page : 1;
+  if (targetPage !== snapshot.page) {
+    setPage(targetPage);
+    pageChanged = true;
   }
 
   if (!skipRender && hasInitialDataLoaded) {
-    applyFiltersAndRender();
+    const shouldShowSkeleton = showSkeleton || pageChanged || pageSizeChanged;
+    applyFiltersAndRender({ showSkeleton: shouldShowSkeleton });
+
+    const finalSnapshot = getState();
+    const requestedPage = typeof page === 'number' && page > 0 ? page : 1;
+    if (finalSnapshot.page !== requestedPage) {
+      updateUrlFromState({ replace: true });
+    }
 
 
     if (pendingModalItemId) {
@@ -628,7 +709,7 @@ function bindHistoryListener() {
 
 function handlePopState() {
   cancelPendingSearchUpdate();
-  hydrateStateFromUrl({ skipRender: false });
+  hydrateStateFromUrl({ skipRender: false, showSkeleton: true });
 }
 
 function updateUrlFromState({ replace = false } = {}) {
@@ -652,6 +733,13 @@ function updateUrlFromState({ replace = false } = {}) {
   } else {
     params.delete(URL_CATEGORY_KEY);
   }
+
+  const safePage = Number.isFinite(snapshot.page) && snapshot.page > 0 ? Math.floor(snapshot.page) : 1;
+  params.set(URL_PAGE_KEY, String(safePage));
+
+  const safePageSize =
+    Number.isFinite(snapshot.pageSize) && snapshot.pageSize > 0 ? Math.floor(snapshot.pageSize) : MIN_SKELETON_COUNT;
+  params.set(URL_PAGE_SIZE_KEY, String(safePageSize));
 
   const queryString = params.toString();
   const newRelativeUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
@@ -785,6 +873,88 @@ function handleGridClick(event) {
 
 
   openItemDetails(itemId, { history: 'push' });
+}
+
+function getPaginationElement() {
+  const grid = refs.gridContainer;
+  return grid?.parentElement?.querySelector('[data-js="pagination"]') ?? null;
+}
+
+function bindPaginationEvents() {
+  const container = getPaginationElement();
+  if (!container || container.dataset.paginationBound === 'true') {
+    return;
+  }
+
+  container.addEventListener('click', handlePaginationClick);
+  container.addEventListener('change', handlePaginationChange);
+  container.dataset.paginationBound = 'true';
+}
+
+function handlePaginationClick(event) {
+  const trigger = event.target instanceof Element ? event.target.closest('[data-page-action]') : null;
+  if (!trigger) {
+    return;
+  }
+
+  if (trigger instanceof HTMLButtonElement && trigger.disabled) {
+    return;
+  }
+
+  const action = trigger.dataset.pageAction;
+  if (!action) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const snapshot = getState();
+  const currentPage = Number.isFinite(snapshot.page) && snapshot.page > 0 ? Math.floor(snapshot.page) : 1;
+
+  if (action === 'prev') {
+    const nextPage = Math.max(1, currentPage - 1);
+    if (nextPage === currentPage) {
+      return;
+    }
+
+    setPage(nextPage);
+    applyFiltersAndRender({ showSkeleton: true });
+    updateUrlFromState({ replace: false });
+    return;
+  }
+
+  if (action === 'next') {
+    const nextPage = currentPage + 1;
+    setPage(nextPage);
+    applyFiltersAndRender({ showSkeleton: true });
+    updateUrlFromState({ replace: false });
+  }
+}
+
+function handlePaginationChange(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  if (target.dataset.js !== 'page-size') {
+    return;
+  }
+
+  const value = Number.parseInt(target.value, 10);
+  if (Number.isNaN(value) || value <= 0) {
+    return;
+  }
+
+  const snapshot = getState();
+  if (value === snapshot.pageSize) {
+    return;
+  }
+
+  setPageSize(value);
+  setPage(1);
+  applyFiltersAndRender({ showSkeleton: true });
+  updateUrlFromState({ replace: false });
 }
 
 async function handleModalClick(event) {
@@ -1089,6 +1259,7 @@ async function loadAndRenderItems() {
     setAllItems(response.items);
     hasInitialDataLoaded = true;
     applyFiltersAndRender();
+    updateUrlFromState({ replace: true });
     if (pendingModalItemId) {
       maybeOpenItemFromUrl({ history: 'replace' });
     }
@@ -1098,6 +1269,7 @@ async function loadAndRenderItems() {
     setAllItems([]);
     setItems([]);
     renderEmptyState('Die Liste konnte nicht geladen werden.');
+    updateUrlFromState({ replace: true });
     if (pendingModalItemId) {
       maybeOpenItemFromUrl({ history: 'replace' });
     }
