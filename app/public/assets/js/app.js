@@ -5,6 +5,44 @@ import { renderEmptyState, renderGrid, renderSkeleton } from './ui.js';
 import { openModal } from './modal.js';
 
 let activeRequestId = 0;
+let ignoreNextMenuClick = false;
+let ignoreNextBackToTopClick = false;
+let smoothScrollBound = false;
+let backToTopBound = false;
+
+function getMenuElement(button) {
+  if (!button) {
+    return null;
+  }
+
+  const root = refs.root;
+  const { menuTarget } = button.dataset;
+  if (root && menuTarget) {
+    const candidate = root.querySelector(`[data-js="${menuTarget}"]`);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return refs.mobileMenu;
+}
+
+function setMenuExpanded(expand) {
+  const button = refs.mobileMenuBtn;
+  const menu = getMenuElement(button);
+  if (!button || !menu) {
+    return;
+  }
+
+  const shouldExpand = Boolean(expand);
+  button.setAttribute('aria-expanded', String(shouldExpand));
+  button.dataset.menuOpen = String(shouldExpand);
+
+  menu.hidden = !shouldExpand;
+  menu.setAttribute('aria-hidden', String(!shouldExpand));
+  menu.dataset.menuOpen = String(shouldExpand);
+}
+
 
 function createLayout() {
   const root = refs.root;
@@ -20,13 +58,17 @@ function createLayout() {
           type="button"
           class="app-shell__menu-btn"
           data-js="mobile-menu-btn"
+
+          data-menu-target="mobile-menu"
+
           aria-expanded="false"
           aria-controls="app-menu"
         >
           Menü
         </button>
         <nav id="app-menu" class="app-shell__menu" data-js="mobile-menu" hidden>
-          <a href="#item-grid">Zur Liste</a>
+          <a href="#item-grid" data-js="scroll-link" data-menu-close="true">Zur Liste</a>
+
         </nav>
       </header>
       <main class="app-shell__main">
@@ -85,25 +127,202 @@ function registerEventListeners() {
     grid.addEventListener('click', handleGridClick);
   }
 
-  const menuBtn = refs.mobileMenuBtn;
-  if (menuBtn) {
-    menuBtn.addEventListener('click', (event) => {
-      event.preventDefault();
-      toggleMobileMenu();
-    });
-  }
+
+  registerMenuToggle();
+  setupSmoothScroll();
+  setupBackToTop();
 }
 
-function toggleMobileMenu() {
+function toggleMobileMenu(force) {
   const button = refs.mobileMenuBtn;
-  const menu = refs.mobileMenu;
+  const menu = getMenuElement(button);
   if (!button || !menu) {
     return;
   }
 
   const expanded = button.getAttribute('aria-expanded') === 'true';
-  button.setAttribute('aria-expanded', String(!expanded));
-  menu.hidden = expanded;
+  const shouldExpand = typeof force === 'boolean' ? force : !expanded;
+  setMenuExpanded(shouldExpand);
+}
+
+function registerMenuToggle() {
+  const button = refs.mobileMenuBtn;
+  const menu = getMenuElement(button);
+  if (!button || !menu) {
+    return;
+  }
+
+
+  if (button.dataset.menuBound === 'true') {
+    return;
+  }
+
+  button.addEventListener('click', handleMenuToggleClick);
+  button.addEventListener('keydown', handleMenuToggleKeydown);
+  button.dataset.menuBound = 'true';
+
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  setMenuExpanded(expanded);
+}
+
+function handleMenuToggleClick(event) {
+  if (!(event.currentTarget instanceof HTMLElement)) {
+    return;
+  }
+
+  if (ignoreNextMenuClick) {
+    ignoreNextMenuClick = false;
+    return;
+  }
+
+  event.preventDefault();
+  toggleMobileMenu();
+}
+
+function handleMenuToggleKeydown(event) {
+  const key = event.key;
+  if (key !== ' ' && key !== 'Spacebar' && key !== 'Enter') {
+    return;
+  }
+
+  ignoreNextMenuClick = true;
+  event.preventDefault();
+  toggleMobileMenu();
+}
+
+function setupSmoothScroll() {
+  const root = refs.root;
+  if (!root || smoothScrollBound) {
+    return;
+  }
+
+  root.addEventListener('click', handleAnchorActivation);
+  smoothScrollBound = true;
+}
+
+function handleAnchorActivation(event) {
+  const target = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
+  if (!target) {
+    return;
+  }
+
+  const href = target.getAttribute('href');
+  if (!href || href.length <= 1 || href === '#') {
+    return;
+  }
+
+  const anchorId = href.slice(1);
+  const anchorTarget = document.getElementById(anchorId) || document.getElementsByName(anchorId)[0];
+  if (!anchorTarget) {
+    return;
+  }
+
+  event.preventDefault();
+
+  const menuAncestor = target.closest('[data-js="mobile-menu"]');
+  if (menuAncestor || target.dataset.menuClose === 'true') {
+    toggleMobileMenu(false);
+  }
+
+  anchorTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  focusTargetElement(anchorTarget);
+
+  if (typeof window !== 'undefined' && typeof window.history !== 'undefined' && href !== window.location.hash) {
+    try {
+      window.history.pushState(null, '', `#${anchorId}`);
+    } catch (error) {
+      // ignore navigation updates that fail (e.g. unsupported environments)
+    }
+  }
+}
+
+function focusTargetElement(element) {
+  if (!(element instanceof HTMLElement)) {
+    return;
+  }
+
+  const hadTabIndexAttr = element.hasAttribute('tabindex');
+  const previousTabIndex = element.getAttribute('tabindex');
+  const needsTemporaryTabIndex = element.tabIndex < 0 && !hadTabIndexAttr;
+
+  if (needsTemporaryTabIndex) {
+    element.setAttribute('tabindex', '-1');
+  }
+
+  element.focus({ preventScroll: true });
+
+  if (needsTemporaryTabIndex) {
+    const cleanup = () => {
+      element.removeAttribute('tabindex');
+      element.removeEventListener('blur', cleanup);
+      element.removeEventListener('keydown', handleTabKeydown);
+    };
+
+    const handleTabKeydown = (keyEvent) => {
+      if (keyEvent.key === 'Tab') {
+        cleanup();
+      }
+    };
+
+    element.addEventListener('blur', cleanup, { once: true });
+    element.addEventListener('keydown', handleTabKeydown);
+  } else if (!hadTabIndexAttr && previousTabIndex !== null) {
+    element.setAttribute('tabindex', previousTabIndex);
+  }
+}
+
+function setupBackToTop() {
+  if (backToTopBound) {
+    return;
+  }
+
+  const root = refs.root;
+  if (!root) {
+    return;
+  }
+
+  const control = root.querySelector('[data-js="back-to-top"]');
+  if (!control) {
+    return;
+  }
+
+  control.addEventListener('click', handleBackToTopClick);
+  control.addEventListener('keydown', handleBackToTopKeydown);
+  backToTopBound = true;
+}
+
+function handleBackToTopClick(event) {
+  if (ignoreNextBackToTopClick) {
+    ignoreNextBackToTopClick = false;
+    return;
+  }
+
+  event.preventDefault();
+  scrollToTop({ focusFirst: false });
+}
+
+function handleBackToTopKeydown(event) {
+  const key = event.key;
+  if (key !== ' ' && key !== 'Spacebar' && key !== 'Enter') {
+    return;
+  }
+
+  ignoreNextBackToTopClick = true;
+  event.preventDefault();
+  scrollToTop({ focusFirst: true });
+}
+
+function scrollToTop({ focusFirst } = {}) {
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+
+  if (!focusFirst) {
+    return;
+  }
+
+  const focusTarget = refs.searchInput;
+  if (focusTarget instanceof HTMLElement) {
+    focusTarget.focus({ preventScroll: true });
+  }
 }
 
 function handleSearchSubmit(event) {
