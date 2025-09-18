@@ -22,6 +22,25 @@ import {
 import { closeModal, isModalOpen, openModal } from './modal.js';
 
 
+const globalScope = typeof window !== 'undefined' ? window : typeof globalThis !== 'undefined' ? globalThis : null;
+
+const DEFAULT_APP_CONFIG = {
+  API_BASE: '/api',
+  SUPABASE_URL: null,
+  SUPABASE_ANON_KEY: null,
+};
+
+if (globalScope && typeof globalScope === 'object') {
+  const runtimeConfig =
+    globalScope.APP_CONFIG && typeof globalScope.APP_CONFIG === 'object' ? globalScope.APP_CONFIG : {};
+
+  globalScope.APP_CONFIG = {
+    ...DEFAULT_APP_CONFIG,
+    ...runtimeConfig,
+  };
+}
+
+
 const MIN_SKELETON_COUNT = 6;
 const MAX_SKELETON_COUNT = 12;
 const SEARCH_DEBOUNCE_MS = 250;
