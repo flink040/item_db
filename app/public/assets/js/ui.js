@@ -223,17 +223,16 @@ export function renderGrid(items = []) {
 
   grid.innerHTML = '';
   grid.appendChild(wrapper);
-
   grid.setAttribute('aria-busy', 'false');
 
   if (empty) {
     empty.hidden = true;
     empty.innerHTML = '';
-
   }
 }
 
-export function renderEmptyState(message = 'Keine Einträge gefunden.') {
+export function renderEmptyState(message = 'Keine Einträge gefunden.', details = '') {
+
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
 
@@ -246,7 +245,20 @@ export function renderEmptyState(message = 'Keine Einträge gefunden.') {
     empty.hidden = false;
     const panel = document.createElement('div');
     panel.className = 'rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-400';
-    panel.textContent = message;
+    const messageText = document.createElement('p');
+    messageText.className = 'font-medium text-slate-300';
+    messageText.textContent = message;
+
+    panel.appendChild(messageText);
+
+    if (details) {
+      const detailsText = document.createElement('p');
+      detailsText.className = 'mt-2 text-xs text-slate-500';
+      detailsText.textContent = details;
+      panel.appendChild(detailsText);
+    }
+
+
     empty.innerHTML = '';
     empty.appendChild(panel);
   }
@@ -255,7 +267,6 @@ export function renderEmptyState(message = 'Keine Einträge gefunden.') {
 export function renderSkeleton(count = 6) {
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
-
   if (!grid) {
     return;
   }
@@ -277,6 +288,5 @@ export function renderSkeleton(count = 6) {
   if (empty) {
     empty.hidden = true;
     empty.innerHTML = '';
-
   }
 }

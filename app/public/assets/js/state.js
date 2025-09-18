@@ -4,6 +4,8 @@ const state = {
   page: 1,
   pageSize: 6,
   items: [],
+  allItems: [],
+
 };
 
 const listeners = new Set();
@@ -15,6 +17,8 @@ export function getState() {
     page: state.page,
     pageSize: state.pageSize,
     items: [...state.items],
+    allItems: [...state.allItems],
+
   };
 }
 
@@ -29,9 +33,46 @@ function notify() {
   });
 }
 
-export function setFilters(filters = {}) {
-  state.filters = { ...filters };
-  notify();
+
+function shallowEqual(a, b) {
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) {
+    return false;
+  }
+
+  return keysA.every((key) => Object.is(a[key], b[key]));
+}
+
+export function setFilters(filters = {}, { replace = false } = {}) {
+  const next = replace ? {} : { ...state.filters };
+  const entries = Object.entries(filters ?? {});
+
+  if (replace && entries.length === 0) {
+    if (!shallowEqual(state.filters, {})) {
+      state.filters = {};
+      notify();
+    }
+    return { ...state.filters };
+  }
+
+  entries.forEach(([key, value]) => {
+    const normalized = typeof value === 'string' ? value.trim() : value;
+    if (normalized === '' || normalized === null || normalized === undefined) {
+      delete next[key];
+      return;
+    }
+
+    next[key] = normalized;
+  });
+
+  const changed = !shallowEqual(next, state.filters);
+  if (changed) {
+    state.filters = next;
+    notify();
+  }
+
+  return { ...state.filters };
 }
 
 export function setSearchQuery(query = '') {
@@ -61,6 +102,12 @@ export function setItems(items = []) {
   state.items = Array.isArray(items) ? [...items] : [];
   notify();
 }
+
+export function setAllItems(items = []) {
+  state.allItems = Array.isArray(items) ? [...items] : [];
+  notify();
+}
+
 
 export function subscribe(listener) {
   if (typeof listener !== 'function') {

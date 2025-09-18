@@ -1,7 +1,7 @@
 import { refs } from './dom.js';
-
 import {
   getState,
+  setAllItems,
   setFilters,
   setItems,
   setPage,
@@ -16,12 +16,21 @@ import { openModal } from './modal.js';
 
 const MIN_SKELETON_COUNT = 6;
 const MAX_SKELETON_COUNT = 12;
+const SEARCH_DEBOUNCE_MS = 250;
+const URL_SEARCH_KEY = 'q';
+const URL_CATEGORY_KEY = 'cat';
+const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
+
 
 let activeRequestId = 0;
 let ignoreNextMenuClick = false;
 let ignoreNextBackToTopClick = false;
 let smoothScrollBound = false;
 let backToTopBound = false;
+let historyBound = false;
+let searchDebounceId = 0;
+let hasInitialDataLoaded = false;
+
 
 function getMenuElement(button) {
   if (!button) {
@@ -72,7 +81,6 @@ function createLayout() {
           class="app-shell__menu-btn"
           data-js="mobile-menu-btn"
           data-menu-target="mobile-menu"
-
           aria-expanded="false"
           aria-controls="app-menu"
         >
@@ -80,7 +88,6 @@ function createLayout() {
         </button>
         <nav id="app-menu" class="app-shell__menu" data-js="mobile-menu" hidden>
           <a href="#item-grid" data-js="scroll-link" data-menu-close="true">Zur Liste</a>
-
         </nav>
       </header>
       <main class="app-shell__main">
@@ -130,19 +137,33 @@ function createLayout() {
 
 function registerEventListeners() {
   const form = refs.searchForm;
-  if (form) {
+  if (form && form.dataset.submitBound !== 'true') {
     form.addEventListener('submit', handleSearchSubmit);
+    form.dataset.submitBound = 'true';
+  }
+
+  const searchInput = refs.searchInput;
+  if (searchInput && searchInput.dataset.searchBound !== 'true') {
+    searchInput.addEventListener('input', handleSearchInput);
+    searchInput.dataset.searchBound = 'true';
+  }
+
+  const raritySelect = refs.filterRarity;
+  if (raritySelect && raritySelect.dataset.filterBound !== 'true') {
+    raritySelect.addEventListener('change', handleFilterChange);
+    raritySelect.dataset.filterBound = 'true';
   }
 
   const grid = refs.gridContainer;
-  if (grid) {
+  if (grid && grid.dataset.clickBound !== 'true') {
     grid.addEventListener('click', handleGridClick);
+    grid.dataset.clickBound = 'true';
   }
-
 
   registerMenuToggle();
   setupSmoothScroll();
   setupBackToTop();
+  bindHistoryListener();
 }
 
 function toggleMobileMenu(force) {
@@ -163,7 +184,6 @@ function registerMenuToggle() {
   if (!button || !menu) {
     return;
   }
-
 
   if (button.dataset.menuBound === 'true') {
     return;
@@ -337,6 +357,324 @@ function scrollToTop({ focusFirst } = {}) {
   }
 }
 
+
+function cancelPendingSearchUpdate() {
+  if (searchDebounceId) {
+    window.clearTimeout(searchDebounceId);
+    searchDebounceId = 0;
+  }
+}
+
+function normalizeForComparison(value) {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function sanitizeFilters(filters = {}) {
+  const sanitized = {};
+  Object.entries(filters || {}).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed.length > 0) {
+        sanitized[key] = trimmed;
+      }
+      return;
+    }
+
+    sanitized[key] = value;
+  });
+  return sanitized;
+}
+
+function filterItems(items, searchQuery, filters) {
+  const normalizedQuery = normalizeForComparison(searchQuery);
+  const sanitizedFilters = sanitizeFilters(filters);
+  const rarityFilter = normalizeForComparison(sanitizedFilters.rarity);
+  const typeFilter = normalizeForComparison(sanitizedFilters.type);
+  const categoryFilter = normalizeForComparison(sanitizedFilters.category);
+
+  return items.filter((item) => {
+    if (normalizedQuery) {
+      const haystackParts = [];
+      if (typeof item.name === 'string') {
+        haystackParts.push(item.name);
+      }
+      if (typeof item.title === 'string') {
+        haystackParts.push(item.title);
+      }
+      if (Array.isArray(item.tags) && item.tags.length > 0) {
+        haystackParts.push(item.tags.join(' '));
+      }
+      if (typeof item.description === 'string') {
+        haystackParts.push(item.description);
+      }
+
+      const haystack = haystackParts.join(' ').toLowerCase();
+      if (!haystack.includes(normalizedQuery)) {
+        return false;
+      }
+    }
+
+    if (rarityFilter) {
+      const itemRarity = normalizeForComparison(item.rarity);
+      if (itemRarity !== rarityFilter) {
+        return false;
+      }
+    }
+
+    if (typeFilter) {
+      const itemType = normalizeForComparison(item.type);
+      if (itemType !== typeFilter) {
+        return false;
+      }
+    }
+
+    if (categoryFilter) {
+      const itemCategory = normalizeForComparison(item.category);
+      const itemType = normalizeForComparison(item.type);
+      if (itemCategory !== categoryFilter && itemType !== categoryFilter) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function buildEmptyStateCopy(searchQuery, filters) {
+  const descriptors = [];
+  const sanitizedFilters = sanitizeFilters(filters);
+
+  if (searchQuery && searchQuery.trim()) {
+    descriptors.push(`„${searchQuery.trim()}“`);
+  }
+  if (sanitizedFilters.rarity) {
+    descriptors.push(`Seltenheit „${sanitizedFilters.rarity}“`);
+  }
+  if (sanitizedFilters.type) {
+    descriptors.push(`Typ „${sanitizedFilters.type}“`);
+  }
+
+  if (descriptors.length === 0) {
+    return {
+      message: 'Keine Einträge gefunden.',
+      details: '',
+    };
+  }
+
+  return {
+    message: `Keine Items gefunden für ${descriptors.join(' und ')}.`,
+    details: 'Passe Suche oder Filter an, um weitere Ergebnisse zu sehen.',
+  };
+}
+
+function applyFiltersAndRender({ skipRender = false } = {}) {
+  const snapshot = getState();
+  const filteredItems = filterItems(snapshot.allItems, snapshot.searchQuery, snapshot.filters);
+
+  if (hasInitialDataLoaded) {
+    setItems(filteredItems);
+  }
+
+  if (!hasInitialDataLoaded || skipRender) {
+    return filteredItems;
+  }
+
+  if (filteredItems.length > 0) {
+    renderGrid(filteredItems);
+  } else {
+    const emptyCopy = buildEmptyStateCopy(snapshot.searchQuery, snapshot.filters);
+    renderEmptyState(emptyCopy.message, emptyCopy.details);
+  }
+
+  return filteredItems;
+}
+
+function getSkeletonCount(baseValue) {
+  const numeric = Number.isFinite(baseValue) ? Math.floor(baseValue) : Number.NaN;
+
+  if (!Number.isNaN(numeric) && numeric >= MIN_SKELETON_COUNT && numeric <= MAX_SKELETON_COUNT) {
+    return numeric;
+  }
+
+  const range = MAX_SKELETON_COUNT - MIN_SKELETON_COUNT + 1;
+  return Math.floor(Math.random() * range) + MIN_SKELETON_COUNT;
+}
+
+function readUrlState() {
+  if (typeof window === 'undefined') {
+    return { searchQuery: '', filters: {} };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const query = (params.get(URL_SEARCH_KEY) ?? '').toString();
+  const category = (params.get(URL_CATEGORY_KEY) ?? '').toString();
+
+  const filters = {};
+  if (category.trim()) {
+    filters.rarity = category.trim();
+  }
+
+  return {
+    searchQuery: query.trim(),
+    filters,
+  };
+}
+
+function areFiltersEqual(current, next) {
+  const currentSanitized = sanitizeFilters(current);
+  const nextSanitized = sanitizeFilters(next);
+
+  const currentKeys = Object.keys(currentSanitized);
+  const nextKeys = Object.keys(nextSanitized);
+  if (currentKeys.length !== nextKeys.length) {
+    return false;
+  }
+
+  return currentKeys.every((key) => normalizeForComparison(currentSanitized[key]) === normalizeForComparison(nextSanitized[key]));
+}
+
+function hydrateStateFromUrl({ skipRender = true } = {}) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const { searchQuery, filters } = readUrlState();
+  const snapshot = getState();
+
+  let shouldResetPage = false;
+
+  if (searchQuery !== snapshot.searchQuery) {
+    setSearchQuery(searchQuery);
+    shouldResetPage = true;
+  }
+
+  if (!areFiltersEqual(snapshot.filters, filters)) {
+    setFilters(filters, { replace: true });
+    shouldResetPage = true;
+  }
+
+  if (shouldResetPage) {
+    setPage(1);
+  }
+
+  if (!skipRender && hasInitialDataLoaded) {
+    applyFiltersAndRender();
+  }
+}
+
+function bindHistoryListener() {
+  if (historyBound || typeof window === 'undefined') {
+    return;
+  }
+
+  window.addEventListener('popstate', handlePopState);
+  historyBound = true;
+}
+
+function handlePopState() {
+  cancelPendingSearchUpdate();
+  hydrateStateFromUrl({ skipRender: false });
+}
+
+function updateUrlFromState({ replace = false } = {}) {
+  if (typeof window === 'undefined' || typeof window.history === 'undefined') {
+    return;
+  }
+
+  const snapshot = getState();
+  const params = new URLSearchParams(window.location.search);
+
+  const trimmedQuery = snapshot.searchQuery.trim();
+  if (trimmedQuery) {
+    params.set(URL_SEARCH_KEY, trimmedQuery);
+  } else {
+    params.delete(URL_SEARCH_KEY);
+  }
+
+  const sanitizedFilters = sanitizeFilters(snapshot.filters);
+  if (sanitizedFilters.rarity) {
+    params.set(URL_CATEGORY_KEY, sanitizedFilters.rarity);
+  } else {
+    params.delete(URL_CATEGORY_KEY);
+  }
+
+  const queryString = params.toString();
+  const newRelativeUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash}`;
+  const currentRelativeUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+  if (newRelativeUrl === currentRelativeUrl) {
+    return;
+  }
+
+  try {
+    if (replace) {
+      window.history.replaceState(null, '', newRelativeUrl);
+    } else {
+      window.history.pushState(null, '', newRelativeUrl);
+    }
+  } catch (error) {
+    // ignore unsupported history updates
+  }
+}
+
+function handleSearchInput(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+
+  const value = target.value ?? '';
+  cancelPendingSearchUpdate();
+
+  searchDebounceId = window.setTimeout(() => {
+    searchDebounceId = 0;
+    const normalized = value.trim();
+    const snapshot = getState();
+
+    if (normalized !== snapshot.searchQuery) {
+      setSearchQuery(normalized);
+      setPage(1);
+    }
+
+    applyFiltersAndRender();
+    updateUrlFromState({ replace: true });
+  }, SEARCH_DEBOUNCE_MS);
+}
+
+function handleFilterChange(event) {
+  const select = event.currentTarget;
+  if (!(select instanceof HTMLSelectElement)) {
+    return;
+  }
+
+  cancelPendingSearchUpdate();
+
+  const value = select.value ?? '';
+  const normalized = value.trim();
+  const currentFilters = sanitizeFilters(getState().filters);
+  const nextFilters = { ...currentFilters };
+
+  if (normalized) {
+    nextFilters.rarity = normalized;
+  } else {
+    delete nextFilters.rarity;
+  }
+
+  if (areFiltersEqual(currentFilters, nextFilters)) {
+    return;
+  }
+
+  setFilters(nextFilters, { replace: true });
+  setPage(1);
+  applyFiltersAndRender();
+  updateUrlFromState({ replace: false });
+}
+
+
 function handleSearchSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -344,15 +682,43 @@ function handleSearchSubmit(event) {
     return;
   }
 
+  cancelPendingSearchUpdate();
+
   const formData = new FormData(form);
-  const query = (formData.get('search') ?? '').toString().trim();
-  const rarity = (formData.get('rarity') ?? '').toString().trim();
+  const query = (formData.get('search') ?? '').toString();
+  const rarity = (formData.get('rarity') ?? '').toString();
 
-  setSearchQuery(query);
-  setFilters({ rarity });
-  setPage(1);
+  const normalizedQuery = query.trim();
+  const normalizedRarity = rarity.trim();
 
-  loadAndRenderItems();
+  const currentFilters = sanitizeFilters(getState().filters);
+  const nextFilters = { ...currentFilters };
+
+  if (normalizedRarity) {
+    nextFilters.rarity = normalizedRarity;
+  } else {
+    delete nextFilters.rarity;
+  }
+
+  const snapshot = getState();
+  const searchChanged = normalizedQuery !== snapshot.searchQuery;
+  const filtersChanged = !areFiltersEqual(currentFilters, nextFilters);
+
+  if (searchChanged) {
+    setSearchQuery(normalizedQuery);
+  }
+
+  if (filtersChanged) {
+    setFilters(nextFilters, { replace: true });
+  }
+
+  if (searchChanged || filtersChanged) {
+    setPage(1);
+  }
+
+  applyFiltersAndRender();
+  updateUrlFromState({ replace: false });
+
 }
 
 function handleGridClick(event) {
@@ -415,17 +781,6 @@ async function showItemDetails(itemId) {
   }
 }
 
-function getSkeletonCount(baseValue) {
-  const numeric = Number.isFinite(baseValue) ? Math.floor(baseValue) : Number.NaN;
-
-  if (!Number.isNaN(numeric) && numeric >= MIN_SKELETON_COUNT && numeric <= MAX_SKELETON_COUNT) {
-    return numeric;
-  }
-
-  const range = MAX_SKELETON_COUNT - MIN_SKELETON_COUNT + 1;
-  return Math.floor(Math.random() * range) + MIN_SKELETON_COUNT;
-}
-
 async function loadAndRenderItems() {
   const requestId = ++activeRequestId;
   const snapshot = getState();
@@ -435,14 +790,15 @@ async function loadAndRenderItems() {
     setPageSize(skeletonCount);
   }
 
+
+  hasInitialDataLoaded = false;
+
   renderSkeleton(skeletonCount);
 
   try {
     const response = await getItems({
-      page: snapshot.page,
-      pageSize: skeletonCount,
-      search: snapshot.searchQuery,
-      filters: snapshot.filters,
+      page: 1,
+      pageSize: FETCH_ALL_PAGE_SIZE,
 
     });
 
@@ -450,21 +806,21 @@ async function loadAndRenderItems() {
       return;
     }
 
-    setItems(response.items);
-
-    if (response.items.length > 0) {
-      renderGrid(response.items);
-    } else {
-      renderEmptyState();
-    }
+    setAllItems(response.items);
+    hasInitialDataLoaded = true;
+    applyFiltersAndRender();
   } catch (error) {
     console.error('Fehler beim Laden der Items', error);
+    hasInitialDataLoaded = true;
+    setAllItems([]);
+    setItems([]);
     renderEmptyState('Die Liste konnte nicht geladen werden.');
   }
 }
 
 function registerStateSync() {
-  subscribe((snapshot) => {
+  const sync = (snapshot) => {
+
     const input = refs.searchInput;
     if (input && input.value !== snapshot.searchQuery) {
       input.value = snapshot.searchQuery;
@@ -475,13 +831,19 @@ function registerStateSync() {
     if (raritySelect && raritySelect.value !== rarity) {
       raritySelect.value = rarity;
     }
-  });
+  };
+
+  sync(getState());
+  subscribe(sync);
+
 }
 
 function init() {
   createLayout();
-  registerEventListeners();
   registerStateSync();
+  hydrateStateFromUrl();
+  registerEventListeners();
+
   loadAndRenderItems();
 }
 
