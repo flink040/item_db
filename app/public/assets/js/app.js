@@ -1,8 +1,21 @@
 import { refs } from './dom.js';
-import { getState, setFilters, setItems, setPage, setSearchQuery, subscribe } from './state.js';
+
+import {
+  getState,
+  setFilters,
+  setItems,
+  setPage,
+  setPageSize,
+  setSearchQuery,
+  subscribe,
+} from './state.js';
 import { getItems, loadItemById } from './api.js';
 import { renderEmptyState, renderGrid, renderSkeleton } from './ui.js';
 import { openModal } from './modal.js';
+
+
+const MIN_SKELETON_COUNT = 6;
+const MAX_SKELETON_COUNT = 12;
 
 let activeRequestId = 0;
 let ignoreNextMenuClick = false;
@@ -58,7 +71,6 @@ function createLayout() {
           type="button"
           class="app-shell__menu-btn"
           data-js="mobile-menu-btn"
-
           data-menu-target="mobile-menu"
 
           aria-expanded="false"
@@ -403,18 +415,35 @@ async function showItemDetails(itemId) {
   }
 }
 
+function getSkeletonCount(baseValue) {
+  const numeric = Number.isFinite(baseValue) ? Math.floor(baseValue) : Number.NaN;
+
+  if (!Number.isNaN(numeric) && numeric >= MIN_SKELETON_COUNT && numeric <= MAX_SKELETON_COUNT) {
+    return numeric;
+  }
+
+  const range = MAX_SKELETON_COUNT - MIN_SKELETON_COUNT + 1;
+  return Math.floor(Math.random() * range) + MIN_SKELETON_COUNT;
+}
+
 async function loadAndRenderItems() {
   const requestId = ++activeRequestId;
-  const { page, pageSize, searchQuery, filters } = getState();
+  const snapshot = getState();
+  const skeletonCount = getSkeletonCount(snapshot.pageSize);
 
-  renderSkeleton(pageSize);
+  if (skeletonCount !== snapshot.pageSize) {
+    setPageSize(skeletonCount);
+  }
+
+  renderSkeleton(skeletonCount);
 
   try {
     const response = await getItems({
-      page,
-      pageSize,
-      search: searchQuery,
-      filters,
+      page: snapshot.page,
+      pageSize: skeletonCount,
+      search: snapshot.searchQuery,
+      filters: snapshot.filters,
+
     });
 
     if (requestId !== activeRequestId) {
