@@ -11,7 +11,10 @@
   <body class="opidb h-full bg-slate-950 text-slate-100 font-sans antialiased">
     <div id="root" class="h-full" data-app-initialized="true">
       <div class="app-shell min-h-full flex flex-col">
-        <header class="app-shell__header relative z-50 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur">
+        <header
+          class="app-shell__header relative z-50 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur"
+          role="banner"
+        >
           <div class="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
             <div class="flex items-center gap-3">
               <span class="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-300">
@@ -30,6 +33,8 @@
                 data-menu-target="mobile-menu"
                 aria-expanded="false"
                 aria-controls="app-menu"
+                aria-haspopup="true"
+                aria-label="Hauptnavigation umschalten"
               >
                 <span class="relative flex h-2.5 w-4 flex-col justify-between">
                   <span class="block h-0.5 rounded bg-current"></span>
@@ -44,6 +49,8 @@
                 data-js="mobile-menu"
                 hidden
                 aria-hidden="true"
+                role="navigation"
+                aria-label="Hauptnavigation"
               >
                 <a
                   href="#item-grid"
@@ -57,7 +64,7 @@
             </div>
           </div>
         </header>
-        <main class="app-shell__main flex-1 pb-32 md:pb-16">
+        <main class="app-shell__main flex-1 pb-32 md:pb-16" role="main">
           <section class="relative mx-auto w-full max-w-6xl px-6 pt-12">
             <div class="relative overflow-hidden rounded-3xl border border-slate-800/70 bg-gradient-to-br from-slate-900 via-slate-950 to-slate-950 p-8 shadow-2xl shadow-emerald-500/10 sm:p-10 lg:p-12">
               <div class="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl" aria-hidden="true">
