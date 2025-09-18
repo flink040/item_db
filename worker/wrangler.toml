@@ -3,9 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2025-09-18"
 
 [vars]
-SUPABASE_URL = ""
-SUPABASE_ANON_KEY = ""
-SUPABASE_SERVICE_ROLE_KEY = ""
+SUPABASE_URL = "https://pgrtmdxmewsxixzubqpr.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBncnRtZHhtZXdzeGl4enVicXByIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTgyMTM2MjYsImV4cCI6MjA3Mzc4OTYyNn0.bnpjtvJ6AsIOozEyOHwbP8wfvOtdfL9WtqLP23ebeEI"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBncnRtZHhtZXdzeGl4enVicXByIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc1ODIxMzYyNiwiZXhwIjoyMDczNzg5NjI2fQ.BVTusz1lqKydmjFDesdnZnwOtbweOPn4Fh1CsyJJuWQ"
 
 # Optional: KV cache (erst im Dashboard anlegen und IDs eintragen)
 # kv_namespaces = [
