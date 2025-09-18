@@ -1,142 +1,115 @@
-/**
- * Placeholder API layer that mimics asynchronous item retrieval.
- */
-
 const MOCK_ITEMS = [
   {
-    id: 'netherite_sword',
-    name: 'Netherit-Schwert »Dämmerbrecher«',
-    type: 'schwert',
-    material: 'netherite',
-    rarity: 'legendär',
-    description:
-      'Ein vollständig verzaubertes Schwert mit maximaler Haltbarkeit – ideal für Bosskämpfe und PvP.',
+    id: 'iron-sword',
+    name: 'Eiserne Klinge',
+    description: 'Eine zuverlässige Nahkampfwaffe für angehende Abenteurer:innen.',
+    rarity: 'gewöhnlich',
+    material: 'Eisen',
+    type: 'Waffe',
   },
   {
-    id: 'diamond_pickaxe',
-    name: 'Diamant-Spitzhacke »Samtpfote«',
-    type: 'spitzhacke',
-    material: 'diamond',
-    rarity: 'episch',
-    description:
-      'Effizienz V, Glück III und Reparatur sorgen für schnelle Tunnel und reichlich Ressourcen.',
-  },
-  {
-    id: 'elytra_glide',
-    name: 'Elytra der Himmelsläufer',
-    type: 'elytra',
-    material: 'other',
-    rarity: 'unbezahlbar',
-    description:
-      'Diese Elytra wurde von einem Endschiff geborgen und trägt eine feuerwerksoptimierte Haltbarkeit.',
-  },
-  {
-    id: 'turtle_shell',
-    name: 'Schildkrötenpanzer der Tiefe',
-    type: 'schildkroetenpanzer',
-    material: 'other',
+    id: 'crystal-wand',
+    name: 'Kristallstab',
+    description: 'Ein schimmernder Stab, der arkane Energie bündelt und verstärkt.',
     rarity: 'selten',
-    description:
-      'Schützt zuverlässig unter Wasser und liefert dank Atmungs-Verzauberung extra Sauerstoff.',
+    material: 'Kristall',
+    type: 'Magie',
   },
   {
-    id: 'netherite_chestplate',
-    name: 'Netherit-Brustplatte »Festung«',
-    type: 'brustplatte',
-    material: 'netherite',
-    rarity: 'mega_jackpot',
-    description:
-      'Maximal verstärkter Körperschutz inklusive Dornen III, Schutz IV und voller Reparatur-Unterstützung.',
-  },
-  {
-    id: 'fishing_rod',
-    name: 'Angel »Poseidons Laune«',
-    type: 'angel',
-    material: 'other',
-    rarity: 'legendär',
-    description:
-      'Perfekte Fischerangel mit Glück des Meeres, Köder III und Treue-Optionen für garantierte Drops.',
-  },
-  {
-    id: 'iron_shield',
-    name: 'Verzierter Schild aus Eisenholz',
-    type: 'schild',
-    material: 'iron',
-    rarity: 'selten',
-    description:
-      'Solider Schutzschild mit Bann und Haltbarkeit III – ideal für Nahkampfabenteuer.',
-  },
-  {
-    id: 'golden_hoe',
-    name: 'Vergoldete Hacke »Gaias Segen«',
-    type: 'hacke',
-    material: 'gold',
+    id: 'ember-bow',
+    name: 'Glutfunkenbogen',
+    description: 'Entfesselt feurige Pfeile, die auch im Regen weiterlodern.',
     rarity: 'episch',
-    description:
-      'Ermöglicht sofortiges Ernten dank Glück III und Haltbarkeit sowie automatischen Reparaturen.',
+    material: 'Esche',
+    type: 'Fernkampf',
+  },
+  {
+    id: 'guardian-shield',
+    name: 'Wächter-Schild',
+    description: 'Ein Schild mit Runen, die bei Treffern kurzzeitig Schutzschilde erzeugen.',
+    rarity: 'selten',
+    material: 'Stahl',
+    type: 'Verteidigung',
+  },
+  {
+    id: 'luminous-amulet',
+    name: 'Leuchtendes Amulett',
+    description: 'Speichert Sonnenlicht und gibt es als warme Heilungswelle wieder ab.',
+    rarity: 'legendär',
+    material: 'Gold',
+    type: 'Schmuck',
+  },
+  {
+    id: 'herbal-kit',
+    name: 'Kräuterset',
+    description: 'Eine Sammlung seltene Kräuter, perfekt für Alchemie-Anfänger:innen.',
+    rarity: 'gewöhnlich',
+    material: 'Leinen',
+    type: 'Handwerk',
+  },
+  {
+    id: 'frost-dagger',
+    name: 'Frostdolch',
+    description: 'Ein Dolch, der Gegner mit einer einzigen Berührung vereist.',
+    rarity: 'episch',
+    material: 'Mithril',
+    type: 'Waffe',
+  },
+  {
+    id: 'sky-boots',
+    name: 'Himmelsläufer',
+    description: 'Leichte Stiefel, mit denen sich kurze Strecken durch die Luft gleiten lässt.',
+    rarity: 'selten',
+    material: 'Leder',
+    type: 'Rüstung',
   },
 ];
 
-function delay(value, ms = 250) {
-  return new Promise((resolve) => {
-    window.setTimeout(() => resolve(value), ms);
-  });
-}
-
-function normalize(value) {
-  return value?.toString().trim().toLowerCase() ?? '';
-}
+const delay = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export async function getItems({ page = 1, pageSize = 6, search = '', filters = {} } = {}) {
-  const normalizedSearch = normalize(search);
-  const normalizedFilters = {
-    type: normalize(filters.type),
-    material: normalize(filters.material),
-    rarity: normalize(filters.rarity),
-  };
+  const normalizedSearch = search.trim().toLowerCase();
 
-  const filtered = MOCK_ITEMS.filter((item) => {
-    const matchesSearch = normalizedSearch
-      ? item.name.toLowerCase().includes(normalizedSearch) ||
-        item.description.toLowerCase().includes(normalizedSearch)
-      : true;
+  let filtered = [...MOCK_ITEMS];
+  if (normalizedSearch) {
+    filtered = filtered.filter((item) => {
+      const haystack = `${item.name} ${item.description}`.toLowerCase();
+      return haystack.includes(normalizedSearch);
+    });
+  }
 
-    const matchesType = normalizedFilters.type
-      ? item.type.toLowerCase() === normalizedFilters.type
-      : true;
+  if (filters?.type) {
+    filtered = filtered.filter((item) => item.type === filters.type);
+  }
 
-    const matchesMaterial = normalizedFilters.material
-      ? item.material.toLowerCase() === normalizedFilters.material
-      : true;
+  if (filters?.material) {
+    filtered = filtered.filter((item) => item.material === filters.material);
+  }
 
-    const matchesRarity = normalizedFilters.rarity
-      ? item.rarity.toLowerCase() === normalizedFilters.rarity
-      : true;
+  if (filters?.rarity) {
+    filtered = filtered.filter((item) => item.rarity === filters.rarity);
+  }
 
-    return matchesSearch && matchesType && matchesMaterial && matchesRarity;
-  });
-
-  const safePage = Math.max(1, Number.parseInt(page, 10) || 1);
-  const safePageSize = Math.max(1, Number.parseInt(pageSize, 10) || 6);
-  const start = (safePage - 1) * safePageSize;
-  const end = start + safePageSize;
-
-  const items = filtered.slice(start, end);
   const total = filtered.length;
+  const start = Math.max(0, (page - 1) * pageSize);
+  const end = start + pageSize;
+  const items = filtered.slice(start, end);
 
-  return delay({ items, total }, 320);
+  await delay(200);
+
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+  };
 }
 
 export async function loadItemById(id) {
-  const normalizedId = id?.toString().trim();
-  if (!normalizedId) {
-    return delay(null, 120);
+  await delay(150);
+  const item = MOCK_ITEMS.find((entry) => String(entry.id) === String(id));
+  if (!item) {
+    throw new Error('Item wurde nicht gefunden.');
   }
-
-  const item = MOCK_ITEMS.find((entry) => entry.id === normalizedId) ?? null;
-  return delay(item, 160);
-}
-
-export function getMockItems() {
-  return [...MOCK_ITEMS];
+  return item;
 }

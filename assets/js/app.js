@@ -1,190 +1,244 @@
-/**
- * Entry point for the OP Item DB preview frontend.
- */
-
-import { refs, qsa } from './dom.js';
-import { getState, subscribe, setFilters, setItems, setSearchQuery } from './state.js';
-import { getItems } from './api.js';
+import { refs } from './dom.js';
+import { getState, setFilters, setItems, setPage, setSearchQuery, subscribe } from './state.js';
+import { getItems, loadItemById } from './api.js';
 import { renderEmptyState, renderGrid, renderSkeleton } from './ui.js';
-import { closeModal, openModal } from './modal.js';
+import { openModal } from './modal.js';
 
-const RECENT_LIMIT = 5;
-const recentQueries = [];
-let isLoading = false;
-let initialized = false;
+let activeRequestId = 0;
 
-function normalizeTerm(value) {
-  return value?.toString().trim() ?? '';
-}
-
-function addRecentSearch(term) {
-  const normalized = normalizeTerm(term);
-  if (!normalized) return;
-
-  recentQueries.unshift(normalized);
-  const unique = [...new Set(recentQueries)];
-  recentQueries.length = 0;
-  recentQueries.push(...unique.slice(0, RECENT_LIMIT));
-  renderRecentSearches();
-}
-
-function renderRecentSearches() {
-  const container = refs.recentSearches;
-  if (!container) return;
-
-  container.innerHTML = '';
-
-  if (recentQueries.length === 0) {
-    const placeholder = document.createElement('p');
-    placeholder.className = 'text-sm text-slate-500';
-    placeholder.textContent = 'Noch keine Suchanfragen gespeichert.';
-    container.appendChild(placeholder);
+function createLayout() {
+  const root = refs.root;
+  if (!root || root.dataset.appInitialized === 'true') {
     return;
   }
 
-  const list = document.createElement('div');
-  list.className = 'flex flex-wrap gap-2';
+  root.innerHTML = `
+    <div class="app-shell">
+      <header class="app-shell__header">
+        <h1 class="app-shell__title">OP Item DB Vorschau</h1>
+        <button
+          type="button"
+          class="app-shell__menu-btn"
+          data-js="mobile-menu-btn"
+          aria-expanded="false"
+          aria-controls="app-menu"
+        >
+          Menü
+        </button>
+        <nav id="app-menu" class="app-shell__menu" data-js="mobile-menu" hidden>
+          <a href="#item-grid">Zur Liste</a>
+        </nav>
+      </header>
+      <main class="app-shell__main">
+        <section class="app-shell__search">
+          <form class="app-search" data-js="search-form" role="search" aria-label="Items durchsuchen">
+            <label class="app-search__label" for="app-search-input">Suche</label>
+            <input
+              id="app-search-input"
+              class="app-search__input"
+              name="search"
+              type="search"
+              data-js="search-input"
+              placeholder="Items durchsuchen"
+              autocomplete="off"
+            />
+            <label class="app-search__label" for="app-filter-rarity">Seltenheit</label>
+            <select
+              id="app-filter-rarity"
+              class="app-search__select"
+              name="rarity"
+              data-js="filter-rarity"
+            >
+              <option value="">Alle Seltenheiten</option>
+              <option value="gewöhnlich">Gewöhnlich</option>
+              <option value="selten">Selten</option>
+              <option value="episch">Episch</option>
+              <option value="legendär">Legendär</option>
+            </select>
+            <button type="submit" class="app-search__submit">Suchen</button>
+          </form>
+        </section>
+        <section id="item-grid" class="app-shell__grid" data-js="grid" aria-live="polite" aria-busy="false"></section>
+        <section class="app-shell__empty" data-js="empty-state" hidden></section>
+      </main>
+    </div>
+    <div class="app-modal" data-js="modal" role="dialog" aria-modal="true" aria-hidden="true" hidden>
+      <div class="app-modal__backdrop" data-js="modal-backdrop" tabindex="-1"></div>
+      <div class="app-modal__dialog" role="document">
+        <button type="button" class="app-modal__close" data-js="modal-close" aria-label="Schließen">×</button>
+        <div class="app-modal__body" data-js="modal-body"></div>
+      </div>
+    </div>
+  `;
 
-  recentQueries.forEach((term) => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className =
-      'rounded-full border border-slate-800/80 bg-slate-900/60 px-3 py-1 text-xs font-medium text-slate-300 transition hover:border-slate-700 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60';
-    button.textContent = term;
-    button.dataset.searchTerm = term;
-    list.appendChild(button);
-  });
-
-  container.appendChild(list);
+  root.dataset.appInitialized = 'true';
 }
 
-function handleRecentSearchClick(event) {
-  const trigger = event.target.closest('button[data-search-term]');
-  if (!trigger) return;
-
-  const term = trigger.dataset.searchTerm ?? '';
-  const input = refs.searchInput;
-  if (input) {
-    input.value = term;
-    input.focus();
-  }
-
-  setSearchQuery(term);
-  addRecentSearch(term);
-  loadItems();
-}
-
-function registerRecentSearches() {
-  const container = refs.recentSearches;
-  if (!container) return;
-  container.addEventListener('click', handleRecentSearchClick);
-}
-
-function registerSearchForm() {
+function registerEventListeners() {
   const form = refs.searchForm;
-  if (!form) return;
-
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    const formData = new FormData(form);
-
-    const searchQuery = normalizeTerm(formData.get('search'));
-    const filters = {
-      type: normalizeTerm(formData.get('type')),
-      material: normalizeTerm(formData.get('material')),
-      rarity: normalizeTerm(formData.get('rarity')),
-    };
-
-    setSearchQuery(searchQuery);
-    setFilters(filters);
-    addRecentSearch(searchQuery);
-    loadItems();
-  });
-}
-
-function registerModalControls() {
-  const modal = refs.itemModal;
-  if (!modal) return;
-
-  qsa('[data-open-item-modal]').forEach((trigger) => {
-    trigger.addEventListener('click', (event) => {
-      event.preventDefault();
-      openModal(modal);
-    });
-  });
-
-  qsa('[data-modal-close]', modal).forEach((trigger) => {
-    trigger.addEventListener('click', (event) => {
-      event.preventDefault();
-      closeModal();
-    });
-  });
-
-  const overlay = modal.querySelector('[data-modal-overlay]');
-  if (overlay) {
-    overlay.addEventListener('click', (event) => {
-      event.preventDefault();
-      closeModal();
-    });
-  }
-
-  const form = refs.itemModalForm;
   if (form) {
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', handleSearchSubmit);
+  }
+
+  const grid = refs.gridContainer;
+  if (grid) {
+    grid.addEventListener('click', handleGridClick);
+  }
+
+  const menuBtn = refs.mobileMenuBtn;
+  if (menuBtn) {
+    menuBtn.addEventListener('click', (event) => {
       event.preventDefault();
-      closeModal();
+      toggleMobileMenu();
     });
   }
 }
 
-function handleStateChange(state) {
-  if (isLoading) {
+function toggleMobileMenu() {
+  const button = refs.mobileMenuBtn;
+  const menu = refs.mobileMenu;
+  if (!button || !menu) {
     return;
   }
 
-  if (state.items.length > 0) {
-    renderGrid(state.items);
-  } else {
-    renderEmptyState();
+  const expanded = button.getAttribute('aria-expanded') === 'true';
+  button.setAttribute('aria-expanded', String(!expanded));
+  menu.hidden = expanded;
+}
+
+function handleSearchSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  const formData = new FormData(form);
+  const query = (formData.get('search') ?? '').toString().trim();
+  const rarity = (formData.get('rarity') ?? '').toString().trim();
+
+  setSearchQuery(query);
+  setFilters({ rarity });
+  setPage(1);
+
+  loadAndRenderItems();
+}
+
+function handleGridClick(event) {
+  const trigger = event.target instanceof Element ? event.target.closest('[data-item-id]') : null;
+  if (!trigger) {
+    return;
+  }
+
+  const { itemId } = trigger.dataset;
+  if (!itemId) {
+    return;
+  }
+
+  showItemDetails(itemId);
+}
+
+function buildModalContent(item) {
+  const container = document.createElement('div');
+  container.className = 'app-modal__content';
+
+  const title = document.createElement('h2');
+  title.className = 'app-modal__title';
+  title.textContent = item.name;
+
+  const description = document.createElement('p');
+  description.className = 'app-modal__description';
+  description.textContent = item.description || 'Keine Beschreibung verfügbar.';
+
+  const details = document.createElement('dl');
+  details.className = 'app-modal__meta';
+
+  const metaEntries = [
+    ['Seltenheit', item.rarity || 'unbekannt'],
+    ['Typ', item.type || 'unbekannt'],
+    ['Material', item.material || 'unbekannt'],
+  ];
+
+  metaEntries.forEach(([label, value]) => {
+    const term = document.createElement('dt');
+    term.textContent = label;
+    const definition = document.createElement('dd');
+    definition.textContent = value;
+    details.append(term, definition);
+  });
+
+  container.append(title, description, details);
+  return container;
+}
+
+async function showItemDetails(itemId) {
+  try {
+    const item = await loadItemById(itemId);
+    openModal(buildModalContent(item));
+  } catch (error) {
+    console.error('Fehler beim Laden eines Items', error);
+    const fallback = document.createElement('div');
+    fallback.className = 'app-modal__error';
+    fallback.textContent = 'Details konnten nicht geladen werden.';
+    openModal(fallback);
   }
 }
 
-async function loadItems() {
-  const currentState = getState();
-  isLoading = true;
-  renderSkeleton(4);
+async function loadAndRenderItems() {
+  const requestId = ++activeRequestId;
+  const { page, pageSize, searchQuery, filters } = getState();
+
+  renderSkeleton(pageSize);
 
   try {
-    const { items } = await getItems({
-      page: currentState.page,
-      pageSize: currentState.pageSize,
-      search: currentState.searchQuery,
-      filters: currentState.filters,
+    const response = await getItems({
+      page,
+      pageSize,
+      search: searchQuery,
+      filters,
     });
-    isLoading = false;
-    setItems(items);
+
+    if (requestId !== activeRequestId) {
+      return;
+    }
+
+    setItems(response.items);
+
+    if (response.items.length > 0) {
+      renderGrid(response.items);
+    } else {
+      renderEmptyState();
+    }
   } catch (error) {
-    isLoading = false;
-    console.error('[app] Failed to load items', error);
-    renderEmptyState('Beim Laden der Items ist ein Fehler aufgetreten.');
+    console.error('Fehler beim Laden der Items', error);
+    renderEmptyState('Die Liste konnte nicht geladen werden.');
   }
+}
+
+function registerStateSync() {
+  subscribe((snapshot) => {
+    const input = refs.searchInput;
+    if (input && input.value !== snapshot.searchQuery) {
+      input.value = snapshot.searchQuery;
+    }
+
+    const raritySelect = refs.filterRarity;
+    const rarity = snapshot.filters?.rarity ?? '';
+    if (raritySelect && raritySelect.value !== rarity) {
+      raritySelect.value = rarity;
+    }
+  });
 }
 
 function init() {
-  if (initialized) return;
-  initialized = true;
-
-  subscribe(handleStateChange);
-  registerSearchForm();
-  registerRecentSearches();
-  registerModalControls();
-
-  renderSkeleton(4);
-  loadItems();
+  createLayout();
+  registerEventListeners();
+  registerStateSync();
+  loadAndRenderItems();
 }
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init, { once: true });
+  document.addEventListener('DOMContentLoaded', init);
 } else {
   init();
 }
