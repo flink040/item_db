@@ -9,6 +9,7 @@
     "types": "wrangler types"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.57.4",
     "hono": "^4.9.8",
     "zod": "^3.25.76"
   },
