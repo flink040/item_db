@@ -208,6 +208,7 @@ export function renderGrid(items = []) {
     return;
   }
 
+
   if (!Array.isArray(items) || items.length === 0) {
     renderEmptyState();
     return;
@@ -231,6 +232,7 @@ export function renderGrid(items = []) {
 }
 
 export function renderEmptyState(message = 'Keine Einträge gefunden.', details = '') {
+
   const grid = refs.gridContainer;
   const empty = refs.emptyState;
 
@@ -255,6 +257,7 @@ export function renderEmptyState(message = 'Keine Einträge gefunden.', details 
       detailsText.textContent = details;
       panel.appendChild(detailsText);
     }
+
 
     empty.innerHTML = '';
     empty.appendChild(panel);

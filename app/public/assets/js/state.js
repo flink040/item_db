@@ -5,6 +5,7 @@ const state = {
   pageSize: 6,
   items: [],
   allItems: [],
+
 };
 
 const listeners = new Set();
@@ -17,6 +18,7 @@ export function getState() {
     pageSize: state.pageSize,
     items: [...state.items],
     allItems: [...state.allItems],
+
   };
 }
 
@@ -30,6 +32,7 @@ function notify() {
     }
   });
 }
+
 
 function shallowEqual(a, b) {
   const keysA = Object.keys(a);
@@ -104,6 +107,7 @@ export function setAllItems(items = []) {
   state.allItems = Array.isArray(items) ? [...items] : [];
   notify();
 }
+
 
 export function subscribe(listener) {
   if (typeof listener !== 'function') {

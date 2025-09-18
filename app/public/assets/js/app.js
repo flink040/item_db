@@ -13,12 +13,14 @@ import { getItems, loadItemById } from './api.js';
 import { renderEmptyState, renderGrid, renderSkeleton } from './ui.js';
 import { openModal } from './modal.js';
 
+
 const MIN_SKELETON_COUNT = 6;
 const MAX_SKELETON_COUNT = 12;
 const SEARCH_DEBOUNCE_MS = 250;
 const URL_SEARCH_KEY = 'q';
 const URL_CATEGORY_KEY = 'cat';
 const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
+
 
 let activeRequestId = 0;
 let ignoreNextMenuClick = false;
@@ -28,6 +30,7 @@ let backToTopBound = false;
 let historyBound = false;
 let searchDebounceId = 0;
 let hasInitialDataLoaded = false;
+
 
 function getMenuElement(button) {
   if (!button) {
@@ -61,6 +64,7 @@ function setMenuExpanded(expand) {
   menu.setAttribute('aria-hidden', String(!shouldExpand));
   menu.dataset.menuOpen = String(shouldExpand);
 }
+
 
 function createLayout() {
   const root = refs.root;
@@ -352,6 +356,7 @@ function scrollToTop({ focusFirst } = {}) {
     focusTarget.focus({ preventScroll: true });
   }
 }
+
 
 function cancelPendingSearchUpdate() {
   if (searchDebounceId) {
@@ -669,6 +674,7 @@ function handleFilterChange(event) {
   updateUrlFromState({ replace: false });
 }
 
+
 function handleSearchSubmit(event) {
   event.preventDefault();
   const form = event.currentTarget;
@@ -712,6 +718,7 @@ function handleSearchSubmit(event) {
 
   applyFiltersAndRender();
   updateUrlFromState({ replace: false });
+
 }
 
 function handleGridClick(event) {
@@ -783,13 +790,16 @@ async function loadAndRenderItems() {
     setPageSize(skeletonCount);
   }
 
+
   hasInitialDataLoaded = false;
+
   renderSkeleton(skeletonCount);
 
   try {
     const response = await getItems({
       page: 1,
       pageSize: FETCH_ALL_PAGE_SIZE,
+
     });
 
     if (requestId !== activeRequestId) {
@@ -810,6 +820,7 @@ async function loadAndRenderItems() {
 
 function registerStateSync() {
   const sync = (snapshot) => {
+
     const input = refs.searchInput;
     if (input && input.value !== snapshot.searchQuery) {
       input.value = snapshot.searchQuery;
@@ -824,6 +835,7 @@ function registerStateSync() {
 
   sync(getState());
   subscribe(sync);
+
 }
 
 function init() {
@@ -831,6 +843,7 @@ function init() {
   registerStateSync();
   hydrateStateFromUrl();
   registerEventListeners();
+
   loadAndRenderItems();
 }
 
