@@ -1,174 +1,441 @@
-const MOCK_ITEMS = [
-  {
-    id: 'iron-sword',
-    name: 'Eiserne Klinge',
-    description: 'Eine zuverlässige Nahkampfwaffe für angehende Abenteurer:innen.',
-    rarity: 'gewöhnlich',
-    material: 'Eisen',
-    type: 'Waffe',
-  },
-  {
-    id: 'crystal-wand',
-    name: 'Kristallstab',
-    description: 'Ein schimmernder Stab, der arkane Energie bündelt und verstärkt.',
-    rarity: 'selten',
-    material: 'Kristall',
-    type: 'Magie',
-  },
-  {
-    id: 'ember-bow',
-    name: 'Glutfunkenbogen',
-    description: 'Entfesselt feurige Pfeile, die auch im Regen weiterlodern.',
-    rarity: 'episch',
-    material: 'Esche',
-    type: 'Fernkampf',
-  },
-  {
-    id: 'guardian-shield',
-    name: 'Wächter-Schild',
-    description: 'Ein Schild mit Runen, die bei Treffern kurzzeitig Schutzschilde erzeugen.',
-    rarity: 'selten',
-    material: 'Stahl',
-    type: 'Verteidigung',
-  },
-  {
-    id: 'luminous-amulet',
-    name: 'Leuchtendes Amulett',
-    description: 'Speichert Sonnenlicht und gibt es als warme Heilungswelle wieder ab.',
-    rarity: 'legendär',
-    material: 'Gold',
-    type: 'Schmuck',
-  },
-  {
-    id: 'herbal-kit',
-    name: 'Kräuterset',
-    description: 'Eine Sammlung seltene Kräuter, perfekt für Alchemie-Anfänger:innen.',
-    rarity: 'gewöhnlich',
-    material: 'Leinen',
-    type: 'Handwerk',
-  },
-  {
-    id: 'frost-dagger',
-    name: 'Frostdolch',
-    description: 'Ein Dolch, der Gegner mit einer einzigen Berührung vereist.',
-    rarity: 'episch',
-    material: 'Mithril',
-    type: 'Waffe',
-  },
-  {
-    id: 'sky-boots',
-    name: 'Himmelsläufer',
-    description: 'Leichte Stiefel, mit denen sich kurze Strecken durch die Luft gleiten lässt.',
-    rarity: 'selten',
-    material: 'Leder',
-    type: 'Rüstung',
-  },
-];
+const CONFIG = Object.freeze({
+  API_BASE: '/api',
+  SUPABASE_URL: null,
+  SUPABASE_ANON_KEY: null,
+});
 
-const delay = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
+const ALL_ITEMS_PAGE_SIZE = Number.POSITIVE_INFINITY;
+
+let supabaseClientPromise = null;
+let supabaseConfigSignature = null;
+
+function sanitizeConfigString(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  }
+
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  return sanitizeConfigString(String(value));
+}
+
+function readRuntimeConfig() {
+  const runtime = typeof globalThis !== 'undefined' ? globalThis.APP_CONFIG : null;
+  const overrides = {};
+
+  if (runtime && typeof runtime === 'object') {
+    if ('API_BASE' in runtime) {
+      const apiBase = sanitizeConfigString(runtime.API_BASE);
+      if (apiBase) {
+        overrides.API_BASE = apiBase;
+      }
+    }
+
+    if ('SUPABASE_URL' in runtime) {
+      const supabaseUrl = sanitizeConfigString(runtime.SUPABASE_URL);
+      if (supabaseUrl) {
+        overrides.SUPABASE_URL = supabaseUrl;
+      }
+    }
+
+    if ('SUPABASE_ANON_KEY' in runtime) {
+      const supabaseAnonKey = sanitizeConfigString(runtime.SUPABASE_ANON_KEY);
+      if (supabaseAnonKey) {
+        overrides.SUPABASE_ANON_KEY = supabaseAnonKey;
+      }
+    }
+  }
+
+  return {
+    API_BASE: overrides.API_BASE ?? CONFIG.API_BASE,
+    SUPABASE_URL: overrides.SUPABASE_URL ?? CONFIG.SUPABASE_URL,
+    SUPABASE_ANON_KEY: overrides.SUPABASE_ANON_KEY ?? CONFIG.SUPABASE_ANON_KEY,
+  };
+}
+
+function getResolvedConfig() {
+  return readRuntimeConfig();
+}
+
+function hasSupabaseConfig(config = getResolvedConfig()) {
+  return Boolean(config.SUPABASE_URL && config.SUPABASE_ANON_KEY);
+}
 
 function toError(error, fallbackMessage) {
-  if (error instanceof Error && error.message) {
+  if (error instanceof Error) {
+    if (!error.message && fallbackMessage) {
+      error.message = fallbackMessage;
+    }
     return error;
   }
 
-  return new Error(fallbackMessage);
+  const message =
+    typeof error === 'string' && error.trim().length > 0 ? error.trim() : fallbackMessage || 'Unbekannter Fehler.';
+  const fallbackError = new Error(message);
+
+  if (error && typeof error === 'object') {
+    try {
+      fallbackError.cause = error;
+    } catch {
+      // Ignoriere Fälle, in denen cause nicht gesetzt werden kann.
+    }
+  }
+
+  return fallbackError;
 }
 
 function sanitizeFilters(filters) {
+  const sanitized = {};
+
   if (!filters || typeof filters !== 'object') {
-    return {};
+    return sanitized;
   }
 
-  return Object.entries(filters).reduce((accumulator, [key, value]) => {
-    if (value === undefined || value === null) {
-      return accumulator;
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value === null || value === undefined) {
+      return;
     }
 
     if (typeof value === 'string') {
       const trimmed = value.trim();
-      if (trimmed.length === 0) {
-        return accumulator;
+      if (trimmed.length > 0) {
+        sanitized[key] = trimmed;
       }
-      accumulator[key] = trimmed;
-      return accumulator;
+      return;
     }
 
-    accumulator[key] = value;
-    return accumulator;
-  }, {});
+    sanitized[key] = value;
+  });
+
+  return sanitized;
 }
 
-export async function getItems({ page = 1, pageSize = 6, search = '', filters = {} } = {}) {
-  const normalizedPage = Number(page);
-  if (!Number.isFinite(normalizedPage) || normalizedPage < 1) {
+function normalizeListOptions(options = {}) {
+  const rawPage = options.page ?? 1;
+  const numericPage = Number(rawPage);
+  if (!Number.isFinite(numericPage) || numericPage < 1) {
     throw new Error('Ungültige Seitenzahl.');
   }
 
-  const allowAll = pageSize === Number.POSITIVE_INFINITY;
-  const normalizedPageSize = allowAll ? Number.POSITIVE_INFINITY : Number(pageSize);
-  if (!allowAll && (!Number.isFinite(normalizedPageSize) || normalizedPageSize < 1)) {
+  const rawPageSize = options.pageSize ?? 6;
+  const allowAll = rawPageSize === ALL_ITEMS_PAGE_SIZE;
+  const numericPageSize = allowAll ? ALL_ITEMS_PAGE_SIZE : Number(rawPageSize);
+  if (!allowAll && (!Number.isFinite(numericPageSize) || numericPageSize < 1)) {
     throw new Error('Ungültige Seitengröße.');
   }
 
-  const normalizedSearch = typeof search === 'string' ? search.trim().toLowerCase() : String(search ?? '').trim().toLowerCase();
-  const normalizedFilters = sanitizeFilters(filters);
+  const search = typeof options.search === 'string' ? options.search.trim() : '';
+  const filters = sanitizeFilters(options.filters);
 
-  try {
-    let filtered = [...MOCK_ITEMS];
-    if (normalizedSearch) {
-      filtered = filtered.filter((item) => {
-        const haystack = `${item.name} ${item.description}`.toLowerCase();
-        return haystack.includes(normalizedSearch);
-      });
-    }
+  return {
+    page: Math.floor(numericPage),
+    pageSize: allowAll ? ALL_ITEMS_PAGE_SIZE : Math.floor(numericPageSize),
+    allowAll,
+    search,
+    filters,
+  };
+}
 
-    if (normalizedFilters.type) {
-      filtered = filtered.filter((item) => item.type === normalizedFilters.type);
-    }
+function applyPagination(items, options) {
+  const source = Array.isArray(items) ? items : [];
+  const total = source.length;
 
-    if (normalizedFilters.material) {
-      filtered = filtered.filter((item) => item.material === normalizedFilters.material);
-    }
-
-    if (normalizedFilters.rarity) {
-      filtered = filtered.filter((item) => item.rarity === normalizedFilters.rarity);
-    }
-
-    const total = filtered.length;
-    const safePageSize = allowAll ? filtered.length : Math.floor(normalizedPageSize);
-    const start = allowAll ? 0 : Math.max(0, Math.floor((normalizedPage - 1) * safePageSize));
-    const end = allowAll ? filtered.length : start + safePageSize;
-    const items = filtered.slice(start, end);
-
-    await delay(200);
-
+  if (options.allowAll) {
     return {
-      items,
+      items: source.slice(),
       total,
-      page: Math.floor(normalizedPage),
-      pageSize: allowAll ? Number.POSITIVE_INFINITY : safePageSize,
+      page: options.page,
+      pageSize: ALL_ITEMS_PAGE_SIZE,
     };
+  }
+
+  if (total === 0) {
+    return {
+      items: [],
+      total,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
+  }
+
+  const startIndex = (options.page - 1) * options.pageSize;
+  if (startIndex >= total) {
+    return {
+      items: [],
+      total,
+      page: options.page,
+      pageSize: options.pageSize,
+    };
+  }
+
+  const endIndex = startIndex + options.pageSize;
+  return {
+    items: source.slice(startIndex, endIndex),
+    total,
+    page: options.page,
+    pageSize: options.pageSize,
+  };
+}
+
+function buildSearchParams(options) {
+  const params = new URLSearchParams();
+
+  if (options.search) {
+    params.set('search', options.search);
+  }
+
+  Object.entries(options.filters).forEach(([key, value]) => {
+    params.set(key, String(value));
+  });
+
+  if (!options.allowAll) {
+    params.set('page', String(options.page));
+    params.set('pageSize', String(options.pageSize));
+  }
+
+  return params;
+}
+
+function buildApiUrl(path) {
+  const { API_BASE } = getResolvedConfig();
+  const base = typeof API_BASE === 'string' && API_BASE.length > 0 ? API_BASE : CONFIG.API_BASE;
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base;
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
+
+async function fetchFromApi(path, options = {}) {
+  const urlBase = buildApiUrl(path);
+  const query = options.searchParams ? options.searchParams.toString() : '';
+  const url = query ? `${urlBase}?${query}` : urlBase;
+
+  const response = await fetch(url, {
+    headers: {
+      accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API-Request fehlgeschlagen (${response.status})`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Ungültige API-Antwort.');
+  }
+
+  return response.json();
+}
+
+async function fetchItemsFromApi(options) {
+  const searchParams = buildSearchParams(options);
+  const payload = await fetchFromApi('/items', { searchParams });
+
+  let items = null;
+  if (Array.isArray(payload)) {
+    items = payload;
+  } else if (payload && typeof payload === 'object') {
+    if (Array.isArray(payload.items)) {
+      items = payload.items;
+    } else if (Array.isArray(payload.data)) {
+      items = payload.data;
+    }
+  }
+
+  if (!Array.isArray(items)) {
+    throw new Error('Ungültige API-Antwort.');
+  }
+
+  const result = applyPagination(items, options);
+  const total = typeof payload?.total === 'number' ? payload.total : result.total;
+
+  return {
+    items: result.items,
+    total,
+    page: result.page,
+    pageSize: result.pageSize,
+  };
+}
+
+async function createSupabaseClient(url, anonKey) {
+  try {
+    const supabaseModule = await import('https://esm.sh/@supabase/supabase-js@2');
+    const { createClient } = supabaseModule ?? {};
+    if (typeof createClient !== 'function') {
+      throw new Error('Supabase SDK konnte nicht geladen werden.');
+    }
+    return createClient(url, anonKey, {
+      auth: { persistSession: false },
+    });
   } catch (error) {
-    throw toError(error, 'Die Items konnten nicht geladen werden.');
+    throw toError(error, 'Supabase SDK konnte nicht geladen werden.');
   }
 }
 
-export async function loadItemById(id) {
-  const rawId = id ?? '';
-  const normalizedId = typeof rawId === 'string' ? rawId.trim() : String(rawId).trim();
-  if (normalizedId.length === 0) {
+async function getSupabaseClient() {
+  const { SUPABASE_URL, SUPABASE_ANON_KEY } = getResolvedConfig();
+  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return null;
+  }
+
+  const signature = `${SUPABASE_URL}::${SUPABASE_ANON_KEY}`;
+  if (!supabaseClientPromise || supabaseConfigSignature !== signature) {
+    supabaseConfigSignature = signature;
+    supabaseClientPromise = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY).catch((error) => {
+      supabaseClientPromise = null;
+      supabaseConfigSignature = null;
+      throw error;
+    });
+  }
+
+  return supabaseClientPromise;
+}
+
+async function fetchItemsFromSupabase(options) {
+  const client = await getSupabaseClient();
+  if (!client) {
+    throw new Error('Supabase ist nicht konfiguriert.');
+  }
+
+  const { data, error, count } = await client.from('items').select('*', { count: 'exact', head: false });
+  if (error) {
+    throw error;
+  }
+
+  const items = Array.isArray(data) ? data : [];
+  const result = applyPagination(items, options);
+  const total = typeof count === 'number' ? count : result.total;
+
+  return {
+    items: result.items,
+    total,
+    page: result.page,
+    pageSize: result.pageSize,
+  };
+}
+
+function normalizeItemId(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const normalized = typeof value === 'string' ? value.trim() : String(value).trim();
+  return normalized;
+}
+
+async function fetchItemByIdFromApi(id) {
+  const url = buildApiUrl(`/items/${encodeURIComponent(id)}`);
+  const response = await fetch(url, {
+    headers: {
+      accept: 'application/json',
+    },
+  });
+
+  if (response.status === 404) {
+    throw new Error('Item wurde nicht gefunden.');
+  }
+
+  if (!response.ok) {
+    throw new Error(`API-Request fehlgeschlagen (${response.status})`);
+  }
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    throw new Error('Ungültige API-Antwort.');
+  }
+
+  const payload = await response.json();
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Ungültige API-Antwort.');
+  }
+
+  return payload;
+}
+
+async function fetchItemByIdFromSupabase(id) {
+  const client = await getSupabaseClient();
+  if (!client) {
+    throw new Error('Supabase ist nicht konfiguriert.');
+  }
+
+  const byId = await client.from('items').select('*').eq('id', id).maybeSingle();
+  if (byId.error) {
+    throw byId.error;
+  }
+  if (byId.data) {
+    return byId.data;
+  }
+
+  const bySlug = await client.from('items').select('*').eq('slug', id).maybeSingle();
+  if (bySlug.error) {
+    throw bySlug.error;
+  }
+  if (bySlug.data) {
+    return bySlug.data;
+  }
+
+  throw new Error('Item wurde nicht gefunden.');
+}
+
+export async function getItems(options = {}) {
+  const normalizedOptions = normalizeListOptions(options);
+  let supabaseError = null;
+
+  if (hasSupabaseConfig()) {
+    try {
+      return await fetchItemsFromSupabase(normalizedOptions);
+    } catch (error) {
+      supabaseError = toError(error, 'Die Items konnten nicht geladen werden.');
+    }
+  }
+
+  try {
+    return await fetchItemsFromApi(normalizedOptions);
+  } catch (error) {
+    const apiError = toError(error, 'Die Items konnten nicht geladen werden.');
+    if (supabaseError) {
+      try {
+        apiError.cause = supabaseError;
+      } catch {
+        // Ignoriere Fälle, in denen cause nicht gesetzt werden kann.
+      }
+    }
+    throw apiError;
+  }
+}
+
+export async function getItemById(id) {
+  const normalizedId = normalizeItemId(id);
+  if (!normalizedId) {
     throw new Error('Eine Item-ID ist erforderlich.');
   }
 
-  try {
-    await delay(150);
-    const item = MOCK_ITEMS.find((entry) => String(entry.id) === normalizedId || String(entry.id) === String(id));
-    if (!item) {
-      throw new Error('Item wurde nicht gefunden.');
+  let supabaseError = null;
+
+  if (hasSupabaseConfig()) {
+    try {
+      return await fetchItemByIdFromSupabase(normalizedId);
+    } catch (error) {
+      supabaseError = toError(error, 'Item konnte nicht geladen werden.');
     }
-    return item;
+  }
+
+  try {
+    return await fetchItemByIdFromApi(normalizedId);
   } catch (error) {
-    throw toError(error, 'Item konnte nicht geladen werden.');
+    const apiError = toError(error, 'Item konnte nicht geladen werden.');
+    if (supabaseError) {
+      try {
+        apiError.cause = supabaseError;
+      } catch {
+        // Ignoriere Fälle, in denen cause nicht gesetzt werden kann.
+      }
+    }
+    throw apiError;
   }
 }
+
+export const loadItemById = getItemById;
