@@ -1,5 +1,26 @@
 import { refs } from './dom.js';
 
+let toastContainer = null;
+const TOAST_DEFAULT_TIMEOUT = 4800;
+const TOAST_TRANSITION_MS = 220;
+const TOAST_VARIANTS = {
+  success: {
+    accent: 'rgba(34,197,94,0.85)',
+    background: 'rgba(15,23,42,0.95)',
+    text: '#e2e8f0',
+  },
+  error: {
+    accent: 'rgba(248,113,113,0.85)',
+    background: 'rgba(15,23,42,0.95)',
+    text: '#fef2f2',
+  },
+  info: {
+    accent: 'rgba(96,165,250,0.7)',
+    background: 'rgba(15,23,42,0.92)',
+    text: '#e2e8f0',
+  },
+};
+
 const rarityStyles = {
   gewöhnlich: {
     label: 'Gewöhnlich',
@@ -23,6 +44,136 @@ const fallbackRarity = {
   label: 'Unbekannt',
   className: 'border border-slate-800 bg-slate-900/60 text-slate-300',
 };
+
+function ensureToastContainer() {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  if (toastContainer instanceof HTMLElement && document.body.contains(toastContainer)) {
+    return toastContainer;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'app-toast-container';
+  container.dataset.js = 'toast-container';
+  container.setAttribute('aria-live', 'polite');
+  container.setAttribute('aria-atomic', 'true');
+
+  Object.assign(container.style, {
+    position: 'fixed',
+    top: '1.5rem',
+    left: '50%',
+    transform: 'translateX(-50%)',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    gap: '0.75rem',
+    width: 'min(22rem, calc(100vw - 2rem))',
+    pointerEvents: 'none',
+    zIndex: '1000',
+  });
+
+  document.body.appendChild(container);
+  toastContainer = container;
+  return toastContainer;
+}
+
+function resolveToastTheme(type) {
+  const key = typeof type === 'string' ? type.toLowerCase() : 'info';
+  if (Object.prototype.hasOwnProperty.call(TOAST_VARIANTS, key)) {
+    return TOAST_VARIANTS[key];
+  }
+  return TOAST_VARIANTS.info;
+}
+
+function createToastElement(message, theme) {
+  const toast = document.createElement('div');
+  toast.className = 'app-toast';
+  toast.setAttribute('role', 'status');
+  toast.textContent = message;
+
+  Object.assign(toast.style, {
+    boxSizing: 'border-box',
+    width: '100%',
+    padding: '0.75rem 1rem',
+    borderRadius: '0.75rem',
+    border: '1px solid rgba(148, 163, 184, 0.25)',
+    borderLeft: `4px solid ${theme.accent}`,
+    background: theme.background,
+    color: theme.text,
+    boxShadow: '0 18px 40px rgba(15, 23, 42, 0.35)',
+    backdropFilter: 'blur(8px)',
+    fontSize: '0.875rem',
+    lineHeight: '1.4',
+    opacity: '0',
+    transform: 'translateY(-10px)',
+    transition: `opacity ${TOAST_TRANSITION_MS}ms ease, transform ${TOAST_TRANSITION_MS}ms ease`,
+    pointerEvents: 'none',
+  });
+
+  return toast;
+}
+
+function hideToast(toast, container) {
+  if (!(toast instanceof HTMLElement)) {
+    return;
+  }
+
+  if (toast.dataset.dismissed === 'true') {
+    return;
+  }
+
+  toast.dataset.dismissed = 'true';
+  toast.style.opacity = '0';
+  toast.style.transform = 'translateY(-14px)';
+
+  const remove = () => {
+    toast.removeEventListener('transitionend', remove);
+    if (toast.parentElement) {
+      toast.parentElement.removeChild(toast);
+    }
+
+    if (container instanceof HTMLElement && container.childElementCount === 0) {
+      container.removeAttribute('data-visible');
+    }
+  };
+
+  toast.addEventListener('transitionend', remove);
+  setTimeout(remove, TOAST_TRANSITION_MS + 60);
+}
+
+export function showToast(message, options = {}) {
+  const container = ensureToastContainer();
+  if (!(container instanceof HTMLElement)) {
+    return () => {};
+  }
+
+  const { type = 'info', timeout = TOAST_DEFAULT_TIMEOUT } = options ?? {};
+  const normalizedMessage = typeof message === 'string' ? message.trim() : String(message ?? '').trim();
+  const text = normalizedMessage.length > 0 ? normalizedMessage : 'Hinweis';
+  const theme = resolveToastTheme(type);
+
+  const toast = createToastElement(text, theme);
+  container.appendChild(toast);
+  container.dataset.visible = 'true';
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = '1';
+    toast.style.transform = 'translateY(0)';
+  });
+
+  const safeTimeout = Number.isFinite(timeout) && timeout >= 2000 ? timeout : TOAST_DEFAULT_TIMEOUT;
+  const hide = () => hideToast(toast, container);
+  const timeoutId = setTimeout(hide, safeTimeout);
+
+  const cleanup = () => {
+    clearTimeout(timeoutId);
+    hide();
+  };
+
+  return cleanup;
+}
 
 function normalizeLabel(value, fallback) {
   const normalized = typeof value === 'string' ? value.trim() : '';

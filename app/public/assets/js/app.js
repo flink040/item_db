@@ -17,6 +17,7 @@ import {
   renderEmptyState,
   renderGrid,
   renderSkeleton,
+  showToast,
 } from './ui.js';
 import { closeModal, isModalOpen, openModal } from './modal.js';
 
@@ -49,6 +50,46 @@ let pendingModalItemId = null;
 let currentModalItemId = null;
 let modalCloseHistoryMode = 'replace';
 let activeModalRequestToken = 0;
+let lastItemLoadFailed = false;
+
+
+function isFocusableElement(element) {
+  if (!element) {
+    return false;
+  }
+
+  if (element instanceof HTMLElement) {
+    return true;
+  }
+
+  if (typeof SVGElement !== 'undefined' && element instanceof SVGElement) {
+    return true;
+  }
+
+  return false;
+}
+
+function restoreFocus(element) {
+  if (!isFocusableElement(element)) {
+    return;
+  }
+
+  const target = element;
+  if (!document.contains(target)) {
+    return;
+  }
+
+  try {
+    target.focus({ preventScroll: true });
+  } catch (error) {
+    try {
+      target.focus();
+    } catch (focusError) {
+      // Silently ignore focus restoration issues.
+      void focusError;
+    }
+  }
+}
 
 
 function getMenuElement(button) {
@@ -1059,6 +1100,11 @@ function showCopyFeedback(button, success) {
 
   button.textContent = success ? 'Link kopiert' : 'Link konnte nicht kopiert werden';
   button.dataset.copyState = success ? 'success' : 'error';
+  if (success) {
+    showToast('Permalink wurde kopiert.', { type: 'success' });
+  } else {
+    showToast('Permalink konnte nicht kopiert werden.', { type: 'error' });
+  }
 
   const timeoutId = window.setTimeout(() => {
     button.textContent = button.dataset.originalLabel || 'Link kopieren';
@@ -1217,6 +1263,7 @@ function openItemDetails(itemId, { history = 'push' } = {}) {
       }
 
       console.error('Fehler beim Laden eines Items', error);
+      showToast('Details konnten nicht geladen werden.', { type: 'error' });
       mountView(buildMissingItemDetail(normalizedId));
     });
 }
@@ -1236,6 +1283,7 @@ async function loadAndRenderItems() {
   const requestId = ++activeRequestId;
   const snapshot = getState();
   const skeletonCount = getSkeletonCount(snapshot.pageSize);
+  const previouslyFocusedElement = document.activeElement;
 
   if (skeletonCount !== snapshot.pageSize) {
     setPageSize(skeletonCount);
@@ -1258,6 +1306,10 @@ async function loadAndRenderItems() {
 
     setAllItems(response.items);
     hasInitialDataLoaded = true;
+    if (lastItemLoadFailed) {
+      showToast('Die Liste wurde erfolgreich aktualisiert.', { type: 'success' });
+    }
+    lastItemLoadFailed = false;
     applyFiltersAndRender();
     updateUrlFromState({ replace: true });
     if (pendingModalItemId) {
@@ -1266,10 +1318,15 @@ async function loadAndRenderItems() {
   } catch (error) {
     console.error('Fehler beim Laden der Items', error);
     hasInitialDataLoaded = true;
+    lastItemLoadFailed = true;
     setAllItems([]);
     setItems([]);
     renderEmptyState('Die Liste konnte nicht geladen werden.');
+    showToast('Die Liste konnte nicht geladen werden.', { type: 'error' });
     updateUrlFromState({ replace: true });
+    if (!isModalOpen()) {
+      restoreFocus(previouslyFocusedElement);
+    }
     if (pendingModalItemId) {
       maybeOpenItemFromUrl({ history: 'replace' });
     }
