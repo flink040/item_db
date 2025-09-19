@@ -18,6 +18,19 @@
     dropdownCleanup: null,
   };
 
+  const OAUTH_FRAGMENT_KEYS = [
+    'access_token',
+    'refresh_token',
+    'expires_in',
+    'expires_at',
+    'token_type',
+    'provider_token',
+    'provider_refresh_token',
+    'type',
+    'error',
+    'error_description',
+  ];
+
   const discordSvg =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="h-5 w-5"><path d="M20 4.54a19.76 19.76 0 0 0-4.93-1.54l-.23.47a18.13 18.13 0 0 1 3.85 1.56 14.82 14.82 0 0 0-5-1 14.82 14.82 0 0 0-5 1 18.28 18.28 0 0 1 3.84-1.56l-.23-.47A19.76 19.76 0 0 0 4 4.54 16.77 16.77 0 0 0 .94 16.86a19.93 19.93 0 0 0 7.08 2.61l1-1.34c-.6-.18-1.17-.42-1.72-.72l.26-.2c3.25 1.54 6.9 1.54 10.14 0l.26.2c-.55.3-1.12.54-1.72.72l1 1.34a19.94 19.94 0 0 0 7.08-2.61A16.77 16.77 0 0 0 20 4.54ZM9.08 14.28c-1 0-1.85-.9-1.85-2s.83-2 1.85-2 1.85.9 1.85 2-.83 2-1.85 2Zm5.84 0c-1 0-1.85-.9-1.85-2s.83-2 1.85-2 1.85.9 1.85 2-.83 2-1.85 2Z"/></svg>';
   const chevronSvg =
@@ -328,6 +341,40 @@
     }
   }
 
+  function cleanupOAuthHashIfPresent() {
+    if (!globalScope.location || !globalScope.history || typeof globalScope.history.replaceState !== 'function') {
+      return;
+    }
+
+    const { hash, pathname, search } = globalScope.location;
+    if (!hash || hash.length <= 1) {
+      return;
+    }
+
+    try {
+      const params = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash);
+      const containsOAuthParams = OAUTH_FRAGMENT_KEYS.some((key) => params.has(key));
+
+      if (!containsOAuthParams) {
+        return;
+      }
+
+      const errorCode = params.get('error');
+      const errorDescription = params.get('error_description');
+      if (errorCode || errorDescription) {
+        const messageParts = [errorCode, errorDescription].filter((part) => typeof part === 'string' && part.trim().length > 0);
+        if (messageParts.length > 0) {
+          console.error('[auth] OAuth-Redirect Fehler:', messageParts.join(' – '));
+        }
+      }
+
+      const newUrl = `${pathname}${search || ''}`;
+      globalScope.history.replaceState({}, '', newUrl);
+    } catch (error) {
+      console.error('[auth] OAuth-Fragment konnte nicht bereinigt werden.', error);
+    }
+  }
+
   async function refreshSession() {
     if (!state.supabase) {
       state.session = null;
@@ -384,6 +431,7 @@
 
     await exchangeCodeIfPresent();
     await refreshSession();
+    cleanupOAuthHashIfPresent();
     subscribeToAuthChanges();
   })();
 })();
