@@ -87,6 +87,31 @@
                       </p>
                     </div>
                   </div>
+                  <div class="flex items-center justify-start lg:justify-end">
+                    <button
+                      id="btn-add-item"
+                      data-action="add-item"
+                      type="button"
+                      class="btn-primary shrink-0"
+                    >
+                      <span class="sr-only">Neues Item hinzufügen</span>
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="h-5 w-5"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                      <span>Item hinzufügen</span>
+                    </button>
+                  </div>
                 </div>
                 <form class="app-search space-y-8" data-js="search-form" role="search" aria-label="Items durchsuchen">
                   <label class="block" for="app-search-input">
@@ -121,61 +146,67 @@
                   </label>
                   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div class="grid w-full grid-cols-1 gap-4 lg:grid-cols-3">
-                      <label class="block w-full lg:max-w-none" for="filter-type">
-                        <span class="text-sm font-medium text-slate-300">Item-Typ</span>
-                        <select
-                          id="filter-type"
-                          class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                          name="type"
-                          data-filter="type"
-                          data-js="filter-type"
-                        >
-                          <option value="">Alle Item-Typen</option>
-                          <option value="Waffe">Waffe</option>
-                          <option value="Werkzeug">Werkzeug</option>
-                          <option value="Rüstung">Rüstung</option>
-                          <option value="Block">Block</option>
-                          <option value="Trank">Trank</option>
-                          <option value="Nahrung">Nahrung</option>
-                          <option value="Sonstiges">Sonstiges</option>
-                        </select>
-                      </label>
-                      <label class="block w-full lg:max-w-none" for="filter-material">
-                        <span class="text-sm font-medium text-slate-300">Material</span>
-                        <select
-                          id="filter-material"
-                          class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                          name="material"
-                          data-filter="material"
-                          data-js="filter-material"
-                        >
-                          <option value="">Alle Materialien</option>
-                          <option value="Holz">Holz</option>
-                          <option value="Stein">Stein</option>
-                          <option value="Eisen">Eisen</option>
-                          <option value="Gold">Gold</option>
-                          <option value="Diamant">Diamant</option>
-                          <option value="Netherit">Netherit</option>
-                          <option value="Leder">Leder</option>
-                          <option value="Kette">Kette</option>
-                        </select>
-                      </label>
-                      <label class="block w-full sm:max-w-xs lg:max-w-none" for="app-filter-rarity">
-                        <span class="text-sm font-medium text-slate-300">Seltenheit</span>
-                        <select
-                          id="app-filter-rarity"
-                          class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                          name="rarity"
-                          data-js="filter-rarity"
-                          data-filter="rarity"
-                        >
-                          <option value="">Alle Seltenheiten</option>
-                          <option value="gewöhnlich">Gewöhnlich</option>
-                          <option value="selten">Selten</option>
-                          <option value="episch">Episch</option>
-                          <option value="legendär">Legendär</option>
-                        </select>
-                      </label>
+                      <div class="space-y-2">
+                        <label class="block w-full lg:max-w-none" for="filter-type">
+                          <span class="text-sm font-medium text-slate-300">Item-Typ</span>
+                          <select
+                            id="filter-type"
+                            class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                            name="type"
+                            data-filter="type"
+                            data-js="filter-type"
+                          >
+                            <option value="">Alle Item-Typen</option>
+                            <option value="Waffe">Waffe</option>
+                            <option value="Werkzeug">Werkzeug</option>
+                            <option value="Rüstung">Rüstung</option>
+                            <option value="Block">Block</option>
+                            <option value="Trank">Trank</option>
+                            <option value="Nahrung">Nahrung</option>
+                            <option value="Sonstiges">Sonstiges</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div class="space-y-2">
+                        <label class="block w-full lg:max-w-none" for="filter-material">
+                          <span class="text-sm font-medium text-slate-300">Material</span>
+                          <select
+                            id="filter-material"
+                            class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                            name="material"
+                            data-filter="material"
+                            data-js="filter-material"
+                          >
+                            <option value="">Alle Materialien</option>
+                            <option value="Holz">Holz</option>
+                            <option value="Stein">Stein</option>
+                            <option value="Eisen">Eisen</option>
+                            <option value="Gold">Gold</option>
+                            <option value="Diamant">Diamant</option>
+                            <option value="Netherit">Netherit</option>
+                            <option value="Leder">Leder</option>
+                            <option value="Kette">Kette</option>
+                          </select>
+                        </label>
+                      </div>
+                      <div class="space-y-2">
+                        <label class="block w-full sm:max-w-xs lg:max-w-none" for="app-filter-rarity">
+                          <span class="text-sm font-medium text-slate-300">Seltenheit</span>
+                          <select
+                            id="app-filter-rarity"
+                            class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                            name="rarity"
+                            data-js="filter-rarity"
+                            data-filter="rarity"
+                          >
+                            <option value="">Alle Seltenheiten</option>
+                            <option value="gewöhnlich">Gewöhnlich</option>
+                            <option value="selten">Selten</option>
+                            <option value="episch">Episch</option>
+                            <option value="legendär">Legendär</option>
+                          </select>
+                        </label>
+                      </div>
                     </div>
                     <button
                       type="submit"
