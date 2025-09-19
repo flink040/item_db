@@ -5,7 +5,24 @@
     return;
   }
 
-  const $container = document.getElementById('profile-container');
+  function ensureContainer() {
+    let container = document.getElementById('profile-container');
+    if (container) return container;
+
+    const fallbackParent =
+      document.querySelector('header[role="banner"] nav')?.parentElement ??
+      document.querySelector('header[role="banner"] .mx-auto');
+
+    if (!fallbackParent) return null;
+
+    container = document.createElement('div');
+    container.id = 'profile-container';
+    container.className = 'flex items-center';
+    fallbackParent.appendChild(container);
+    return container;
+  }
+
+  const $container = ensureContainer();
   if (!$container) {
     console.error('[auth] Container #profile-container nicht gefunden.');
     return;
