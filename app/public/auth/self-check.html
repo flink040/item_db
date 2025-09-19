@@ -85,7 +85,36 @@
         </p>
       </footer>
     </main>
+    <script type="module">
+      const globalScope = typeof window !== 'undefined' ? window : globalThis
+      const env = (typeof import.meta !== 'undefined' && import.meta.env) || {}
 
+      const existingEnv =
+        globalScope && globalScope.__ENV && typeof globalScope.__ENV === 'object'
+          ? globalScope.__ENV
+          : {}
+
+      const supabaseUrl = env.VITE_SUPABASE_URL ?? existingEnv.VITE_SUPABASE_URL ?? ''
+      const supabaseAnonKey =
+        env.VITE_SUPABASE_ANON_KEY ?? existingEnv.VITE_SUPABASE_ANON_KEY ?? ''
+
+      globalScope.__ENV = {
+        ...existingEnv,
+        VITE_SUPABASE_URL: supabaseUrl,
+        VITE_SUPABASE_ANON_KEY: supabaseAnonKey,
+      }
+
+      const existingConfig =
+        globalScope && globalScope.APP_CONFIG && typeof globalScope.APP_CONFIG === 'object'
+          ? globalScope.APP_CONFIG
+          : {}
+
+      globalScope.APP_CONFIG = {
+        ...existingConfig,
+        SUPABASE_URL: supabaseUrl || existingConfig.SUPABASE_URL || null,
+        SUPABASE_ANON_KEY: supabaseAnonKey || existingConfig.SUPABASE_ANON_KEY || null,
+      }
+    </script>
     <script src="/assets/js/supabase.js" defer></script>
     <script src="/assets/js/auth-self-check.js" defer></script>
   </body>
