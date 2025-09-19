@@ -1,9 +1,11 @@
 import { refs } from './dom.js';
 import {
   getState,
+  getCachedItemsPage,
   setAllItems,
   setFilters,
   setItems,
+  setCachedItemsPage,
   setPage,
   setPageSize,
   setSearchQuery,
@@ -54,6 +56,9 @@ const URL_ITEM_KEY = 'item';
 const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
 const DEFAULT_PAGE_SIZES = [6, 9, 12];
 const PAGINATION_SKELETON_DELAY_MS = 220;
+const INFINITE_SCROLL_THRESHOLD_PX = 320;
+const INFINITE_SCROLL_THROTTLE_MS = 180;
+const INFINITE_SCROLL_RESET_MS = 400;
 
 
 let activeRequestId = 0;
@@ -65,6 +70,9 @@ let historyBound = false;
 let searchDebounceId = 0;
 let hasInitialDataLoaded = false;
 let paginationRenderTimeoutId = 0;
+let infiniteScrollBound = false;
+let infiniteScrollPending = false;
+let infiniteScrollHandler = null;
 
 let pendingModalItemId = null;
 let currentModalItemId = null;
@@ -255,8 +263,48 @@ function registerEventListeners() {
   registerMenuToggle();
   setupSmoothScroll();
   setupBackToTop();
+  setupInfiniteScroll();
   bindHistoryListener();
   bindPaginationEvents();
+}
+
+function throttle(callback, wait = 100) {
+  if (typeof callback !== 'function') {
+    return () => {};
+  }
+
+  let timeoutId = null;
+  let lastCallTime = 0;
+  let trailingArgs = [];
+  let trailingContext;
+
+  const invoke = () => {
+    lastCallTime = Date.now();
+    timeoutId = null;
+    const args = trailingArgs;
+    const context = trailingContext;
+    trailingArgs = [];
+    trailingContext = undefined;
+    callback.apply(context, args);
+  };
+
+  return function throttled(...args) {
+    const now = Date.now();
+    const timeSinceLastCall = now - lastCallTime;
+
+    trailingArgs = args;
+    trailingContext = this;
+
+    if (timeSinceLastCall >= wait || timeSinceLastCall <= 0) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      invoke();
+    } else if (!timeoutId) {
+      timeoutId = setTimeout(invoke, wait - timeSinceLastCall);
+    }
+  };
 }
 
 function isPromiseLike(value) {
@@ -510,6 +558,76 @@ function setupBackToTop() {
   backToTopBound = true;
 }
 
+function setupInfiniteScroll() {
+  if (infiniteScrollBound || typeof window === 'undefined') {
+    return;
+  }
+
+  const grid = refs.gridContainer;
+  if (!grid || grid.dataset.infiniteScroll !== 'true') {
+    return;
+  }
+
+  const evaluate = () => {
+    if (!grid.isConnected) {
+      return;
+    }
+
+    if (infiniteScrollPending) {
+      return;
+    }
+
+    if (grid.getAttribute('aria-busy') === 'true') {
+      return;
+    }
+
+    const viewportHeight = window.innerHeight || document.documentElement?.clientHeight || 0;
+    const rect = grid.getBoundingClientRect();
+    if (rect.bottom - viewportHeight > INFINITE_SCROLL_THRESHOLD_PX) {
+      return;
+    }
+
+    infiniteScrollPending = true;
+
+    const detail = {
+      page: getState().page,
+      query: getState().searchQuery,
+    };
+
+    grid.dispatchEvent(
+      new CustomEvent('app:infinite-scroll', {
+        bubbles: true,
+        cancelable: false,
+        detail,
+      }),
+    );
+
+    const resetDelay = Math.max(0, INFINITE_SCROLL_RESET_MS);
+    setTimeout(() => {
+      infiniteScrollPending = false;
+      if (grid.isConnected && typeof window !== 'undefined') {
+        window.requestAnimationFrame(() => {
+          if (infiniteScrollHandler) {
+            infiniteScrollHandler();
+          }
+        });
+      }
+    }, resetDelay);
+  };
+
+  infiniteScrollHandler = throttle(evaluate, INFINITE_SCROLL_THROTTLE_MS);
+
+  window.addEventListener('scroll', infiniteScrollHandler, { passive: true });
+  window.addEventListener('resize', infiniteScrollHandler, { passive: true });
+
+  infiniteScrollBound = true;
+  window.requestAnimationFrame(() => {
+    if (infiniteScrollHandler) {
+      infiniteScrollHandler();
+    }
+  });
+}
+
 function handleBackToTopClick(event) {
   if (ignoreNextBackToTopClick) {
     ignoreNextBackToTopClick = false;
@@ -679,21 +797,78 @@ function applyFiltersAndRender({ skipRender = false, showSkeleton = false } = {}
   cancelPendingPaginationRender();
 
   const snapshot = getState();
-  const filteredItems = filterItems(snapshot.allItems, snapshot.searchQuery, snapshot.filters);
-
+  const sanitizedFilters = sanitizeFilters(snapshot.filters);
   const rawPageSize = Number.isFinite(snapshot.pageSize) && snapshot.pageSize > 0 ? Math.floor(snapshot.pageSize) : MIN_SKELETON_COUNT;
   const pageSize = Math.max(1, rawPageSize);
-  const totalItems = filteredItems.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const requestedPage = Number.isFinite(snapshot.page) && snapshot.page > 0 ? Math.floor(snapshot.page) : 1;
 
-  let currentPage = Number.isFinite(snapshot.page) && snapshot.page > 0 ? Math.floor(snapshot.page) : 1;
-  if (currentPage > totalPages) {
-    currentPage = totalPages;
-    setPage(currentPage);
+  const cacheDescriptor = {
+    page: requestedPage,
+    pageSize,
+    searchQuery: snapshot.searchQuery,
+    filters: sanitizedFilters,
+  };
+
+  const canUseCache = hasInitialDataLoaded && !showSkeleton;
+
+  let paginatedItems = null;
+  let totalItems = 0;
+  let totalPages = 1;
+  let currentPage = requestedPage;
+
+  if (canUseCache) {
+    let cached = getCachedItemsPage(cacheDescriptor);
+    if (cached) {
+      totalItems = Number.isFinite(cached.totalItems) ? cached.totalItems : cached.items.length;
+      totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+      if (currentPage > totalPages) {
+        currentPage = totalPages;
+        if (currentPage !== snapshot.page) {
+          setPage(currentPage);
+        }
+
+        cached = getCachedItemsPage({
+          ...cacheDescriptor,
+          page: currentPage,
+        });
+      }
+
+      if (cached) {
+        paginatedItems = Array.isArray(cached.items) ? cached.items : [];
+        totalItems = Number.isFinite(cached.totalItems) ? cached.totalItems : paginatedItems.length;
+      }
+    }
   }
 
-  const startIndex = (currentPage - 1) * pageSize;
-  const paginatedItems = filteredItems.slice(startIndex, startIndex + pageSize);
+  if (!paginatedItems) {
+    const filteredItems = filterItems(snapshot.allItems, snapshot.searchQuery, sanitizedFilters);
+    totalItems = filteredItems.length;
+    totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+
+    if (currentPage > totalPages) {
+      currentPage = totalPages;
+      if (currentPage !== snapshot.page) {
+        setPage(currentPage);
+      }
+    }
+
+    const startIndex = (currentPage - 1) * pageSize;
+    paginatedItems = filteredItems.slice(startIndex, startIndex + pageSize);
+
+    setCachedItemsPage(
+      {
+        ...cacheDescriptor,
+        page: currentPage,
+      },
+      {
+        items: paginatedItems,
+        totalItems,
+      },
+    );
+  }
+
+  totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 
   if (hasInitialDataLoaded) {
     setItems(paginatedItems);

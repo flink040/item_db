@@ -5,6 +5,7 @@ const state = {
   pageSize: 6,
   items: [],
   allItems: [],
+  itemsCache: Object.create(null),
 };
 
 const listeners = new Set();
@@ -39,6 +40,95 @@ function shallowEqual(a, b) {
   }
 
   return keysA.every((key) => Object.is(a[key], b[key]));
+}
+
+function normalizeCacheQuery(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim().toLowerCase();
+  return trimmed;
+}
+
+function normalizeCacheFilters(filters) {
+  if (!filters || typeof filters !== 'object') {
+    return '';
+  }
+
+  return Object.entries(filters)
+    .filter(([key, value]) => {
+      if (!key) {
+        return false;
+      }
+
+      if (value === null || value === undefined) {
+        return false;
+      }
+
+      if (typeof value === 'string') {
+        return value.trim().length > 0;
+      }
+
+      return true;
+    })
+    .map(([key, value]) => {
+      const normalizedKey = key.toString().trim().toLowerCase();
+      const normalizedValue = typeof value === 'string' ? value.trim().toLowerCase() : String(value);
+      return `${normalizedKey}:${normalizedValue}`;
+    })
+    .sort()
+    .join('|');
+}
+
+function normalizeCachePageSize(pageSize) {
+  if (pageSize === Number.POSITIVE_INFINITY) {
+    return 'all';
+  }
+
+  if (Number.isFinite(pageSize) && pageSize > 0) {
+    return String(Math.floor(pageSize));
+  }
+
+  return 'default';
+}
+
+function createItemsCacheKey({ page, pageSize, searchQuery, filters } = {}) {
+  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
+  const safePageSize = normalizeCachePageSize(pageSize);
+  const normalizedQuery = normalizeCacheQuery(searchQuery);
+  const normalizedFilters = normalizeCacheFilters(filters);
+  return `${safePage}|${safePageSize}|${normalizedQuery}|${normalizedFilters}`;
+}
+
+export function getCachedItemsPage(descriptor = {}) {
+  const key = createItemsCacheKey(descriptor);
+  const cached = state.itemsCache[key];
+  if (!cached) {
+    return null;
+  }
+
+  const items = Array.isArray(cached.items) ? [...cached.items] : [];
+  const totalItems = Number.isFinite(cached.totalItems) && cached.totalItems >= 0
+    ? Math.floor(cached.totalItems)
+    : items.length;
+
+  return { items, totalItems };
+}
+
+export function setCachedItemsPage(descriptor = {}, payload = {}) {
+  const key = createItemsCacheKey(descriptor);
+  const items = Array.isArray(payload.items) ? [...payload.items] : [];
+  const totalItems = Number.isFinite(payload.totalItems) && payload.totalItems >= 0
+    ? Math.floor(payload.totalItems)
+    : items.length;
+
+  state.itemsCache[key] = { items, totalItems };
+  return state.itemsCache[key];
+}
+
+export function clearItemsCache() {
+  state.itemsCache = Object.create(null);
 }
 
 export function setFilters(filters = {}, { replace = false } = {}) {
@@ -105,6 +195,7 @@ export function setItems(items = []) {
 }
 
 export function setAllItems(items = []) {
+  clearItemsCache();
   state.allItems = Array.isArray(items) ? [...items] : [];
   notify();
 }
