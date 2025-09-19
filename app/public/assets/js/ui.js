@@ -45,6 +45,187 @@ const fallbackRarity = {
   className: 'border border-slate-800 bg-slate-900/60 text-slate-300',
 };
 
+const AUTH_CONTAINER_SELECTORS = ['[data-js="auth"]', '#profile-container'];
+const AUTH_HANDLER_KEY = typeof Symbol === 'function' ? Symbol('auth-handler') : '__authHandler';
+
+function findAuthContainer() {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const root = refs.root instanceof HTMLElement ? refs.root : null;
+  for (const selector of AUTH_CONTAINER_SELECTORS) {
+    if (!selector) {
+      continue;
+    }
+
+    if (root) {
+      const withinRoot = root.querySelector(selector);
+      if (withinRoot instanceof HTMLElement) {
+        return withinRoot;
+      }
+    }
+
+    const globalMatch = document.querySelector(selector);
+    if (globalMatch instanceof HTMLElement) {
+      return globalMatch;
+    }
+  }
+
+  return null;
+}
+
+function ensureAuthElements() {
+  const container = findAuthContainer();
+  if (!container) {
+    return null;
+  }
+
+  if (container.dataset.authInitialized !== 'true') {
+    container.setAttribute('role', container.getAttribute('role') || 'status');
+    container.setAttribute('aria-live', container.getAttribute('aria-live') || 'polite');
+    container.setAttribute('aria-atomic', container.getAttribute('aria-atomic') || 'true');
+    container.dataset.authInitialized = 'true';
+  }
+
+  let status = container.querySelector('[data-auth-status]');
+  if (!(status instanceof HTMLElement)) {
+    status = document.createElement('span');
+    status.dataset.authStatus = 'true';
+    status.className = 'text-sm font-medium text-slate-200';
+    container.appendChild(status);
+  }
+
+  let action = container.querySelector('[data-auth-action]');
+  if (!(action instanceof HTMLButtonElement)) {
+    if (action instanceof HTMLElement) {
+      action.remove();
+    }
+
+    action = document.createElement('button');
+    action.type = 'button';
+    action.dataset.authAction = 'login';
+    action.className =
+      'ml-3 inline-flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60';
+    container.appendChild(action);
+  }
+
+  return { container, status, action };
+}
+
+function unbindAuthAction(button) {
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const previous = button[AUTH_HANDLER_KEY];
+  if (typeof previous === 'function') {
+    button.removeEventListener('click', previous);
+    delete button[AUTH_HANDLER_KEY];
+  }
+}
+
+function bindAuthAction(button, handler) {
+  if (!(button instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  unbindAuthAction(button);
+
+  if (typeof handler !== 'function') {
+    button.disabled = true;
+    button.setAttribute('aria-disabled', 'true');
+    return;
+  }
+
+  button[AUTH_HANDLER_KEY] = handler;
+  button.addEventListener('click', handler);
+  button.disabled = false;
+  button.removeAttribute('aria-disabled');
+}
+
+function formatUserDisplayName(user) {
+  if (!user || typeof user !== 'object') {
+    return 'Demo Nutzer';
+  }
+
+  const properties = ['displayName', 'name', 'username'];
+  for (const property of properties) {
+    const value = user[property];
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+
+  if (typeof user.email === 'string') {
+    const [local] = user.email.split('@');
+    if (local && local.trim().length > 0) {
+      return local.trim();
+    }
+  }
+
+  return 'Demo Nutzer';
+}
+
+export function renderAuthState(user, { isLoading = false, onLogin, onLogout } = {}) {
+  const elements = ensureAuthElements();
+  if (!elements) {
+    return false;
+  }
+
+  const { container, status, action } = elements;
+  const authenticated = Boolean(user);
+  const loading = Boolean(isLoading);
+  const displayName = formatUserDisplayName(user);
+
+  container.dataset.authState = authenticated ? 'authenticated' : 'anonymous';
+  container.setAttribute('aria-busy', loading ? 'true' : 'false');
+
+  if (authenticated) {
+    status.textContent = `Angemeldet als ${displayName}`;
+  } else if (loading) {
+    status.textContent = 'Anmeldung wird vorbereitet…';
+  } else {
+    status.textContent = 'Nicht angemeldet';
+  }
+
+  action.dataset.authAction = authenticated ? 'logout' : 'login';
+  action.textContent = loading ? 'Bitte warten…' : authenticated ? 'Abmelden' : 'Einloggen';
+
+  const label = authenticated ? `Als ${displayName} abmelden` : 'Einloggen';
+  const announcedLabel = loading ? 'Vorgang wird ausgeführt' : label;
+  action.setAttribute('aria-label', announcedLabel);
+  action.setAttribute('title', announcedLabel);
+
+  if (loading) {
+    action.disabled = true;
+    action.setAttribute('aria-disabled', 'true');
+  }
+
+  const handler = loading
+    ? null
+    : authenticated
+    ? typeof onLogout === 'function'
+      ? (event) => {
+          event.preventDefault();
+          onLogout();
+        }
+      : null
+    : typeof onLogin === 'function'
+    ? (event) => {
+        event.preventDefault();
+        onLogin();
+      }
+    : null;
+
+  bindAuthAction(action, handler);
+
+  return true;
+}
+
 function ensureToastContainer() {
   if (typeof document === 'undefined') {
     return null;

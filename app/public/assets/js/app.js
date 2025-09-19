@@ -9,11 +9,12 @@ import {
   setSearchQuery,
   subscribe,
 } from './state.js';
-import { getItems, loadItemById } from './api.js';
+import { getItems, getUser, loadItemById, login, logout } from './api.js';
 
 import {
   buildItemDetailView,
   buildMissingItemDetail,
+  renderAuthState,
   renderEmptyState,
   renderGrid,
   renderSkeleton,
@@ -70,6 +71,10 @@ let currentModalItemId = null;
 let modalCloseHistoryMode = 'replace';
 let activeModalRequestToken = 0;
 let lastItemLoadFailed = false;
+
+let authUser = null;
+let authPending = false;
+let authUiAvailable = false;
 
 
 function isFocusableElement(element) {
@@ -252,6 +257,100 @@ function registerEventListeners() {
   setupBackToTop();
   bindHistoryListener();
   bindPaginationEvents();
+}
+
+function isPromiseLike(value) {
+  return (
+    value !== null &&
+    (typeof value === 'object' || typeof value === 'function') &&
+    typeof value.then === 'function'
+  );
+}
+
+function updateAuthUi({ user = authUser, loading = authPending } = {}) {
+  authUser = user ?? null;
+  authPending = Boolean(loading);
+  authUiAvailable = renderAuthState(authUser, {
+    isLoading: authPending,
+    onLogin: handleAuthLogin,
+    onLogout: handleAuthLogout,
+  });
+
+  return authUiAvailable;
+}
+
+function initializeAuthControls() {
+  const hasUi = updateAuthUi();
+  if (!hasUi) {
+    return;
+  }
+
+  let currentUser;
+  try {
+    currentUser = getUser();
+  } catch (error) {
+    console.error('Aktueller Benutzer konnte nicht geladen werden', error);
+    updateAuthUi({ user: null, loading: false });
+    return;
+  }
+
+  if (isPromiseLike(currentUser)) {
+    updateAuthUi({ loading: true });
+    currentUser
+      .then((user) => {
+        updateAuthUi({ user: user ?? null, loading: false });
+      })
+      .catch((error) => {
+        console.error('Aktueller Benutzer konnte nicht geladen werden', error);
+        updateAuthUi({ user: null, loading: false });
+      });
+  } else {
+    updateAuthUi({ user: currentUser ?? null, loading: false });
+  }
+}
+
+async function handleAuthLogin() {
+  if (authPending) {
+    return;
+  }
+
+  updateAuthUi({ loading: true });
+
+  try {
+    const user = await login();
+    updateAuthUi({ user: user ?? null, loading: false });
+    if (authUiAvailable) {
+      showToast('Du bist jetzt angemeldet.', { type: 'success' });
+    }
+  } catch (error) {
+    console.error('Anmeldung fehlgeschlagen', error);
+    updateAuthUi({ loading: false });
+    if (authUiAvailable) {
+      showToast('Anmeldung fehlgeschlagen.', { type: 'error' });
+    }
+  }
+}
+
+async function handleAuthLogout() {
+  if (authPending) {
+    return;
+  }
+
+  updateAuthUi({ loading: true });
+
+  try {
+    await logout();
+    updateAuthUi({ user: null, loading: false });
+    if (authUiAvailable) {
+      showToast('Du bist nun abgemeldet.', { type: 'info' });
+    }
+  } catch (error) {
+    console.error('Abmeldung fehlgeschlagen', error);
+    updateAuthUi({ loading: false });
+    if (authUiAvailable) {
+      showToast('Abmeldung fehlgeschlagen.', { type: 'error' });
+    }
+  }
 }
 
 function toggleMobileMenu(force) {
@@ -1375,6 +1474,7 @@ function init() {
   registerStateSync();
   hydrateStateFromUrl();
   registerEventListeners();
+  initializeAuthControls();
   loadAndRenderItems();
 }
 
