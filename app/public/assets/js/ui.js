@@ -400,6 +400,35 @@ function createInfoPill(text, colorClass, fallbackText) {
   return pill;
 }
 
+function resolveItemImage(item) {
+  if (!item || typeof item !== 'object') {
+    return '';
+  }
+
+  const candidates = [
+    item.image,
+    item.imageUrl,
+    item.imageURL,
+    item.image_url,
+    item.thumbnail,
+    item.thumbnailUrl,
+    item.thumbnail_url,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue;
+    }
+
+    const trimmed = candidate.trim();
+    if (trimmed.length > 0) {
+      return trimmed;
+    }
+  }
+
+  return '';
+}
+
 function createItemCard(item) {
   const article = document.createElement('article');
   article.className = 'relative rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-2xl shadow-emerald-500/5';
@@ -415,7 +444,19 @@ function createItemCard(item) {
 
   const avatar = document.createElement('span');
   avatar.className = 'relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-500/10 text-lg font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-500/30';
-  avatar.textContent = normalizeLabel(item.name, '?').charAt(0).toUpperCase() || '?';
+  const fallbackInitial = normalizeLabel(item.name, '?').charAt(0).toUpperCase() || '?';
+  const imageUrl = resolveItemImage(item);
+
+  if (imageUrl) {
+    const image = document.createElement('img');
+    image.src = imageUrl;
+    image.alt = `Abbildung von ${normalizeLabel(item.name, 'diesem Item')}`;
+    image.loading = 'lazy';
+    image.className = 'h-full w-full object-cover';
+    avatar.appendChild(image);
+  } else {
+    avatar.textContent = fallbackInitial;
+  }
   header.appendChild(avatar);
 
   const meta = document.createElement('div');
@@ -829,15 +870,21 @@ export function renderGrid(items = [], meta = {}) {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   const wrapper = document.createElement('div');
   wrapper.className = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3';
 
   items.forEach((item) => {
-    wrapper.appendChild(createItemCard(item));
+    const card = createItemCard(item);
+    if (card) {
+      wrapper.appendChild(card);
+    }
   });
 
+  fragment.appendChild(wrapper);
+
   grid.innerHTML = '';
-  grid.appendChild(wrapper);
+  grid.appendChild(fragment);
   grid.setAttribute('aria-busy', 'false');
 
   if (empty) {
@@ -892,6 +939,7 @@ export function renderSkeleton(count = 6, meta) {
   const numeric = Number.isFinite(count) ? Math.floor(count) : 0;
   const safeCount = Math.max(1, Math.min(12, numeric || 6));
 
+  const fragment = document.createDocumentFragment();
   const wrapper = document.createElement('div');
   wrapper.className = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-3';
 
@@ -899,8 +947,10 @@ export function renderSkeleton(count = 6, meta) {
     wrapper.appendChild(createSkeletonCard());
   }
 
+  fragment.appendChild(wrapper);
+
   grid.innerHTML = '';
-  grid.appendChild(wrapper);
+  grid.appendChild(fragment);
   grid.setAttribute('aria-busy', 'true');
 
   if (empty) {
