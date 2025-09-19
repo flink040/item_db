@@ -9,6 +9,9 @@ const ALL_ITEMS_PAGE_SIZE = Number.POSITIVE_INFINITY;
 let supabaseClientPromise = null;
 let supabaseConfigSignature = null;
 
+const MOCK_AUTH_DELAY_MS = 180;
+let mockAuthenticatedUser = null;
+
 function sanitizeConfigString(value) {
   if (typeof value === 'string') {
     const trimmed = value.trim();
@@ -20,6 +23,94 @@ function sanitizeConfigString(value) {
   }
 
   return sanitizeConfigString(String(value));
+}
+
+function waitForAuth(duration = MOCK_AUTH_DELAY_MS) {
+  const numeric = Number.isFinite(duration) ? Math.max(0, Math.min(600, Math.floor(duration))) : 0;
+  if (numeric <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    setTimeout(resolve, numeric);
+  });
+}
+
+function normalizeOptionalString(value) {
+  if (typeof value !== 'string') {
+    return '';
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : '';
+}
+
+function resolveDisplayName(credentials) {
+  if (!credentials || typeof credentials !== 'object') {
+    return 'Demo Nutzer';
+  }
+
+  const candidates = ['displayName', 'name', 'username'];
+  for (const key of candidates) {
+    const candidate = normalizeOptionalString(credentials[key]);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  const emailCandidate = normalizeOptionalString(credentials.email);
+  if (emailCandidate) {
+    const [localPart] = emailCandidate.split('@');
+    if (localPart && localPart.trim().length > 0) {
+      return localPart.trim();
+    }
+  }
+
+  return 'Demo Nutzer';
+}
+
+function cloneUser(user) {
+  if (!user || typeof user !== 'object') {
+    return null;
+  }
+
+  const clone = {
+    id: normalizeOptionalString(user.id) || 'mock-user',
+    displayName: normalizeOptionalString(user.displayName) || 'Demo Nutzer',
+  };
+
+  const username = normalizeOptionalString(user.username ?? user.name);
+  if (username) {
+    clone.username = username;
+  }
+
+  const email = normalizeOptionalString(user.email);
+  if (email) {
+    clone.email = email;
+  }
+
+  return clone;
+}
+
+function createMockUser(credentials) {
+  const displayName = resolveDisplayName(credentials);
+  const username = normalizeOptionalString(credentials?.username ?? credentials?.name);
+  const email = normalizeOptionalString(credentials?.email);
+
+  const user = {
+    id: 'mock-user',
+    displayName,
+  };
+
+  if (username) {
+    user.username = username;
+  }
+
+  if (email) {
+    user.email = email;
+  }
+
+  return user;
 }
 
 function readRuntimeConfig() {
@@ -439,3 +530,20 @@ export async function getItemById(id) {
 }
 
 export const loadItemById = getItemById;
+
+export async function login(credentials = {}) {
+  await waitForAuth();
+  mockAuthenticatedUser = createMockUser(credentials);
+  return cloneUser(mockAuthenticatedUser);
+}
+
+export async function logout() {
+  await waitForAuth(Math.floor(MOCK_AUTH_DELAY_MS / 2));
+  mockAuthenticatedUser = null;
+  return true;
+}
+
+export async function getUser() {
+  await Promise.resolve();
+  return cloneUser(mockAuthenticatedUser);
+}
