@@ -319,7 +319,8 @@ body.opidb {
   max-width: 100%;
   height: auto;
 }
-.opidb [hidden] {
+.opidb [hidden],
+.opidb [hidden]:is(.flex, .grid, .block, .inline-flex, .inline) {
   display: none;
 }
 .opidb .\!container {
