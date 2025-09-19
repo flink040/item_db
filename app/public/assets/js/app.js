@@ -1,8 +1,10 @@
 import { refs } from './dom.js';
 import {
   getState,
+  getFilters,
   getCachedItemsPage,
   setAllItems,
+  setFilter,
   setFilters,
   setItems,
   setCachedItemsPage,
@@ -48,10 +50,14 @@ const MIN_SKELETON_COUNT = 6;
 const MAX_SKELETON_COUNT = 12;
 const SEARCH_DEBOUNCE_MS = 250;
 const URL_SEARCH_KEY = 'q';
-const URL_CATEGORY_KEY = 'cat';
+const URL_TYPE_KEY = 'type';
+const URL_MATERIAL_KEY = 'mat';
+const URL_RARITY_KEY = 'rarity';
 const URL_PAGE_KEY = 'page';
 const URL_PAGE_SIZE_KEY = 'per';
 
+const URL_MATERIAL_FALLBACK_KEY = 'material';
+const URL_RARITY_FALLBACK_KEY = 'cat';
 const URL_ITEM_KEY = 'item';
 const FETCH_ALL_PAGE_SIZE = Number.POSITIVE_INFINITY;
 const DEFAULT_PAGE_SIZES = [6, 9, 12];
@@ -238,6 +244,18 @@ function registerEventListeners() {
   if (searchInput && searchInput.dataset.searchBound !== 'true') {
     searchInput.addEventListener('input', handleSearchInput);
     searchInput.dataset.searchBound = 'true';
+  }
+
+  const typeSelect = refs.filterType;
+  if (typeSelect && typeSelect.dataset.filterBound !== 'true') {
+    typeSelect.addEventListener('change', handleFilterChange);
+    typeSelect.dataset.filterBound = 'true';
+  }
+
+  const materialSelect = refs.filterMaterial;
+  if (materialSelect && materialSelect.dataset.filterBound !== 'true') {
+    materialSelect.addEventListener('change', handleFilterChange);
+    materialSelect.dataset.filterBound = 'true';
   }
 
   const raritySelect = refs.filterRarity;
@@ -716,6 +734,7 @@ function filterItems(items, searchQuery, filters) {
   const sanitizedFilters = sanitizeFilters(filters);
   const rarityFilter = normalizeForComparison(sanitizedFilters.rarity);
   const typeFilter = normalizeForComparison(sanitizedFilters.type);
+  const materialFilter = normalizeForComparison(sanitizedFilters.material);
   const categoryFilter = normalizeForComparison(sanitizedFilters.category);
 
   return items.filter((item) => {
@@ -754,6 +773,13 @@ function filterItems(items, searchQuery, filters) {
       }
     }
 
+    if (materialFilter) {
+      const itemMaterial = normalizeForComparison(item.material);
+      if (itemMaterial !== materialFilter) {
+        return false;
+      }
+    }
+
     if (categoryFilter) {
       const itemCategory = normalizeForComparison(item.category);
       const itemType = normalizeForComparison(item.type);
@@ -773,11 +799,14 @@ function buildEmptyStateCopy(searchQuery, filters) {
   if (searchQuery && searchQuery.trim()) {
     descriptors.push(`„${searchQuery.trim()}“`);
   }
-  if (sanitizedFilters.rarity) {
-    descriptors.push(`Seltenheit „${sanitizedFilters.rarity}“`);
-  }
   if (sanitizedFilters.type) {
     descriptors.push(`Typ „${sanitizedFilters.type}“`);
+  }
+  if (sanitizedFilters.material) {
+    descriptors.push(`Material „${sanitizedFilters.material}“`);
+  }
+  if (sanitizedFilters.rarity) {
+    descriptors.push(`Seltenheit „${sanitizedFilters.rarity}“`);
   }
 
   if (descriptors.length === 0) {
@@ -939,15 +968,27 @@ function readUrlState() {
 
   const params = new URLSearchParams(window.location.search);
   const query = (params.get(URL_SEARCH_KEY) ?? '').toString();
-  const category = (params.get(URL_CATEGORY_KEY) ?? '').toString();
+  const typeParam = (params.get(URL_TYPE_KEY) ?? '').toString();
+  const materialParam = (
+    params.get(URL_MATERIAL_KEY) ?? params.get(URL_MATERIAL_FALLBACK_KEY) ?? ''
+  ).toString();
+  const rarityParam = (
+    params.get(URL_RARITY_KEY) ?? params.get(URL_RARITY_FALLBACK_KEY) ?? ''
+  ).toString();
   const itemParam = (params.get(URL_ITEM_KEY) ?? '').toString();
   const pageParam = (params.get(URL_PAGE_KEY) ?? '').toString();
   const perParam = (params.get(URL_PAGE_SIZE_KEY) ?? '').toString();
 
 
   const filters = {};
-  if (category.trim()) {
-    filters.rarity = category.trim();
+  if (typeParam.trim()) {
+    filters.type = typeParam.trim();
+  }
+  if (materialParam.trim()) {
+    filters.material = materialParam.trim();
+  }
+  if (rarityParam.trim()) {
+    filters.rarity = rarityParam.trim();
   }
 
   const parsedPage = Number.parseInt(pageParam, 10);
@@ -1062,11 +1103,25 @@ function updateUrlFromState({ replace = false } = {}) {
   }
 
   const sanitizedFilters = sanitizeFilters(snapshot.filters);
-  if (sanitizedFilters.rarity) {
-    params.set(URL_CATEGORY_KEY, sanitizedFilters.rarity);
+  if (sanitizedFilters.type) {
+    params.set(URL_TYPE_KEY, sanitizedFilters.type);
   } else {
-    params.delete(URL_CATEGORY_KEY);
+    params.delete(URL_TYPE_KEY);
   }
+
+  if (sanitizedFilters.material) {
+    params.set(URL_MATERIAL_KEY, sanitizedFilters.material);
+  } else {
+    params.delete(URL_MATERIAL_KEY);
+  }
+  params.delete(URL_MATERIAL_FALLBACK_KEY);
+
+  if (sanitizedFilters.rarity) {
+    params.set(URL_RARITY_KEY, sanitizedFilters.rarity);
+  } else {
+    params.delete(URL_RARITY_KEY);
+  }
+  params.delete(URL_RARITY_FALLBACK_KEY);
 
   const safePage = Number.isFinite(snapshot.page) && snapshot.page > 0 ? Math.floor(snapshot.page) : 1;
   params.set(URL_PAGE_KEY, String(safePage));
@@ -1126,22 +1181,27 @@ function handleFilterChange(event) {
 
   cancelPendingSearchUpdate();
 
+  const filterName = (select.dataset.filter ?? select.name ?? '').toString().trim();
+  if (!filterName) {
+    return;
+  }
+
   const value = select.value ?? '';
   const normalized = value.trim();
-  const currentFilters = sanitizeFilters(getState().filters);
+  const currentFilters = sanitizeFilters(getFilters());
   const nextFilters = { ...currentFilters };
 
   if (normalized) {
-    nextFilters.rarity = normalized;
+    nextFilters[filterName] = normalized;
   } else {
-    delete nextFilters.rarity;
+    delete nextFilters[filterName];
   }
 
   if (areFiltersEqual(currentFilters, nextFilters)) {
     return;
   }
 
-  setFilters(nextFilters, { replace: true });
+  setFilter(filterName, normalized);
   setPage(1);
   applyFiltersAndRender();
   updateUrlFromState({ replace: false });
@@ -1160,12 +1220,28 @@ function handleSearchSubmit(event) {
   const formData = new FormData(form);
   const query = (formData.get('search') ?? '').toString();
   const rarity = (formData.get('rarity') ?? '').toString();
+  const type = (formData.get('type') ?? '').toString();
+  const material = (formData.get('material') ?? '').toString();
 
   const normalizedQuery = query.trim();
   const normalizedRarity = rarity.trim();
+  const normalizedType = type.trim();
+  const normalizedMaterial = material.trim();
 
-  const currentFilters = sanitizeFilters(getState().filters);
+  const currentFilters = sanitizeFilters(getFilters());
   const nextFilters = { ...currentFilters };
+
+  if (normalizedType) {
+    nextFilters.type = normalizedType;
+  } else {
+    delete nextFilters.type;
+  }
+
+  if (normalizedMaterial) {
+    nextFilters.material = normalizedMaterial;
+  } else {
+    delete nextFilters.material;
+  }
 
   if (normalizedRarity) {
     nextFilters.rarity = normalizedRarity;
@@ -1588,9 +1664,12 @@ async function loadAndRenderItems() {
   renderSkeleton(skeletonCount);
 
   try {
+    const sanitizedFilters = sanitizeFilters(snapshot.filters);
     const response = await getItems({
       page: 1,
       pageSize: FETCH_ALL_PAGE_SIZE,
+      search: snapshot.searchQuery,
+      filters: sanitizedFilters,
     });
 
     if (requestId !== activeRequestId) {
@@ -1631,6 +1710,18 @@ function registerStateSync() {
     const input = refs.searchInput;
     if (input && input.value !== snapshot.searchQuery) {
       input.value = snapshot.searchQuery;
+    }
+
+    const typeSelect = refs.filterType;
+    const type = typeof snapshot.filters?.type === 'string' ? snapshot.filters.type : '';
+    if (typeSelect && typeSelect.value !== type) {
+      typeSelect.value = type;
+    }
+
+    const materialSelect = refs.filterMaterial;
+    const material = typeof snapshot.filters?.material === 'string' ? snapshot.filters.material : '';
+    if (materialSelect && materialSelect.value !== material) {
+      materialSelect.value = material;
     }
 
     const raritySelect = refs.filterRarity;

@@ -1,5 +1,68 @@
+const FILTER_KEYS = ['type', 'material', 'rarity'];
+const FILTER_KEY_SET = new Set(FILTER_KEYS);
+
+function createDefaultFilters() {
+  const filters = {};
+  FILTER_KEYS.forEach((key) => {
+    filters[key] = '';
+  });
+  return filters;
+}
+
+function ensureFilterShape(source = {}) {
+  const next = { ...source };
+  FILTER_KEYS.forEach((key) => {
+    const value = next[key];
+    if (typeof value === 'string') {
+      next[key] = value;
+      return;
+    }
+
+    if (value === null || value === undefined) {
+      next[key] = '';
+      return;
+    }
+
+    next[key] = String(value);
+  });
+  return next;
+}
+
+function applyFilterValue(target, key, value) {
+  const normalizedKey = typeof key === 'string' ? key.trim() : '';
+  if (!normalizedKey || !target || typeof target !== 'object') {
+    return;
+  }
+
+  if (value === null || value === undefined) {
+    if (FILTER_KEY_SET.has(normalizedKey)) {
+      target[normalizedKey] = '';
+    } else {
+      delete target[normalizedKey];
+    }
+    return;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      if (FILTER_KEY_SET.has(normalizedKey)) {
+        target[normalizedKey] = '';
+      } else {
+        delete target[normalizedKey];
+      }
+      return;
+    }
+
+    target[normalizedKey] = trimmed;
+    return;
+  }
+
+  target[normalizedKey] = value;
+}
+
 const state = {
-  filters: {},
+  filters: createDefaultFilters(),
   searchQuery: '',
   page: 1,
   pageSize: 6,
@@ -19,6 +82,10 @@ export function getState() {
     items: [...state.items],
     allItems: [...state.allItems],
   };
+}
+
+export function getFilters() {
+  return { ...state.filters };
 }
 
 function notify() {
@@ -132,34 +199,31 @@ export function clearItemsCache() {
 }
 
 export function setFilters(filters = {}, { replace = false } = {}) {
-  const next = replace ? {} : { ...state.filters };
-  const entries = Object.entries(filters ?? {});
+  const base = replace ? createDefaultFilters() : ensureFilterShape(state.filters);
+  const next = { ...base };
 
-  if (replace && entries.length === 0) {
-    if (!shallowEqual(state.filters, {})) {
-      state.filters = {};
-      notify();
-    }
-    return { ...state.filters };
-  }
-
-  entries.forEach(([key, value]) => {
-    const normalized = typeof value === 'string' ? value.trim() : value;
-    if (normalized === '' || normalized === null || normalized === undefined) {
-      delete next[key];
-      return;
-    }
-
-    next[key] = normalized;
+  Object.entries(filters ?? {}).forEach(([key, value]) => {
+    applyFilterValue(next, key, value);
   });
 
-  const changed = !shallowEqual(next, state.filters);
+  const finalFilters = ensureFilterShape(next);
+  const changed = !shallowEqual(finalFilters, state.filters);
+
   if (changed) {
-    state.filters = next;
+    state.filters = finalFilters;
     notify();
   }
 
   return { ...state.filters };
+}
+
+export function setFilter(name, value) {
+  const key = typeof name === 'string' ? name.trim() : '';
+  if (!key) {
+    return { ...state.filters };
+  }
+
+  return setFilters({ [key]: value });
 }
 
 export function setSearchQuery(query = '') {

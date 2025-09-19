@@ -204,6 +204,58 @@ function sanitizeFilters(filters) {
   return sanitized;
 }
 
+function normalizeFilterValue(value) {
+  if (value === null || value === undefined) {
+    return '';
+  }
+
+  const stringValue = typeof value === 'string' ? value : String(value);
+  const trimmed = stringValue.trim();
+  return trimmed.length > 0 ? trimmed.toLowerCase() : '';
+}
+
+function getNormalizedFilterValues(filters = {}) {
+  return {
+    type: normalizeFilterValue(filters.type),
+    material: normalizeFilterValue(filters.material),
+    rarity: normalizeFilterValue(filters.rarity),
+  };
+}
+
+function filterItemsLocally(items, normalizedFilters = {}) {
+  const source = Array.isArray(items) ? items : [];
+  const { type, material, rarity } = normalizedFilters;
+
+  if (!type && !material && !rarity) {
+    return source.slice();
+  }
+
+  return source.filter((item) => {
+    if (type) {
+      const itemType = normalizeFilterValue(item?.type);
+      if (itemType !== type) {
+        return false;
+      }
+    }
+
+    if (material) {
+      const itemMaterial = normalizeFilterValue(item?.material);
+      if (itemMaterial !== material) {
+        return false;
+      }
+    }
+
+    if (rarity) {
+      const itemRarity = normalizeFilterValue(item?.rarity);
+      if (itemRarity !== rarity) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
 function normalizeListOptions(options = {}) {
   const rawPage = options.page ?? 1;
   const numericPage = Number(rawPage);
@@ -340,8 +392,18 @@ async function fetchItemsFromApi(options) {
     throw new Error('Ungültige API-Antwort.');
   }
 
-  const result = applyPagination(items, options);
-  const total = typeof payload?.total === 'number' ? payload.total : result.total;
+  const normalizedFilters = getNormalizedFilterValues(options.filters);
+  const filteredItems = filterItemsLocally(items, normalizedFilters);
+  const hasActiveFilters = Boolean(
+    normalizedFilters.type || normalizedFilters.material || normalizedFilters.rarity,
+  );
+
+  const result = applyPagination(filteredItems, options);
+  const total = hasActiveFilters
+    ? filteredItems.length
+    : typeof payload?.total === 'number'
+      ? payload.total
+      : filteredItems.length;
 
   return {
     items: result.items,
@@ -391,14 +453,27 @@ async function fetchItemsFromSupabase(options) {
     throw new Error('Supabase ist nicht konfiguriert.');
   }
 
-  const { data, error, count } = await client.from('items').select('*', { count: 'exact', head: false });
+  const { data, error, count } = await client
+    .from('items')
+    .select('*', { count: 'exact', head: false });
+  // TODO: Ergänze hier künftig optionale Filter (z. B. .eq('type', value)), wenn options.filters Werte enthalten.
   if (error) {
     throw error;
   }
 
   const items = Array.isArray(data) ? data : [];
-  const result = applyPagination(items, options);
-  const total = typeof count === 'number' ? count : result.total;
+  const normalizedFilters = getNormalizedFilterValues(options.filters);
+  const filteredItems = filterItemsLocally(items, normalizedFilters);
+  const hasActiveFilters = Boolean(
+    normalizedFilters.type || normalizedFilters.material || normalizedFilters.rarity,
+  );
+
+  const result = applyPagination(filteredItems, options);
+  const total = hasActiveFilters
+    ? filteredItems.length
+    : typeof count === 'number'
+      ? count
+      : filteredItems.length;
 
   return {
     items: result.items,
