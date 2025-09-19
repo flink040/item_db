@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent
+} from 'react'
 import type { SVGProps } from 'react'
 
 type Item = {
@@ -79,6 +87,38 @@ const rarityBadgeClasses: Record<string, string> = {
 
 const MAX_RECENT_SEARCHES = 5
 
+type ToastMessage = {
+  id: number
+  type: 'success' | 'error'
+  message: string
+}
+
+type ItemFormValues = {
+  name: string
+  itemType: string
+  material: string
+  rarity: string
+  lore: string
+  price: string
+  imageUrl: string
+}
+
+const initialItemFormValues: ItemFormValues = {
+  name: '',
+  itemType: '',
+  material: '',
+  rarity: '',
+  lore: '',
+  price: '',
+  imageUrl: ''
+}
+
+const createInitialItemFormValues = (): ItemFormValues => ({
+  ...initialItemFormValues
+})
+
+type ItemFormErrors = Partial<Record<keyof ItemFormValues, string>>
+
 function getRarityMeta(value?: string | null) {
   if (!value) {
     return {
@@ -110,6 +150,36 @@ export default function App() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
+  )
+  const [toasts, setToasts] = useState<ToastMessage[]>([])
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id))
+  }, [])
+
+  const showToast = useCallback(
+    (type: ToastMessage['type'], message: string) => {
+      const id = Date.now() + Math.random()
+      setToasts((prev) => [...prev, { id, type, message }])
+      window.setTimeout(() => {
+        dismissToast(id)
+      }, 4000)
+    },
+    [dismissToast]
+  )
+
+  const handleModalSuccess = useCallback(
+    (message: string) => {
+      showToast('success', message)
+    },
+    [showToast]
+  )
+
+  const handleModalError = useCallback(
+    (message: string) => {
+      showToast('error', message)
+    },
+    [showToast]
   )
 
   useEffect(() => {
@@ -254,6 +324,38 @@ export default function App() {
 
   return (
     <div className="min-h-full flex flex-col">
+      <div
+        className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex flex-col items-center gap-3 px-4 sm:items-end sm:px-6"
+        aria-live="assertive"
+      >
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            role={toast.type === 'error' ? 'alert' : 'status'}
+            className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg transition ${
+              toast.type === 'error'
+                ? 'border-rose-500/40 bg-rose-500/10 text-rose-100 shadow-rose-500/10'
+                : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100 shadow-emerald-500/10'
+            }`}
+          >
+            {toast.type === 'error' ? (
+              <AlertIcon className="h-5 w-5 flex-shrink-0" />
+            ) : (
+              <CheckIcon className="h-5 w-5 flex-shrink-0" />
+            )}
+            <div className="flex-1 leading-relaxed">{toast.message}</div>
+            <button
+              type="button"
+              onClick={() => dismissToast(toast.id)}
+              className="rounded-full p-1 text-slate-400 transition hover:bg-slate-900/60 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+              aria-label="Benachrichtigung schließen"
+            >
+              <CloseIcon className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
       <header className="relative z-50 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
           <div className="flex items-center gap-3">
@@ -338,14 +440,6 @@ export default function App() {
                     </p>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowItemModal(true)}
-                  className="hidden items-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-6 py-2.5 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 md:inline-flex"
-                >
-                  <PlusIcon className="h-4 w-4" />
-                  Item hinzufügen
-                </button>
               </div>
 
               <form className="space-y-8" aria-label="Items durchsuchen" onSubmit={handleSearchSubmit}>
@@ -368,7 +462,7 @@ export default function App() {
                   </div>
                 </label>
 
-                <div className="grid gap-4 md:grid-cols-3">
+                <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))_auto] md:items-end">
                   <label className="block" htmlFor="filter-type">
                     <span className="text-sm font-medium text-slate-300">Item-Typ</span>
                     <select
@@ -419,6 +513,17 @@ export default function App() {
                       ))}
                     </select>
                   </label>
+
+                  <div className="col-span-full md:col-auto md:self-end md:justify-self-end">
+                    <button
+                      type="button"
+                      onClick={() => setShowItemModal(true)}
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 md:w-auto md:px-6 md:py-2.5"
+                    >
+                      <PlusIcon className="h-4 w-4" />
+                      Item hinzufügen
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -501,25 +606,25 @@ export default function App() {
         </section>
       </main>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center p-4 md:hidden">
-        <button
-          type="button"
-          onClick={() => setShowItemModal(true)}
-          className="pointer-events-auto inline-flex w-full max-w-md items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-emerald-950 shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-        >
-          <PlusIcon className="h-4 w-4" />
-          Item hinzufügen
-        </button>
-      </div>
-
       {showProfileModal && <ProfileModal onClose={() => setShowProfileModal(false)} />}
-      {showItemModal && <ItemModal onClose={() => setShowItemModal(false)} />}
+      {showItemModal && (
+        <ItemModal
+          onClose={() => setShowItemModal(false)}
+          onSuccess={handleModalSuccess}
+          onError={handleModalError}
+        />
+      )}
     </div>
   )
 }
 
 type ModalProps = {
   onClose: () => void
+}
+
+type ItemModalProps = ModalProps & {
+  onSuccess: (message: string) => void
+  onError: (message: string) => void
 }
 
 function ProfileModal({ onClose }: ModalProps) {
@@ -597,10 +702,145 @@ function ProfileModal({ onClose }: ModalProps) {
   )
 }
 
-function ItemModal({ onClose }: ModalProps) {
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
+  const [formValues, setFormValues] = useState<ItemFormValues>(() => createInitialItemFormValues())
+  const [errors, setErrors] = useState<ItemFormErrors>({})
+  const [submitting, setSubmitting] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+
+  useEffect(() => {
+    nameInputRef.current?.focus()
+  }, [])
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [onClose])
+
+  const handleFieldChange = (
+    event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
+    const fieldName = event.target.name as keyof ItemFormValues
+    const fieldValue = event.target.value
+
+    setFormValues((prev) => ({
+      ...prev,
+      [fieldName]: fieldValue
+    }))
+
+    setErrors((prev) => {
+      if (!prev[fieldName]) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next[fieldName]
+      return next
+    })
+  }
+
+  const getFieldClassName = (field: keyof ItemFormValues) => {
+    const hasError = Boolean(errors[field])
+    return [
+      'mt-1 w-full rounded-lg border bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-2',
+      hasError
+        ? 'border-rose-500/60 focus:border-rose-400 focus:ring-rose-500/40'
+        : 'border-slate-800 focus:border-emerald-400 focus:ring-emerald-500/40'
+    ].join(' ')
+  }
+
+  const getErrorId = (field: keyof ItemFormValues) =>
+    errors[field] ? `item-modal-${field}-error` : undefined
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    onClose()
+
+    const trimmedName = formValues.name.trim()
+    const trimmedLore = formValues.lore.trim()
+    const trimmedImageUrl = formValues.imageUrl.trim()
+    const priceValue = formValues.price.trim()
+    const nextErrors: ItemFormErrors = {}
+
+    if (!trimmedName) {
+      nextErrors.name = 'Name ist erforderlich.'
+    }
+
+    if (!formValues.itemType) {
+      nextErrors.itemType = 'Item-Typ ist erforderlich.'
+    }
+
+    if (!formValues.material) {
+      nextErrors.material = 'Material ist erforderlich.'
+    }
+
+    if (!formValues.rarity) {
+      nextErrors.rarity = 'Seltenheit ist erforderlich.'
+    }
+
+    let normalizedPrice: number | null = null
+    if (priceValue) {
+      const parsedPrice = Number(priceValue.replace(',', '.'))
+      if (!Number.isFinite(parsedPrice)) {
+        nextErrors.price = 'Preis muss eine gültige Zahl sein.'
+      } else if (parsedPrice < 0) {
+        nextErrors.price = 'Preis darf nicht negativ sein.'
+      } else {
+        normalizedPrice = Math.round(parsedPrice * 100) / 100
+      }
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setErrors(nextErrors)
+      return
+    }
+
+    setSubmitting(true)
+
+    try {
+      const response = await fetch('/api/items', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          name: trimmedName,
+          itemType: formValues.itemType,
+          material: formValues.material,
+          rarity: formValues.rarity,
+          lore: trimmedLore ? trimmedLore : null,
+          price: priceValue ? normalizedPrice : null,
+          imageUrl: trimmedImageUrl ? trimmedImageUrl : null
+        })
+      })
+
+      if (!response.ok) {
+        throw new Error('Request failed')
+      }
+
+      const result = await response.json().catch(() => null)
+
+      if (!result || result.ok !== true) {
+        throw new Error('Invalid response')
+      }
+
+      onSuccess('Item gespeichert ✅')
+      setFormValues(createInitialItemFormValues())
+      setErrors({})
+      onClose()
+    } catch (error) {
+      onError('Fehler beim Speichern ❌')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -619,7 +859,7 @@ function ItemModal({ onClose }: ModalProps) {
                 Neues Item hinzufügen
               </h2>
               <p className="mt-1 text-sm text-slate-400">
-                Trage alle Pflichtfelder ein, um ein Item in die Datenbank aufzunehmen. In dieser Demo werden Daten noch nicht dauerhaft gespeichert.
+                Fülle alle Pflichtfelder aus, um ein neues Item zu erstellen und in die Datenbank aufzunehmen.
               </p>
             </div>
             <button
@@ -633,42 +873,42 @@ function ItemModal({ onClose }: ModalProps) {
           </div>
 
           <form className="mt-6 space-y-6" aria-label="Item hinzufügen" onSubmit={handleSubmit}>
-            <div className="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-              Diese Vorschau dient zur Demonstration. Hinterlege deine eigene Logik, um das Formular mit der API zu verbinden.
-            </div>
-
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block" htmlFor="modal-item-name">
-                <span className="text-sm font-medium text-slate-300">Item-Name</span>
+                <span className="text-sm font-medium text-slate-300">Name *</span>
                 <input
                   id="modal-item-name"
                   name="name"
+                  ref={nameInputRef}
                   type="text"
                   required
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  className={getFieldClassName('name')}
                   placeholder="Z. B. OP Netherite Helm"
+                  value={formValues.name}
+                  onChange={handleFieldChange}
+                  aria-invalid={Boolean(errors.name)}
+                  aria-describedby={getErrorId('name')}
                 />
-              </label>
-
-              <label className="block" htmlFor="modal-item-slug">
-                <span className="text-sm font-medium text-slate-300">Slug</span>
-                <input
-                  id="modal-item-slug"
-                  name="slug"
-                  type="text"
-                  required
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  placeholder="op-netherite-helm"
-                />
+                {errors.name && (
+                  <p id="item-modal-name-error" className="mt-2 text-sm text-rose-400">
+                    {errors.name}
+                  </p>
+                )}
               </label>
 
               <label className="block" htmlFor="modal-item-type">
-                <span className="text-sm font-medium text-slate-300">Item-Typ</span>
+                <span className="text-sm font-medium text-slate-300">Item-Typ *</span>
                 <select
                   id="modal-item-type"
-                  name="type"
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  name="itemType"
+                  required
+                  className={getFieldClassName('itemType')}
+                  value={formValues.itemType}
+                  onChange={handleFieldChange}
+                  aria-invalid={Boolean(errors.itemType)}
+                  aria-describedby={getErrorId('itemType')}
                 >
+                  <option value="">Bitte auswählen</option>
                   {typeOptions
                     .filter((option) => option.value)
                     .map((option) => (
@@ -677,15 +917,26 @@ function ItemModal({ onClose }: ModalProps) {
                       </option>
                     ))}
                 </select>
+                {errors.itemType && (
+                  <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
+                    {errors.itemType}
+                  </p>
+                )}
               </label>
 
               <label className="block" htmlFor="modal-item-material">
-                <span className="text-sm font-medium text-slate-300">Material</span>
+                <span className="text-sm font-medium text-slate-300">Material *</span>
                 <select
                   id="modal-item-material"
                   name="material"
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  required
+                  className={getFieldClassName('material')}
+                  value={formValues.material}
+                  onChange={handleFieldChange}
+                  aria-invalid={Boolean(errors.material)}
+                  aria-describedby={getErrorId('material')}
                 >
+                  <option value="">Bitte auswählen</option>
                   {materialOptions
                     .filter((option) => option.value)
                     .map((option) => (
@@ -694,15 +945,26 @@ function ItemModal({ onClose }: ModalProps) {
                       </option>
                     ))}
                 </select>
+                {errors.material && (
+                  <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
+                    {errors.material}
+                  </p>
+                )}
               </label>
 
               <label className="block" htmlFor="modal-item-rarity">
-                <span className="text-sm font-medium text-slate-300">Seltenheit</span>
+                <span className="text-sm font-medium text-slate-300">Seltenheit *</span>
                 <select
                   id="modal-item-rarity"
                   name="rarity"
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  required
+                  className={getFieldClassName('rarity')}
+                  value={formValues.rarity}
+                  onChange={handleFieldChange}
+                  aria-invalid={Boolean(errors.rarity)}
+                  aria-describedby={getErrorId('rarity')}
                 >
+                  <option value="">Bitte auswählen</option>
                   {rarityOptions
                     .filter((option) => option.value)
                     .map((option) => (
@@ -711,41 +973,59 @@ function ItemModal({ onClose }: ModalProps) {
                       </option>
                     ))}
                 </select>
+                {errors.rarity && (
+                  <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
+                    {errors.rarity}
+                  </p>
+                )}
               </label>
 
-              <label className="block" htmlFor="modal-item-stars">
-                <span className="text-sm font-medium text-slate-300">Stern-Level</span>
-                <select
-                  id="modal-item-stars"
-                  name="star_level"
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                >
-                  <option value="0">Kein Stern</option>
-                  <option value="1">1 Stern</option>
-                  <option value="2">2 Sterne</option>
-                  <option value="3">3 Sterne</option>
-                </select>
-              </label>
-
-              <label className="sm:col-span-2 block" htmlFor="modal-item-image">
-                <span className="text-sm font-medium text-slate-300">Bild-URL</span>
-                <input
-                  id="modal-item-image"
-                  name="image_url"
-                  type="url"
-                  className="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  placeholder="https://example.com/item.png"
+              <label className="sm:col-span-2 block" htmlFor="modal-item-lore">
+                <span className="text-sm font-medium text-slate-300">Lore / Beschreibung</span>
+                <textarea
+                  id="modal-item-lore"
+                  name="lore"
+                  rows={4}
+                  className={`${getFieldClassName('lore')} resize-none`}
+                  placeholder="Optionaler Beschreibungstext"
+                  value={formValues.lore}
+                  onChange={handleFieldChange}
                 />
               </label>
 
-              <label className="sm:col-span-2 block" htmlFor="modal-item-description">
-                <span className="text-sm font-medium text-slate-300">Beschreibung</span>
-                <textarea
-                  id="modal-item-description"
-                  name="description"
-                  rows={4}
-                  className="mt-1 w-full resize-none rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  placeholder="Optionaler Beschreibungstext (max. 500 Zeichen)"
+              <label className="block" htmlFor="modal-item-price">
+                <span className="text-sm font-medium text-slate-300">Preis</span>
+                <input
+                  id="modal-item-price"
+                  name="price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  inputMode="decimal"
+                  className={getFieldClassName('price')}
+                  placeholder="0.00"
+                  value={formValues.price}
+                  onChange={handleFieldChange}
+                  aria-invalid={Boolean(errors.price)}
+                  aria-describedby={getErrorId('price')}
+                />
+                {errors.price && (
+                  <p id="item-modal-price-error" className="mt-2 text-sm text-rose-400">
+                    {errors.price}
+                  </p>
+                )}
+              </label>
+
+              <label className="block" htmlFor="modal-item-image">
+                <span className="text-sm font-medium text-slate-300">Bild-URL</span>
+                <input
+                  id="modal-item-image"
+                  name="imageUrl"
+                  type="url"
+                  className={getFieldClassName('imageUrl')}
+                  placeholder="https://example.com/item.png"
+                  value={formValues.imageUrl}
+                  onChange={handleFieldChange}
                 />
               </label>
             </div>
@@ -760,9 +1040,11 @@ function ItemModal({ onClose }: ModalProps) {
               </button>
               <button
                 type="submit"
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                disabled={submitting}
+                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 disabled:cursor-not-allowed disabled:opacity-70"
               >
-                Formular schließen
+                {submitting && <SpinnerIcon className="h-4 w-4" />}
+                Speichern
               </button>
             </div>
           </form>
@@ -866,6 +1148,45 @@ function PlusIcon(props: SVGProps<SVGSVGElement>) {
     >
       <path d="M12 5v14" />
       <path d="M5 12h14" />
+    </svg>
+  )
+}
+
+function CheckIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m8.5 12.5 2.5 2.5 5-5" />
+    </svg>
+  )
+}
+
+function AlertIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 8v4" />
+      <path d="M12 16h.01" />
     </svg>
   )
 }
