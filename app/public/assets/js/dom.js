@@ -11,6 +11,12 @@ export const refs = {
   get searchInput() {
     return qs('[data-js="search-input"]');
   },
+  get filterType() {
+    return qs('[data-js="filter-type"]');
+  },
+  get filterMaterial() {
+    return qs('[data-js="filter-material"]');
+  },
   get filterRarity() {
     return qs('[data-js="filter-rarity"]');
   },
