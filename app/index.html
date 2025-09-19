@@ -61,7 +61,7 @@
                   Zur Liste
                 </a>
               </nav>
-              <div id="profile-container" class="flex items-center gap-3"></div>
+              <div id="profile-container" class="flex items-center gap-2"></div>
             </div>
           </div>
         </header>
@@ -282,6 +282,62 @@
         </div>
       </div>
     </div>
+    <div
+      data-profile-modal-overlay
+      class="fixed inset-0 z-[60] hidden flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur"
+      aria-hidden="true"
+    >
+      <div
+        class="relative w-full max-w-md rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
+        role="dialog"
+        aria-modal="true"
+      >
+        <button
+          type="button"
+          data-profile-close
+          class="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+          aria-label="Schließen"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
+            <path d="m6 6 12 12"></path>
+            <path d="m18 6-12 12"></path>
+          </svg>
+        </button>
+        <div class="space-y-6">
+          <div class="flex flex-col items-center gap-4">
+            <div
+              data-profile-avatar
+              class="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-900/80 text-lg font-semibold text-emerald-300 ring-1 ring-slate-800"
+            >
+              <img data-profile-avatar-image alt="" class="hidden h-full w-full object-cover" />
+              <div data-profile-avatar-fallback>–</div>
+            </div>
+            <div class="text-center">
+              <h3 data-profile-display-name class="text-lg font-semibold text-slate-100">Profil</h3>
+              <p data-profile-loading class="mt-2 text-sm text-slate-400">Statistiken werden geladen…</p>
+              <p data-profile-error class="mt-2 hidden text-sm text-rose-400">Statistiken konnten nicht geladen werden.</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-4 text-center sm:grid-cols-2">
+            <div class="rounded-2xl border border-slate-800/70 bg-slate-900/60 p-4">
+              <p class="text-xs uppercase tracking-wide text-slate-500">Eingereichte Items</p>
+              <p class="mt-2 text-3xl font-semibold text-emerald-300">
+                <span data-profile-items>–</span>
+              </p>
+            </div>
+            <div class="rounded-2xl border border-slate-800/70 bg-slate-900/60 p-4">
+              <p class="text-xs uppercase tracking-wide text-slate-500">Erhaltene Likes</p>
+              <p class="mt-2 text-3xl font-semibold text-emerald-300">
+                <span data-profile-likes>–</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <script src="/assets/js/supabase.js" defer></script>
+    <script src="/assets/js/auth.js" defer></script>
+    <script src="/assets/js/profile.js" defer></script>
     <script type="module" src="/assets/js/app.js"></script>
   </body>
 </html>

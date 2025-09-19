@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="de" class="h-full opidb">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Discord Auth Self-Check</title>
+    <meta name="description" content="Selbsttest für die Discord-Authentifizierung" />
+    <link rel="icon" href="/favicon.ico" />
+    <link rel="stylesheet" href="/assets/css/design.css" />
+  </head>
+  <body class="opidb h-full bg-slate-950 text-slate-100 font-sans antialiased">
+    <main class="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-10 px-6 py-12">
+      <header class="flex flex-col gap-2 text-left">
+        <p class="text-xs uppercase tracking-[0.35em] text-emerald-300/80">Diagnose</p>
+        <h1 class="text-3xl font-semibold text-slate-100">Discord Auth Self-Check</h1>
+        <p class="text-sm text-slate-400">
+          Diese Seite prüft Schritt für Schritt, ob die Discord-Anmeldung über Supabase korrekt eingerichtet ist.
+        </p>
+      </header>
+
+      <section class="space-y-6">
+        <h2 class="text-lg font-semibold text-slate-100">Status</h2>
+        <ul class="space-y-4" data-checklist>
+          <li class="rounded-2xl border border-slate-800/70 bg-slate-900/50 p-4" data-check="env">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <span class="text-sm font-semibold text-slate-200">Umgebungsvariablen verfügbar</span>
+              <span class="status-badge inline-flex items-center rounded-full border border-slate-800/60 px-3 py-1 text-xs font-semibold text-slate-400" data-status-badge>Ausstehend</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400" data-check-detail>Wird geprüft…</p>
+          </li>
+          <li class="rounded-2xl border border-slate-800/70 bg-slate-900/50 p-4" data-check="client">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <span class="text-sm font-semibold text-slate-200">Supabase-Client initialisiert</span>
+              <span class="status-badge inline-flex items-center rounded-full border border-slate-800/60 px-3 py-1 text-xs font-semibold text-slate-400" data-status-badge>Ausstehend</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400" data-check-detail>Wird geprüft…</p>
+          </li>
+          <li class="rounded-2xl border border-slate-800/70 bg-slate-900/50 p-4" data-check="session">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <span class="text-sm font-semibold text-slate-200">Session-Abfrage möglich</span>
+              <span class="status-badge inline-flex items-center rounded-full border border-slate-800/60 px-3 py-1 text-xs font-semibold text-slate-400" data-status-badge>Ausstehend</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400" data-check-detail>Wird geprüft…</p>
+          </li>
+          <li class="rounded-2xl border border-slate-800/70 bg-slate-900/50 p-4" data-check="oauth">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <span class="text-sm font-semibold text-slate-200">OAuth-Weiterleitung testen</span>
+              <span class="status-badge inline-flex items-center rounded-full border border-slate-800/60 px-3 py-1 text-xs font-semibold text-slate-400" data-status-badge>Bereit</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400" data-check-detail>Starte den Flow, um die Weiterleitung zu überprüfen.</p>
+            <button
+              type="button"
+              data-oauth-test
+              class="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            >
+              Discord Login testen
+            </button>
+          </li>
+          <li class="rounded-2xl border border-slate-800/70 bg-slate-900/50 p-4" data-check="result">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <span class="text-sm font-semibold text-slate-200">Login-Resultat</span>
+              <span class="status-badge inline-flex items-center rounded-full border border-slate-800/60 px-3 py-1 text-xs font-semibold text-slate-400" data-status-badge>Ausstehend</span>
+            </div>
+            <p class="mt-2 text-sm text-slate-400" data-check-detail>Kein Login durchgeführt.</p>
+            <div class="mt-4 hidden items-center gap-4" data-login-preview>
+              <div class="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-slate-900/80 text-base font-semibold text-emerald-300 ring-1 ring-slate-800">
+                <img alt="" data-login-avatar class="hidden h-full w-full object-cover" />
+                <span data-login-fallback>–</span>
+              </div>
+              <div>
+                <p class="text-sm font-semibold text-slate-100" data-login-name>–</p>
+                <p class="text-xs text-slate-500" data-login-email>–</p>
+              </div>
+            </div>
+          </li>
+        </ul>
+      </section>
+
+      <footer class="border-t border-slate-800/60 pt-6 text-sm text-slate-500">
+        <p>
+          Hinweis: Die Tests funktionieren nur, wenn die Supabase-Umgebungsvariablen korrekt gesetzt sind und Discord im Supabase-Dashboard aktiviert wurde.
+        </p>
+        <p class="mt-2">
+          <a class="text-emerald-300 hover:text-emerald-200" href="/">Zurück zur Startseite</a>
+        </p>
+      </footer>
+    </main>
+
+    <script src="/assets/js/supabase.js" defer></script>
+    <script src="/assets/js/auth-self-check.js" defer></script>
+  </body>
+</html>
