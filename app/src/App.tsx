@@ -107,6 +107,10 @@ export default function App() {
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [showItemModal, setShowItemModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isDesktop, setIsDesktop] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
+  )
 
   useEffect(() => {
     const run = async () => {
@@ -137,6 +141,57 @@ export default function App() {
     }
     return () => {
       body.classList.remove('overflow-hidden')
+    }
+  }, [showItemModal, showProfileModal])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+
+    const mediaQuery = window.matchMedia('(min-width: 768px)')
+
+    const handleChange = (event: MediaQueryListEvent) => {
+      setIsDesktop(event.matches)
+      if (event.matches) {
+        setIsMobileMenuOpen(false)
+      }
+    }
+
+    setIsDesktop(mediaQuery.matches)
+    if (typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', handleChange)
+    } else {
+      mediaQuery.addListener(handleChange)
+    }
+
+    return () => {
+      if (typeof mediaQuery.removeEventListener === 'function') {
+        mediaQuery.removeEventListener('change', handleChange)
+      } else {
+        mediaQuery.removeListener(handleChange)
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!isMobileMenuOpen) return
+    if (typeof window === 'undefined') return
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMobileMenuOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isMobileMenuOpen])
+
+  useEffect(() => {
+    if (showItemModal || showProfileModal) {
+      setIsMobileMenuOpen(false)
     }
   }, [showItemModal, showProfileModal])
 
@@ -189,6 +244,14 @@ export default function App() {
     setSearch(entry)
   }
 
+  const mobileMenuClassName = [
+    'flex-col gap-2 rounded-2xl border border-slate-800 bg-slate-900/80 p-3 text-sm text-slate-200 shadow-lg shadow-emerald-500/10 md:flex md:flex-row md:items-center md:gap-6 md:border-transparent md:bg-transparent md:p-0 md:shadow-none',
+    isMobileMenuOpen ? 'flex' : 'hidden'
+  ].join(' ')
+
+  const mobileMenuHidden = !isDesktop && !isMobileMenuOpen
+  const mobileMenuAriaHidden = isDesktop ? undefined : mobileMenuHidden
+
   return (
     <div className="min-h-full flex flex-col">
       <header className="relative z-50 border-b border-slate-800/80 bg-slate-950/70 backdrop-blur">
@@ -204,6 +267,40 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen((prev) => !prev)}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-800/80 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 md:hidden"
+              aria-expanded={isMobileMenuOpen}
+              aria-controls="app-menu"
+              aria-haspopup="true"
+              aria-label="Hauptnavigation umschalten"
+            >
+              <span className="relative flex h-2.5 w-4 flex-col justify-between">
+                <span className="block h-0.5 rounded bg-current" />
+                <span className="block h-0.5 rounded bg-current" />
+                <span className="block h-0.5 rounded bg-current" />
+              </span>
+              Menü
+            </button>
+
+            <nav
+              id="app-menu"
+              className={mobileMenuClassName}
+              hidden={mobileMenuHidden}
+              aria-hidden={mobileMenuAriaHidden}
+              role="navigation"
+              aria-label="Hauptnavigation"
+            >
+              <a
+                href="#item-grid"
+                className="rounded-xl px-3 py-2 transition hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                onClick={() => setIsMobileMenuOpen(false)}
+              >
+                Zur Liste
+              </a>
+            </nav>
+
             <button
               type="button"
               onClick={() => setShowProfileModal(true)}
@@ -338,7 +435,7 @@ export default function App() {
           </div>
         </section>
 
-        <section className="mx-auto w-full max-w-6xl px-6 py-12">
+        <section id="item-grid" className="mx-auto w-full max-w-6xl px-6 py-12">
           <div className="grid gap-12 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
             <div className="space-y-6">
               <div className="flex flex-col gap-2">
