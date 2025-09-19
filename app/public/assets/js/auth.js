@@ -16,7 +16,123 @@
     supabase: null,
     session: null,
     dropdownCleanup: null,
+    hashCleanupTimer: null,
+    hashCleanupAttempts: 0,
   };
+
+  const OAUTH_FRAGMENT_KEYS = [
+    'access_token',
+    'refresh_token',
+    'expires_in',
+    'expires_at',
+    'token_type',
+    'provider_token',
+    'provider_refresh_token',
+    'type',
+    'error',
+    'error_description',
+  ];
+
+  const HASH_CLEANUP_MAX_ATTEMPTS = 5;
+  const HASH_CLEANUP_RETRY_DELAY_MS = 180;
+
+  function normalizeHashFragment(value) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    return value.startsWith('#') ? value.slice(1) : value;
+  }
+
+  function hasOAuthHashParams(value) {
+    const fragment = normalizeHashFragment(value);
+    if (!fragment) {
+      return false;
+    }
+
+    try {
+      const params = new URLSearchParams(fragment);
+      return OAUTH_FRAGMENT_KEYS.some((key) => params.has(key));
+    } catch (error) {
+      console.warn('[auth] OAuth-Fragment konnte nicht geparst werden.', error);
+      const parts = fragment.split('&');
+      for (const part of parts) {
+        const [rawKey] = part.split('=');
+        if (!rawKey) {
+          continue;
+        }
+        try {
+          const key = decodeURIComponent(rawKey.trim());
+          if (OAUTH_FRAGMENT_KEYS.includes(key)) {
+            return true;
+          }
+        } catch (decodeError) {
+          void decodeError;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function clearHashCleanupTimer() {
+    if (state.hashCleanupTimer && typeof globalScope.clearTimeout === 'function') {
+      globalScope.clearTimeout(state.hashCleanupTimer);
+    }
+    state.hashCleanupTimer = null;
+  }
+
+  function getSupabaseProjectUrl() {
+    const client = state.supabase;
+    if (client && typeof client === 'object') {
+      const directUrl =
+        (typeof client.supabaseUrl === 'string' && client.supabaseUrl.trim()) ||
+        (typeof client.url === 'string' && client.url.trim());
+      if (directUrl) {
+        return directUrl;
+      }
+    }
+
+    const env = globalScope.__supabaseEnv;
+    if (env && typeof env === 'object' && typeof env.url === 'string' && env.url.trim()) {
+      return env.url.trim();
+    }
+
+    const config = globalScope.APP_CONFIG;
+    if (
+      config &&
+      typeof config === 'object' &&
+      typeof config.SUPABASE_URL === 'string' &&
+      config.SUPABASE_URL.trim()
+    ) {
+      return config.SUPABASE_URL.trim();
+    }
+
+    return null;
+  }
+
+  function buildOAuthRedirectUrl() {
+    if (!globalScope.location) {
+      return undefined;
+    }
+
+    const { origin, pathname, search } = globalScope.location;
+    const normalizedPath = typeof pathname === 'string' && pathname ? pathname : '/';
+    const baseTarget = `${origin}${normalizedPath}${search || ''}`;
+
+    const projectUrl = getSupabaseProjectUrl();
+    if (!projectUrl) {
+      return baseTarget;
+    }
+
+    try {
+      const callbackUrl = new URL('/auth/v1/callback', projectUrl);
+      callbackUrl.searchParams.set('redirect_to', baseTarget);
+      return callbackUrl.toString();
+    } catch (error) {
+      console.warn('[auth] Supabase Callback-URL konnte nicht erstellt werden.', error);
+      return baseTarget;
+    }
+  }
 
   const discordSvg =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="h-5 w-5"><path d="M20 4.54a19.76 19.76 0 0 0-4.93-1.54l-.23.47a18.13 18.13 0 0 1 3.85 1.56 14.82 14.82 0 0 0-5-1 14.82 14.82 0 0 0-5 1 18.28 18.28 0 0 1 3.84-1.56l-.23-.47A19.76 19.76 0 0 0 4 4.54 16.77 16.77 0 0 0 .94 16.86a19.93 19.93 0 0 0 7.08 2.61l1-1.34c-.6-.18-1.17-.42-1.72-.72l.26-.2c3.25 1.54 6.9 1.54 10.14 0l.26.2c-.55.3-1.12.54-1.72.72l1 1.34a19.94 19.94 0 0 0 7.08-2.61A16.77 16.77 0 0 0 20 4.54ZM9.08 14.28c-1 0-1.85-.9-1.85-2s.83-2 1.85-2 1.85.9 1.85 2-.83 2-1.85 2Zm5.84 0c-1 0-1.85-.9-1.85-2s.83-2 1.85-2 1.85.9 1.85 2-.83 2-1.85 2Z"/></svg>';
@@ -139,13 +255,16 @@
       button.classList.add('cursor-wait', 'opacity-70');
 
       try {
-        const redirectTo = globalScope.location ? globalScope.location.origin : undefined;
+        const redirectTo = buildOAuthRedirectUrl();
+        const oauthOptions = {
+          scopes: 'identify email',
+        };
+        if (typeof redirectTo === 'string' && redirectTo.length > 0) {
+          oauthOptions.redirectTo = redirectTo;
+        }
         await state.supabase.auth.signInWithOAuth({
           provider: 'discord',
-          options: {
-            scopes: 'identify email',
-            redirectTo,
-          },
+          options: oauthOptions,
         });
       } catch (error) {
         console.error('[auth] Discord Login fehlgeschlagen.', error);
@@ -328,6 +447,103 @@
     }
   }
 
+  function cleanupOAuthHashIfPresent() {
+    if (!globalScope.location) {
+      return false;
+    }
+
+    const { hash, pathname, search, origin } = globalScope.location;
+    if (!hasOAuthHashParams(hash)) {
+      return true;
+    }
+
+    try {
+      const params = new URLSearchParams(normalizeHashFragment(hash));
+      const errorCode = params.get('error');
+      const errorDescription = params.get('error_description');
+      if (errorCode || errorDescription) {
+        const messageParts = [errorCode, errorDescription].filter((part) => typeof part === 'string' && part.trim().length > 0);
+        if (messageParts.length > 0) {
+          console.error('[auth] OAuth-Redirect Fehler:', messageParts.join(' – '));
+        }
+      }
+
+      const historyAvailable =
+        globalScope.history && typeof globalScope.history.replaceState === 'function';
+      const newUrl = `${origin || ''}${pathname}${search || ''}`;
+
+      if (historyAvailable) {
+        try {
+          globalScope.history.replaceState(globalScope.history.state ?? null, '', newUrl);
+        } catch (historyError) {
+          console.warn('[auth] history.replaceState fehlgeschlagen. Fallback auf location.replace().', historyError);
+          globalScope.location.replace(newUrl);
+          return true;
+        }
+      } else if (typeof globalScope.location.replace === 'function') {
+        globalScope.location.replace(newUrl);
+        return true;
+      }
+
+      if (hasOAuthHashParams(globalScope.location.hash)) {
+        try {
+          globalScope.location.hash = '';
+        } catch (hashError) {
+          console.warn('[auth] OAuth-Fragment konnte nicht über location.hash entfernt werden.', hashError);
+        }
+      }
+
+      return !hasOAuthHashParams(globalScope.location.hash);
+    } catch (error) {
+      console.error('[auth] OAuth-Fragment konnte nicht bereinigt werden.', error);
+      return false;
+    }
+  }
+
+  function scheduleOAuthHashCleanup(immediate = false) {
+    if (!globalScope) {
+      return;
+    }
+
+    clearHashCleanupTimer();
+
+    if (!hasOAuthHashParams(globalScope.location?.hash)) {
+      state.hashCleanupAttempts = 0;
+      return;
+    }
+
+    if (typeof globalScope.setTimeout !== 'function') {
+      cleanupOAuthHashIfPresent();
+      return;
+    }
+
+    const executeCleanup = () => {
+      const cleaned = cleanupOAuthHashIfPresent();
+      if (cleaned) {
+        state.hashCleanupAttempts = 0;
+        clearHashCleanupTimer();
+        return;
+      }
+
+      state.hashCleanupAttempts += 1;
+      if (state.hashCleanupAttempts >= HASH_CLEANUP_MAX_ATTEMPTS) {
+        console.warn('[auth] OAuth-Fragment konnte trotz mehrerer Versuche nicht entfernt werden.');
+        state.hashCleanupAttempts = 0;
+        clearHashCleanupTimer();
+        return;
+      }
+
+      const retryDelay = HASH_CLEANUP_RETRY_DELAY_MS * Math.max(1, Math.min(state.hashCleanupAttempts, 4));
+      state.hashCleanupTimer = globalScope.setTimeout(executeCleanup, retryDelay);
+    };
+
+    if (immediate) {
+      executeCleanup();
+    } else {
+      state.hashCleanupTimer = globalScope.setTimeout(executeCleanup, HASH_CLEANUP_RETRY_DELAY_MS);
+    }
+  }
+
   async function refreshSession() {
     if (!state.supabase) {
       state.session = null;
@@ -354,6 +570,7 @@
     state.supabase.auth.onAuthStateChange((_event, session) => {
       state.session = session || null;
       render();
+      scheduleOAuthHashCleanup(true);
     });
   }
 
@@ -379,11 +596,21 @@
     render();
 
     if (!state.supabase) {
+      scheduleOAuthHashCleanup(true);
       return;
     }
 
     await exchangeCodeIfPresent();
     await refreshSession();
+    scheduleOAuthHashCleanup(true);
     subscribeToAuthChanges();
   })();
+ 
+  if (typeof globalScope.addEventListener === 'function') {
+    globalScope.addEventListener('hashchange', () => {
+      if (hasOAuthHashParams(globalScope.location?.hash)) {
+        scheduleOAuthHashCleanup(true);
+      }
+    });
+  }
 })();

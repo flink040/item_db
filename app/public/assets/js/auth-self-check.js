@@ -28,6 +28,167 @@
     ready: 'Bereit',
   };
 
+  const OAUTH_FRAGMENT_KEYS = [
+    'access_token',
+    'refresh_token',
+    'expires_in',
+    'expires_at',
+    'token_type',
+    'provider_token',
+    'provider_refresh_token',
+    'type',
+    'error',
+    'error_description',
+  ];
+
+  const HASH_CLEANUP_MAX_ATTEMPTS = 5;
+  const HASH_CLEANUP_RETRY_DELAY_MS = 180;
+
+  let hashCleanupTimer = null;
+  let hashCleanupAttempts = 0;
+
+  function normalizeHashFragment(value) {
+    if (typeof value !== 'string') {
+      return '';
+    }
+    return value.startsWith('#') ? value.slice(1) : value;
+  }
+
+  function hasOAuthHashParams(value) {
+    const fragment = normalizeHashFragment(value);
+    if (!fragment) {
+      return false;
+    }
+
+    try {
+      const params = new URLSearchParams(fragment);
+      return OAUTH_FRAGMENT_KEYS.some((key) => params.has(key));
+    } catch (error) {
+      console.warn('[auth-check] OAuth-Fragment konnte nicht geparst werden.', error);
+      const parts = fragment.split('&');
+      for (const part of parts) {
+        const [rawKey] = part.split('=');
+        if (!rawKey) {
+          continue;
+        }
+        try {
+          const key = decodeURIComponent(rawKey.trim());
+          if (OAUTH_FRAGMENT_KEYS.includes(key)) {
+            return true;
+          }
+        } catch (decodeError) {
+          void decodeError;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function clearHashCleanupTimer() {
+    if (hashCleanupTimer && typeof globalScope.clearTimeout === 'function') {
+      globalScope.clearTimeout(hashCleanupTimer);
+    }
+    hashCleanupTimer = null;
+  }
+
+  function cleanupOAuthHashIfPresent() {
+    if (!globalScope.location) {
+      return false;
+    }
+
+    const { hash, pathname, search, origin } = globalScope.location;
+    if (!hasOAuthHashParams(hash)) {
+      return true;
+    }
+
+    try {
+      const params = new URLSearchParams(normalizeHashFragment(hash));
+      const errorCode = params.get('error');
+      const errorDescription = params.get('error_description');
+      if (errorCode || errorDescription) {
+        const messageParts = [errorCode, errorDescription].filter((part) => typeof part === 'string' && part.trim().length > 0);
+        if (messageParts.length > 0) {
+          console.error('[auth-check] OAuth-Redirect Fehler:', messageParts.join(' – '));
+        }
+      }
+
+      const historyAvailable =
+        globalScope.history && typeof globalScope.history.replaceState === 'function';
+      const newUrl = `${origin || ''}${pathname}${search || ''}`;
+
+      if (historyAvailable) {
+        try {
+          globalScope.history.replaceState(globalScope.history.state ?? null, '', newUrl);
+        } catch (historyError) {
+          console.warn('[auth-check] history.replaceState fehlgeschlagen. Fallback auf location.replace().', historyError);
+          globalScope.location.replace(newUrl);
+          return true;
+        }
+      } else if (typeof globalScope.location.replace === 'function') {
+        globalScope.location.replace(newUrl);
+        return true;
+      }
+
+      if (hasOAuthHashParams(globalScope.location.hash)) {
+        try {
+          globalScope.location.hash = '';
+        } catch (hashError) {
+          console.warn('[auth-check] OAuth-Fragment konnte nicht über location.hash entfernt werden.', hashError);
+        }
+      }
+
+      return !hasOAuthHashParams(globalScope.location.hash);
+    } catch (error) {
+      console.error('[auth-check] OAuth-Fragment konnte nicht bereinigt werden.', error);
+      return false;
+    }
+  }
+
+  function scheduleOAuthHashCleanup(immediate = false) {
+    if (!globalScope) {
+      return;
+    }
+
+    clearHashCleanupTimer();
+
+    if (!hasOAuthHashParams(globalScope.location?.hash)) {
+      hashCleanupAttempts = 0;
+      return;
+    }
+
+    if (typeof globalScope.setTimeout !== 'function') {
+      cleanupOAuthHashIfPresent();
+      return;
+    }
+
+    const executeCleanup = () => {
+      const cleaned = cleanupOAuthHashIfPresent();
+      if (cleaned) {
+        hashCleanupAttempts = 0;
+        clearHashCleanupTimer();
+        return;
+      }
+
+      hashCleanupAttempts += 1;
+      if (hashCleanupAttempts >= HASH_CLEANUP_MAX_ATTEMPTS) {
+        console.warn('[auth-check] OAuth-Fragment konnte trotz mehrerer Versuche nicht entfernt werden.');
+        hashCleanupAttempts = 0;
+        clearHashCleanupTimer();
+        return;
+      }
+
+      const retryDelay = HASH_CLEANUP_RETRY_DELAY_MS * Math.max(1, Math.min(hashCleanupAttempts, 4));
+      hashCleanupTimer = globalScope.setTimeout(executeCleanup, retryDelay);
+    };
+
+    if (immediate) {
+      executeCleanup();
+    } else {
+      hashCleanupTimer = globalScope.setTimeout(executeCleanup, HASH_CLEANUP_RETRY_DELAY_MS);
+    }
+  }
+
   const checks = new Map();
   doc.querySelectorAll('[data-check]').forEach((element) => {
     const key = element.getAttribute('data-check');
@@ -77,6 +238,58 @@
     }
     if (loginEmail) {
       loginEmail.textContent = '–';
+    }
+  }
+
+  function getSupabaseProjectUrl(candidate) {
+    if (candidate && typeof candidate === 'object') {
+      const directUrl =
+        (typeof candidate.supabaseUrl === 'string' && candidate.supabaseUrl.trim()) ||
+        (typeof candidate.url === 'string' && candidate.url.trim());
+      if (directUrl) {
+        return directUrl;
+      }
+    }
+
+    const env = globalScope.__supabaseEnv;
+    if (env && typeof env === 'object' && typeof env.url === 'string' && env.url.trim()) {
+      return env.url.trim();
+    }
+
+    const config = globalScope.APP_CONFIG;
+    if (
+      config &&
+      typeof config === 'object' &&
+      typeof config.SUPABASE_URL === 'string' &&
+      config.SUPABASE_URL.trim()
+    ) {
+      return config.SUPABASE_URL.trim();
+    }
+
+    return null;
+  }
+
+  function buildOAuthRedirectUrl(candidate) {
+    if (!globalScope.location) {
+      return undefined;
+    }
+
+    const { origin, pathname, search } = globalScope.location;
+    const normalizedPath = typeof pathname === 'string' && pathname ? pathname : '/';
+    const baseTarget = `${origin}${normalizedPath}${search || ''}`;
+
+    const projectUrl = getSupabaseProjectUrl(candidate);
+    if (!projectUrl) {
+      return baseTarget;
+    }
+
+    try {
+      const callbackUrl = new URL('/auth/v1/callback', projectUrl);
+      callbackUrl.searchParams.set('redirect_to', baseTarget);
+      return callbackUrl.toString();
+    } catch (error) {
+      console.warn('[auth-check] Supabase Callback-URL konnte nicht erstellt werden.', error);
+      return baseTarget;
     }
   }
 
@@ -236,15 +449,16 @@
       try {
         setStatus('oauth', 'success', 'Weiterleitung zu Discord gestartet.');
         setStatus('result', 'pending', 'Warte auf Rückkehr von Discord…');
-        const redirectTo = globalScope.location
-          ? `${globalScope.location.origin}/auth/self-check.html`
-          : undefined;
+        const redirectTo = buildOAuthRedirectUrl(supabase);
+        const oauthOptions = {
+          scopes: 'identify email',
+        };
+        if (typeof redirectTo === 'string' && redirectTo.length > 0) {
+          oauthOptions.redirectTo = redirectTo;
+        }
         await supabase.auth.signInWithOAuth({
           provider: 'discord',
-          options: {
-            scopes: 'identify email',
-            redirectTo,
-          },
+          options: oauthOptions,
         });
       } catch (error) {
         console.error('[auth-check] OAuth-Start fehlgeschlagen.', error);
@@ -281,11 +495,13 @@
       setStatus('client', 'fail', 'Supabase-Client konnte nicht erstellt werden.');
       setLoginButtonEnabled(false, 'Supabase-Client fehlt. OAuth-Test nicht möglich.');
       setStatus('session', 'fail', 'Session kann ohne Supabase nicht geprüft werden.');
+      scheduleOAuthHashCleanup(true);
       return;
     }
 
     const exchangeResult = await exchangeCodeIfPresent(supabase);
     await fetchSession(supabase);
+    scheduleOAuthHashCleanup(true);
 
     supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
@@ -297,6 +513,7 @@
         setStatus('result', 'pending', 'Kein Login durchgeführt.');
         resetPreview();
       }
+      scheduleOAuthHashCleanup(true);
     });
 
     if (exchangeResult.handled && !exchangeResult.success) {
@@ -308,4 +525,12 @@
     console.error('[auth-check] Initialisierung fehlgeschlagen.', error);
     setStatus('result', 'fail', 'Initialisierung fehlgeschlagen.');
   });
+
+  if (typeof globalScope.addEventListener === 'function') {
+    globalScope.addEventListener('hashchange', () => {
+      if (hasOAuthHashParams(globalScope.location?.hash)) {
+        scheduleOAuthHashCleanup(true);
+      }
+    });
+  }
 })();
