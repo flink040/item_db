@@ -31,6 +31,60 @@
     'error_description',
   ];
 
+  function getSupabaseProjectUrl() {
+    const client = state.supabase;
+    if (client && typeof client === 'object') {
+      const directUrl =
+        (typeof client.supabaseUrl === 'string' && client.supabaseUrl.trim()) ||
+        (typeof client.url === 'string' && client.url.trim());
+      if (directUrl) {
+        return directUrl;
+      }
+    }
+
+    const env = globalScope.__supabaseEnv;
+    if (env && typeof env === 'object' && typeof env.url === 'string' && env.url.trim()) {
+      return env.url.trim();
+    }
+
+    const config = globalScope.APP_CONFIG;
+    if (
+      config &&
+      typeof config === 'object' &&
+      typeof config.SUPABASE_URL === 'string' &&
+      config.SUPABASE_URL.trim()
+    ) {
+      return config.SUPABASE_URL.trim();
+    }
+
+    return null;
+  }
+
+  function buildOAuthRedirectUrl() {
+    if (!globalScope.location) {
+      return undefined;
+    }
+
+    const { origin, pathname, search } = globalScope.location;
+    const normalizedPath = typeof pathname === 'string' && pathname ? pathname : '/';
+    const baseTarget = `${origin}${normalizedPath}${search || ''}`;
+
+    const projectUrl = getSupabaseProjectUrl();
+    if (!projectUrl) {
+      return baseTarget;
+    }
+
+    try {
+      const callbackUrl = new URL('/auth/v1/callback', projectUrl);
+      callbackUrl.searchParams.set('redirect_to', baseTarget);
+      return callbackUrl.toString();
+    } catch (error) {
+      console.warn('[auth] Supabase Callback-URL konnte nicht erstellt werden.', error);
+      return baseTarget;
+    }
+  }
+
+
   const discordSvg =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="h-5 w-5"><path d="M20 4.54a19.76 19.76 0 0 0-4.93-1.54l-.23.47a18.13 18.13 0 0 1 3.85 1.56 14.82 14.82 0 0 0-5-1 14.82 14.82 0 0 0-5 1 18.28 18.28 0 0 1 3.84-1.56l-.23-.47A19.76 19.76 0 0 0 4 4.54 16.77 16.77 0 0 0 .94 16.86a19.93 19.93 0 0 0 7.08 2.61l1-1.34c-.6-.18-1.17-.42-1.72-.72l.26-.2c3.25 1.54 6.9 1.54 10.14 0l.26.2c-.55.3-1.12.54-1.72.72l1 1.34a19.94 19.94 0 0 0 7.08-2.61A16.77 16.77 0 0 0 20 4.54ZM9.08 14.28c-1 0-1.85-.9-1.85-2s.83-2 1.85-2 1.85.9 1.85 2-.83 2-1.85 2Zm5.84 0c-1 0-1.85-.9-1.85-2s.83-2 1.85-2 1.85.9 1.85 2-.83 2-1.85 2Z"/></svg>';
   const chevronSvg =
@@ -152,13 +206,16 @@
       button.classList.add('cursor-wait', 'opacity-70');
 
       try {
-        const redirectTo = globalScope.location ? globalScope.location.origin : undefined;
+        const redirectTo = buildOAuthRedirectUrl();
+        const oauthOptions = {
+          scopes: 'identify email',
+        };
+        if (typeof redirectTo === 'string' && redirectTo.length > 0) {
+          oauthOptions.redirectTo = redirectTo;
+        }
         await state.supabase.auth.signInWithOAuth({
           provider: 'discord',
-          options: {
-            scopes: 'identify email',
-            redirectTo,
-          },
+          options: oauthOptions,
         });
       } catch (error) {
         console.error('[auth] Discord Login fehlgeschlagen.', error);

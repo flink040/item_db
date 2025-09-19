@@ -80,6 +80,58 @@
     }
   }
 
+  function getSupabaseProjectUrl(candidate) {
+    if (candidate && typeof candidate === 'object') {
+      const directUrl =
+        (typeof candidate.supabaseUrl === 'string' && candidate.supabaseUrl.trim()) ||
+        (typeof candidate.url === 'string' && candidate.url.trim());
+      if (directUrl) {
+        return directUrl;
+      }
+    }
+
+    const env = globalScope.__supabaseEnv;
+    if (env && typeof env === 'object' && typeof env.url === 'string' && env.url.trim()) {
+      return env.url.trim();
+    }
+
+    const config = globalScope.APP_CONFIG;
+    if (
+      config &&
+      typeof config === 'object' &&
+      typeof config.SUPABASE_URL === 'string' &&
+      config.SUPABASE_URL.trim()
+    ) {
+      return config.SUPABASE_URL.trim();
+    }
+
+    return null;
+  }
+
+  function buildOAuthRedirectUrl(candidate) {
+    if (!globalScope.location) {
+      return undefined;
+    }
+
+    const { origin, pathname, search } = globalScope.location;
+    const normalizedPath = typeof pathname === 'string' && pathname ? pathname : '/';
+    const baseTarget = `${origin}${normalizedPath}${search || ''}`;
+
+    const projectUrl = getSupabaseProjectUrl(candidate);
+    if (!projectUrl) {
+      return baseTarget;
+    }
+
+    try {
+      const callbackUrl = new URL('/auth/v1/callback', projectUrl);
+      callbackUrl.searchParams.set('redirect_to', baseTarget);
+      return callbackUrl.toString();
+    } catch (error) {
+      console.warn('[auth-check] Supabase Callback-URL konnte nicht erstellt werden.', error);
+      return baseTarget;
+    }
+  }
+
   function displayUser(user) {
     if (!user || typeof user !== 'object') {
       resetPreview();
@@ -236,15 +288,16 @@
       try {
         setStatus('oauth', 'success', 'Weiterleitung zu Discord gestartet.');
         setStatus('result', 'pending', 'Warte auf Rückkehr von Discord…');
-        const redirectTo = globalScope.location
-          ? `${globalScope.location.origin}/auth/self-check.html`
-          : undefined;
+        const redirectTo = buildOAuthRedirectUrl(supabase);
+        const oauthOptions = {
+          scopes: 'identify email',
+        };
+        if (typeof redirectTo === 'string' && redirectTo.length > 0) {
+          oauthOptions.redirectTo = redirectTo;
+        }
         await supabase.auth.signInWithOAuth({
           provider: 'discord',
-          options: {
-            scopes: 'identify email',
-            redirectTo,
-          },
+          options: oauthOptions,
         });
       } catch (error) {
         console.error('[auth-check] OAuth-Start fehlgeschlagen.', error);
