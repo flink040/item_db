@@ -57,3 +57,32 @@ Im Cloudflare Dashboard oder via Wrangler (secrets):
 - Frontend spricht **nur** gegen `/api/*`, niemals direkt an Supabase Keys (Security!).
 
 Viel Erfolg! ✨
+
+## Lokale Entwicklung & Deployment auf Cloudflare Pages (statisch)
+
+Wenn du nur eine statische Variante der Anwendung (reines HTML/CSS/JS ohne Build-Tool) betreiben möchtest, kannst du die Assets direkt im Ordner `app/public` pflegen und ohne Vite-Build arbeiten.
+
+### Lokal entwickeln
+
+1. Stelle sicher, dass du die [Wrangler-CLI](https://developers.cloudflare.com/workers/wrangler/install-and-update/) installiert hast.
+2. Wechsle in das Frontend-Verzeichnis und starte eine lokale Vorschau:
+
+   ```bash
+   cd app
+   npx wrangler pages dev ./public
+   ```
+
+   Wrangler dient hier als kleiner Webserver und unterstützt Live-Reload, sobald du statische Dateien änderst.
+
+### Deployment auf Cloudflare Pages
+
+1. Lege im Cloudflare-Dashboard ein neues Pages-Projekt an und verbinde das Repository.
+2. Setze "Build command" auf leer und "Build output directory" auf `app/public`, da keine Build-Pipeline benötigt wird.
+3. Alternativ kannst du direkt aus dem Terminal deployen:
+
+   ```bash
+   cd app
+   npx wrangler pages publish ./public --project-name <dein-pages-projekt>
+   ```
+
+   Dabei werden die Dateien unverändert hochgeladen und sofort als statische Seite ausgeliefert.
