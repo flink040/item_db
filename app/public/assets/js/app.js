@@ -65,6 +65,7 @@ const PAGINATION_SKELETON_DELAY_MS = 220;
 const INFINITE_SCROLL_THRESHOLD_PX = 320;
 const INFINITE_SCROLL_THROTTLE_MS = 180;
 const INFINITE_SCROLL_RESET_MS = 400;
+const ADD_ITEM_ROUTE_CANDIDATES = ['/add', '/items/new'];
 
 
 let activeRequestId = 0;
@@ -89,6 +90,8 @@ let lastItemLoadFailed = false;
 let authUser = null;
 let authPending = false;
 let authUiAvailable = false;
+let resolvedAddItemRoute = null;
+let addItemRoutePromise = null;
 
 
 function isFocusableElement(element) {
@@ -233,6 +236,174 @@ function createLayout() {
   root.dataset.appInitialized = 'true';
 }
 
+function normalizeRouteCandidate(path) {
+  if (typeof path !== 'string') {
+    return '';
+  }
+
+  const trimmed = path.trim();
+  if (!trimmed || trimmed.startsWith('#')) {
+    return '';
+  }
+
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('mailto:')) {
+    return '';
+  }
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('/')) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('./')) {
+    return trimmed.replace(/^\.\//, '/');
+  }
+
+  if (trimmed.startsWith('../')) {
+    return trimmed;
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:/.test(trimmed)) {
+    return '';
+  }
+
+  return `/${trimmed}`;
+}
+
+function getAddItemRouteCandidates() {
+  const candidates = new Set(ADD_ITEM_ROUTE_CANDIDATES);
+
+  const config = globalScope && typeof globalScope.APP_CONFIG === 'object' ? globalScope.APP_CONFIG : null;
+  if (config && typeof config === 'object') {
+    const directCandidates = [
+      config.addItemRoute,
+      config.addItemPath,
+      config.itemAddRoute,
+      config.itemCreateRoute,
+    ];
+
+    for (const entry of directCandidates) {
+      if (typeof entry === 'string' && entry.trim()) {
+        candidates.add(entry);
+      }
+    }
+
+    const nestedRoutes = config.routes;
+    if (nestedRoutes && typeof nestedRoutes === 'object') {
+      const routeKeys = ['add', 'addItem', 'createItem', 'itemCreate', 'itemsNew', 'newItem', 'itemNew'];
+      for (const key of routeKeys) {
+        const value = nestedRoutes[key];
+        if (typeof value === 'string' && value.trim()) {
+          candidates.add(value);
+        }
+      }
+    }
+  }
+
+  return Array.from(candidates);
+}
+
+function findAddItemRouteInDom(candidates) {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  for (const candidate of candidates) {
+    const raw = typeof candidate === 'string' ? candidate.trim() : '';
+    if (!raw) {
+      continue;
+    }
+
+    const normalized = normalizeRouteCandidate(raw);
+    const selectors = normalized && normalized !== raw ? [raw, normalized] : [raw];
+
+    for (const selector of selectors) {
+      const link = document.querySelector(`a[href="${selector}"]`);
+      if (link) {
+        const href = link.getAttribute('href');
+        if (typeof href === 'string' && href.trim()) {
+          return href.trim();
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function findAvailableAddItemRoute() {
+  if (resolvedAddItemRoute) {
+    return Promise.resolve(resolvedAddItemRoute);
+  }
+
+  const candidates = getAddItemRouteCandidates();
+  if (candidates.length === 0) {
+    return Promise.resolve(null);
+  }
+
+  const domRoute = findAddItemRouteInDom(candidates);
+  if (domRoute) {
+    resolvedAddItemRoute = domRoute;
+    return Promise.resolve(domRoute);
+  }
+
+  if (typeof window === 'undefined' || typeof fetch !== 'function') {
+    return Promise.resolve(null);
+  }
+
+  if (addItemRoutePromise) {
+    return addItemRoutePromise;
+  }
+
+  addItemRoutePromise = (async () => {
+    for (const candidate of candidates) {
+      const normalized = normalizeRouteCandidate(candidate);
+      if (!normalized) {
+        continue;
+      }
+
+      try {
+        let response = await fetch(normalized, { method: 'HEAD', redirect: 'manual' });
+        if (response && (response.ok || (response.status >= 200 && response.status < 400) || response.type === 'opaqueredirect')) {
+          resolvedAddItemRoute = normalized;
+          return normalized;
+        }
+
+        if (response && (response.status === 405 || response.status === 501)) {
+          response = await fetch(normalized, { method: 'GET', redirect: 'manual', cache: 'no-store' });
+          if (
+            response &&
+            (response.ok || (response.status >= 200 && response.status < 400) || response.type === 'opaqueredirect')
+          ) {
+            resolvedAddItemRoute = normalized;
+            return normalized;
+          }
+        }
+      } catch (error) {
+        // Ignore network errors and continue with the next candidate.
+        void error;
+      }
+    }
+
+    return null;
+  })();
+
+  return addItemRoutePromise
+    .then((route) => {
+      if (!route) {
+        resolvedAddItemRoute = null;
+      }
+      return route;
+    })
+    .finally(() => {
+      addItemRoutePromise = null;
+    });
+}
+
 function registerEventListeners() {
   const form = refs.searchForm;
   if (form && form.dataset.submitBound !== 'true') {
@@ -262,6 +433,12 @@ function registerEventListeners() {
   if (raritySelect && raritySelect.dataset.filterBound !== 'true') {
     raritySelect.addEventListener('change', handleFilterChange);
     raritySelect.dataset.filterBound = 'true';
+  }
+
+  const addItemButton = typeof document !== 'undefined' ? document.getElementById('btn-add-item') : null;
+  if (addItemButton && addItemButton.dataset.addItemBound !== 'true') {
+    addItemButton.addEventListener('click', handleAddItemButtonClick);
+    addItemButton.dataset.addItemBound = 'true';
   }
 
   const grid = refs.gridContainer;
@@ -1146,6 +1323,76 @@ function updateUrlFromState({ replace = false } = {}) {
     }
   } catch (error) {
     // ignore unsupported history updates
+  }
+}
+
+function createAddItemFallbackView() {
+  const container = document.createElement('div');
+  container.className = 'space-y-4';
+
+  const headingId = `add-item-fallback-title-${Date.now().toString(36)}-${Math.random()
+    .toString(36)
+    .slice(2, 7)}`;
+
+  const heading = document.createElement('h2');
+  heading.id = headingId;
+  heading.className = 'text-xl font-semibold text-slate-100';
+  heading.textContent = 'Item hinzufügen';
+
+  const description = document.createElement('p');
+  description.className = 'text-sm leading-relaxed text-slate-400';
+  description.textContent =
+    'Hier kannst du bald neue Items direkt zur Datenbank hinzufügen. Die Funktion wird aktuell vorbereitet.';
+
+  const hint = document.createElement('p');
+  hint.className = 'text-sm leading-relaxed text-slate-500';
+  hint.textContent =
+    'Bis dahin kannst du dein Feedback oder Item-Ideen im Community-Discord teilen oder das Team direkt kontaktieren.';
+
+  container.append(heading, description, hint);
+
+  return { element: container, labelledBy: headingId };
+}
+
+async function handleAddItemButtonClick(event) {
+  const button = event.currentTarget;
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+
+  try {
+    const targetRoute = await findAvailableAddItemRoute();
+    if (targetRoute) {
+      window.location.assign(targetRoute);
+      return;
+    }
+  } catch (error) {
+    // Swallow detection errors and continue with the fallback behaviour.
+    void error;
+  }
+
+  const triggerEvent = new CustomEvent('open:add-item', {
+    bubbles: true,
+    cancelable: true,
+    detail: {
+      trigger: button,
+      action: button.dataset.action || 'add-item',
+    },
+  });
+
+  const notCancelled = button.dispatchEvent(triggerEvent);
+  if (!notCancelled) {
+    return;
+  }
+
+  if (typeof openModal === 'function') {
+    const fallback = createAddItemFallbackView();
+    if (fallback.element instanceof HTMLElement) {
+      openModal(fallback.element, {
+        labelledBy: fallback.labelledBy,
+        ariaLabel: fallback.labelledBy ? undefined : 'Item hinzufügen',
+      });
+    }
   }
 }
 
