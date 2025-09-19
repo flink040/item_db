@@ -301,8 +301,9 @@
       renderLoggedOut();
     } else {
       clearContainer();
-      const badge = document.createElement('span');
-      badge.className = 'rounded-full border border-slate-800/70 px-3 py-1 text-xs text-slate-400';
+      const badge = document.createElement('a');
+      badge.className = 'rounded-full border border-slate-800/70 px-3 py-1 text-xs text-slate-400 transition hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 cursor-pointer';
+      badge.href = 'https://op-item-db.com/auth/self-check';
       badge.textContent = 'Login derzeit nicht verfügbar';
       container.appendChild(badge);
     }
