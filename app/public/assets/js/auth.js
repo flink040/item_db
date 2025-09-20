@@ -616,23 +616,30 @@
   }
 
   (async () => {
-    scheduleOAuthHashCleanup(true);
+    let cleanupScheduled = false;
+    const scheduleCleanupOnce = () => {
+      if (cleanupScheduled) {
+        return;
+      }
+      cleanupScheduled = true;
+      scheduleOAuthHashCleanup(true);
+    };
 
     try {
       state.supabase = await resolveSupabaseClient();
       render();
 
       if (!state.supabase) {
-        scheduleOAuthHashCleanup(true);
+        scheduleCleanupOnce();
         return;
       }
 
       await exchangeCodeIfPresent();
       await refreshSession();
-      scheduleOAuthHashCleanup(true);
+      scheduleCleanupOnce();
       subscribeToAuthChanges();
     } finally {
-      scheduleOAuthHashCleanup(true);
+      scheduleCleanupOnce();
     }
   })();
  
