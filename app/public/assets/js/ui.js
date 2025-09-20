@@ -81,6 +81,15 @@ function ensureAuthElements() {
     return null;
   }
 
+  const providerAttr = container.getAttribute('data-auth-provider');
+  const provider = container.dataset.authProvider || providerAttr || '';
+  const isSupabaseManaged =
+    container.dataset.supabaseAuth === 'true' || container.getAttribute('data-supabase-auth') === 'true';
+
+  if (isSupabaseManaged || provider.toLowerCase() === 'supabase') {
+    return null;
+  }
+
   if (container.dataset.authInitialized !== 'true') {
     container.setAttribute('role', container.getAttribute('role') || 'status');
     container.setAttribute('aria-live', container.getAttribute('aria-live') || 'polite');
