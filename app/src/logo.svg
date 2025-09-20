@@ -1,0 +1,37 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="paint0_linear" x1="10" y1="6" x2="54" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F766E" />
+      <stop offset="0.5" stop-color="#0EA5E9" />
+      <stop offset="1" stop-color="#22D3EE" />
+    </linearGradient>
+    <linearGradient id="paint1_linear" x1="20" y1="16" x2="38" y2="46" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC" stop-opacity="0.95" />
+      <stop offset="1" stop-color="#E2F5FF" stop-opacity="0.85" />
+    </linearGradient>
+    <linearGradient id="paint2_linear" x1="36" y1="18" x2="48" y2="40" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC" stop-opacity="0.95" />
+      <stop offset="1" stop-color="#D1FAE5" stop-opacity="0.9" />
+    </linearGradient>
+    <filter id="glow" x="-10%" y="-10%" width="120%" height="120%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="2" result="blur" />
+      <feComposite in="blur" in2="SourceAlpha" operator="out" result="inner" />
+      <feComposite in="inner" in2="SourceGraphic" operator="atop" />
+    </filter>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#0F172A" />
+  <rect width="64" height="64" rx="18" fill="url(#paint0_linear)" fill-opacity="0.85" />
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="#0B1120" fill-opacity="0.45" />
+  <g filter="url(#glow)">
+    <path
+      d="M24 19C16.8203 19 11 24.8203 11 32C11 39.1797 16.8203 45 24 45C31.1797 45 37 39.1797 37 32C37 24.8203 31.1797 19 24 19ZM24 39C19.5899 39 16 35.4101 16 31C16 26.5899 19.5899 23 24 23C28.4101 23 32 26.5899 32 31C32 35.4101 28.4101 39 24 39Z"
+      fill="url(#paint1_linear)"
+    />
+    <path
+      d="M36 19V45H41V36.5H44.75C51.0677 36.5 56 31.7959 56 25.75C56 19.7041 51.0677 15 44.75 15H36V19ZM41 20H44.75C48.3606 20 51.125 22.5207 51.125 25.75C51.125 28.9793 48.3606 31.5 44.75 31.5H41V20Z"
+      fill="url(#paint2_linear)"
+    />
+  </g>
+  <circle cx="18" cy="18" r="6" fill="#34D399" fill-opacity="0.2" />
+  <circle cx="48" cy="46" r="5" fill="#38BDF8" fill-opacity="0.18" />
+</svg>

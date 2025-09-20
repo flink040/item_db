@@ -9,6 +9,8 @@ import {
 } from 'react'
 import type { SVGProps } from 'react'
 
+import logoUrl from './logo.svg'
+
 type Item = {
   id: string
   slug: string
@@ -360,7 +362,11 @@ export default function App() {
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-5">
           <div className="flex items-center gap-3">
             <span className="inline-flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/20 text-sm font-semibold uppercase tracking-wide text-emerald-300">
-              OP
+              <img
+                src={logoUrl}
+                alt="Logo der OP Item Datenbank"
+                className="h-6 w-6"
+              />
             </span>
             <div>
               <p className="text-xs uppercase tracking-wide text-slate-500">V 0.9</p>
@@ -428,7 +434,11 @@ export default function App() {
               <div className="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
                 <div className="flex items-start gap-4">
                   <span className="inline-flex h-16 w-16 flex-shrink-0 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
-                    <span className="text-xl font-semibold">OP</span>
+                    <img
+                      src={logoUrl}
+                      alt="Logo der OP Item Datenbank"
+                      className="h-12 w-12"
+                    />
                   </span>
                   <div className="space-y-4">
                     <div>
