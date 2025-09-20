@@ -486,7 +486,14 @@
       setStatus('env', 'fail', 'VITE_SUPABASE_URL oder VITE_SUPABASE_ANON_KEY fehlt.');
     }
 
-    const supabase = await resolveSupabase();
+    scheduleOAuthHashCleanup(true);
+
+    let supabase;
+    try {
+      supabase = await resolveSupabase();
+    } finally {
+      scheduleOAuthHashCleanup(true);
+    }
 
     if (supabase) {
       setStatus('client', 'success', 'Supabase-Client wurde initialisiert.');
