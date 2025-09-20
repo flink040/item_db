@@ -168,6 +168,22 @@
       }
     }
 
+    try {
+      container.dataset.supabaseAuth = 'true';
+      if (!container.dataset.authProvider) {
+        container.dataset.authProvider = 'supabase';
+      }
+    } catch (error) {
+      console.warn('[auth] Konnte Auth-Markierungen nicht setzen.', error);
+    }
+
+    if (!container.getAttribute('data-supabase-auth')) {
+      container.setAttribute('data-supabase-auth', 'true');
+    }
+    if (!container.getAttribute('data-auth-provider')) {
+      container.setAttribute('data-auth-provider', 'supabase');
+    }
+
     return container;
   }
 
