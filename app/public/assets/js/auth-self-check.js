@@ -274,9 +274,17 @@
       return undefined;
     }
 
-    const { origin, pathname, search } = globalScope.location;
+    const { origin, pathname, search, hash } = globalScope.location;
     const normalizedPath = typeof pathname === 'string' && pathname ? pathname : '/';
-    const baseTarget = `${origin}${normalizedPath}${search || ''}`;
+    let baseTarget = `${origin}${normalizedPath}${search || ''}`;
+
+    if (
+      typeof hash === 'string' &&
+      hash.length > 1 &&
+      !hasOAuthHashParams(hash)
+    ) {
+      baseTarget += hash;
+    }
 
     const projectUrl = getSupabaseProjectUrl(candidate);
     if (!projectUrl) {
