@@ -10,12 +10,52 @@ type Bindings = {
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+const sanitizeSearchValue = (value: string) =>
+  value
+    .trim()
+    .replace(/[*,%]/g, ' ')
+    .replace(/[()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const normalizeFilterValue = (value: string | undefined) => value?.trim() ?? ''
+
 // Healthcheck
 app.get('/api/health', (c) => c.json({ ok: true }))
 
 // GET /api/items
 app.get('/api/items', async (c) => {
-  const url = `${c.env.SUPABASE_URL}/rest/v1/items?select=*`
+  const query = c.req.query()
+  const params = new URLSearchParams({ select: '*' })
+
+  const search = sanitizeSearchValue(query.search ?? '')
+  const type = normalizeFilterValue(query.type)
+  const material = normalizeFilterValue(query.material)
+  const rarity = normalizeFilterValue(query.rarity)
+
+  if (search.length > 0) {
+    const pattern = `*${search}*`
+    params.set(
+      'or',
+      `(name.ilike.${pattern},slug.ilike.${pattern},description.ilike.${pattern})`
+    )
+  }
+
+  if (type) {
+    params.append('type', `eq.${type}`)
+  }
+
+  if (material) {
+    params.append('material', `eq.${material}`)
+  }
+
+  if (rarity) {
+    params.append('rarity', `eq.${rarity}`)
+  }
+
+  params.append('order', 'name.asc')
+
+  const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`
   const res = await fetch(url, {
     headers: { apikey: c.env.SUPABASE_ANON_KEY }
   })

@@ -121,6 +121,21 @@ const createInitialItemFormValues = (): ItemFormValues => ({
 
 type ItemFormErrors = Partial<Record<keyof ItemFormValues, string>>
 
+type FetchItemsParams = {
+  search: string
+  type: string
+  material: string
+  rarity: string
+}
+
+const sanitizeSearchValue = (value: string) =>
+  value
+    .trim()
+    .replace(/[*,%]/g, ' ')
+    .replace(/[()]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
 function getRarityMeta(value?: string | null) {
   if (!value) {
     return {
@@ -140,12 +155,13 @@ function getRarityMeta(value?: string | null) {
 
 export default function App() {
   const [items, setItems] = useState<Item[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('')
   const [materialFilter, setMaterialFilter] = useState('')
   const [rarityFilter, setRarityFilter] = useState('')
+  const [hasSearched, setHasSearched] = useState(false)
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [showItemModal, setShowItemModal] = useState(false)
   const [showProfileModal, setShowProfileModal] = useState(false)
@@ -154,6 +170,107 @@ export default function App() {
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
   )
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  const buildFetchParams = useCallback(
+    (overrides: Partial<FetchItemsParams> = {}): FetchItemsParams => ({
+      search,
+      type: typeFilter,
+      material: materialFilter,
+      rarity: rarityFilter,
+      ...overrides
+    }),
+    [search, typeFilter, materialFilter, rarityFilter]
+  )
+
+  const hasActiveCriteria = useCallback((params: FetchItemsParams) => {
+    const sanitizedSearch = sanitizeSearchValue(params.search)
+    return (
+      sanitizedSearch.length > 0 ||
+      params.type !== '' ||
+      params.material !== '' ||
+      params.rarity !== ''
+    )
+  }, [])
+
+  const resetSearchState = useCallback(() => {
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = null
+    setItems([])
+    setError(null)
+    setLoading(false)
+    setHasSearched(false)
+  }, [])
+
+  const fetchItems = useCallback(
+    async ({ search, type, material, rarity }: FetchItemsParams) => {
+      const sanitizedSearch = sanitizeSearchValue(search)
+      const params = new URLSearchParams()
+
+      if (sanitizedSearch.length > 0) {
+        params.set('search', sanitizedSearch)
+      }
+
+      if (type) {
+        params.set('type', type)
+      }
+
+      if (material) {
+        params.set('material', material)
+      }
+
+      if (rarity) {
+        params.set('rarity', rarity)
+      }
+
+      abortControllerRef.current?.abort()
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
+      setLoading(true)
+      setError(null)
+
+      const queryString = params.toString()
+
+      try {
+        const response = await fetch(`/api/items${queryString ? `?${queryString}` : ''}`, {
+          signal: controller.signal
+        })
+
+        if (!response.ok) {
+          throw new Error('API Fehler')
+        }
+
+        const data = await response.json()
+
+        if (!Array.isArray(data)) {
+          throw new Error('Unerwartetes API-Format')
+        }
+
+        if (abortControllerRef.current === controller) {
+          setItems(data as Item[])
+          setError(null)
+        }
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          return
+        }
+
+        if (abortControllerRef.current === controller) {
+          const message = error instanceof Error ? error.message : 'Fehler beim Laden'
+          setError(message)
+          setItems([])
+        }
+      } finally {
+        if (abortControllerRef.current === controller) {
+          setLoading(false)
+          abortControllerRef.current = null
+        }
+      }
+    },
+    []
+  )
 
   const dismissToast = useCallback((id: number) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id))
@@ -185,23 +302,9 @@ export default function App() {
   )
 
   useEffect(() => {
-    const run = async () => {
-      try {
-        const res = await fetch('/api/items')
-        if (!res.ok) throw new Error('API Fehler')
-        const data = await res.json()
-        if (!Array.isArray(data)) {
-          throw new Error('Unerwartetes API-Format')
-        }
-        setItems(data as Item[])
-      } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Fehler beim Laden'
-        setError(message)
-      } finally {
-        setLoading(false)
-      }
+    return () => {
+      abortControllerRef.current?.abort()
     }
-    run()
   }, [])
 
   useEffect(() => {
@@ -268,7 +371,7 @@ export default function App() {
   }, [showItemModal, showProfileModal])
 
   const filteredItems = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase()
+    const normalizedSearch = sanitizeSearchValue(search).toLowerCase()
 
     return items
       .filter((item) => {
@@ -287,33 +390,102 @@ export default function App() {
       .sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
   }, [items, search, typeFilter, materialFilter, rarityFilter])
 
-  const normalizedSearchTerm = search.trim()
+  const normalizedSearchTerm = sanitizeSearchValue(search)
   const activeFilterCount = [typeFilter, materialFilter, rarityFilter].filter(Boolean).length
   const hasActiveFilters = normalizedSearchTerm.length > 0 || activeFilterCount > 0
+  const resultsCount = filteredItems.length
 
-  const resultsDescription = loading
-    ? 'Ergebnisse werden geladen …'
-    : error
-      ? 'Beim Laden der Items ist ein Fehler aufgetreten.'
-      : items.length === 0
-        ? 'Noch keine Items in der Datenbank vorhanden.'
-        : hasActiveFilters
-          ? `Zeigt ${filteredItems.length} von ${items.length} Items basierend auf deinen Filtern.`
-          : `Zeigt ${filteredItems.length} Items aus der Datenbank.`
+  const resultsDescription = !hasSearched
+    ? 'Starte eine Suche oder wähle Filter, um Items zu laden.'
+    : loading
+      ? 'Ergebnisse werden geladen …'
+      : error
+        ? 'Beim Laden der Items ist ein Fehler aufgetreten.'
+        : resultsCount === 0
+          ? 'Keine Items entsprechen deinen Kriterien.'
+          : hasActiveFilters
+            ? `${resultsCount} ${resultsCount === 1 ? 'Item entspricht' : 'Items entsprechen'} deinen Suchkriterien.`
+            : `${resultsCount === 1 ? 'Ein Item' : `${resultsCount} Items`} gefunden.`
 
   const handleSearchSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    const value = search.trim()
-    if (!value) return
+    const trimmedSearch = search.trim()
+    const params = buildFetchParams({ search: trimmedSearch })
+
+    if (!hasActiveCriteria(params)) {
+      resetSearchState()
+      return
+    }
+
+    setHasSearched(true)
+    void fetchItems(params)
+
+    if (!trimmedSearch) {
+      return
+    }
 
     setRecentSearches((prev) => {
-      const existing = prev.filter((entry) => entry.toLowerCase() !== value.toLowerCase())
-      return [value, ...existing].slice(0, MAX_RECENT_SEARCHES)
+      const existing = prev.filter((entry) => entry.toLowerCase() !== trimmedSearch.toLowerCase())
+      return [trimmedSearch, ...existing].slice(0, MAX_RECENT_SEARCHES)
     })
   }
 
   const handleRecentSearchSelect = (entry: string) => {
     setSearch(entry)
+    const params = buildFetchParams({ search: entry })
+
+    if (!hasActiveCriteria(params)) {
+      resetSearchState()
+      return
+    }
+
+    setHasSearched(true)
+    void fetchItems(params)
+  }
+
+  const handleTypeFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = event.target.value
+    setTypeFilter(nextValue)
+
+    const params = buildFetchParams({ type: nextValue })
+
+    if (!hasActiveCriteria(params)) {
+      resetSearchState()
+      return
+    }
+
+    setHasSearched(true)
+    void fetchItems(params)
+  }
+
+  const handleMaterialFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = event.target.value
+    setMaterialFilter(nextValue)
+
+    const params = buildFetchParams({ material: nextValue })
+
+    if (!hasActiveCriteria(params)) {
+      resetSearchState()
+      return
+    }
+
+    setHasSearched(true)
+    void fetchItems(params)
+  }
+
+  const handleRarityFilterChange = (event: ChangeEvent<HTMLSelectElement>) => {
+    const nextValue = event.target.value
+    setRarityFilter(nextValue)
+
+    const params = buildFetchParams({ rarity: nextValue })
+
+    if (!hasActiveCriteria(params)) {
+      resetSearchState()
+      return
+    }
+
+    setHasSearched(true)
+    void fetchItems(params)
   }
 
   const mobileMenuClassName = [
@@ -479,7 +651,7 @@ export default function App() {
                       name="type"
                       className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                       value={typeFilter}
-                      onChange={(event) => setTypeFilter(event.target.value)}
+                      onChange={handleTypeFilterChange}
                     >
                       {typeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -496,7 +668,7 @@ export default function App() {
                       name="material"
                       className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                       value={materialFilter}
-                      onChange={(event) => setMaterialFilter(event.target.value)}
+                      onChange={handleMaterialFilterChange}
                     >
                       {materialOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -513,7 +685,7 @@ export default function App() {
                       name="rarity"
                       className="mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                       value={rarityFilter}
-                      onChange={(event) => setRarityFilter(event.target.value)}
+                      onChange={handleRarityFilterChange}
                     >
                       {rarityOptions.map((option) => (
                         <option key={option.value} value={option.value}>
@@ -588,7 +760,11 @@ export default function App() {
                 <span className="text-xs uppercase tracking-[0.3em] text-slate-600">Live-Ansicht</span>
               </div>
               <div className="min-h-[320px] space-y-4">
-                {loading ? (
+                {!hasSearched ? (
+                  <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-400">
+                    Starte eine Suche oder kombiniere Filter, um passende Items zu sehen.
+                  </div>
+                ) : loading ? (
                   <div className="flex h-48 items-center justify-center">
                     <span className="inline-flex items-center gap-2 text-sm text-slate-400">
                       <SpinnerIcon className="h-4 w-4" />
@@ -599,7 +775,7 @@ export default function App() {
                   <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-4 text-sm text-rose-200">
                     {error}
                   </div>
-                ) : filteredItems.length === 0 ? (
+                ) : resultsCount === 0 ? (
                   <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-400">
                     Keine Items gefunden. Passe deine Suche oder Filter an, um weitere Ergebnisse zu entdecken.
                   </div>
