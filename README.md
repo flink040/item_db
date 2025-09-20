@@ -56,6 +56,11 @@ Im Cloudflare Dashboard oder via Wrangler (secrets):
 - Der Worker nutzt standardmäßig `Bearer <SERVICE_ROLE_KEY>` für schreibende Operationen (POST/PATCH/DELETE).
 - Frontend spricht **nur** gegen `/api/*`, niemals direkt an Supabase Keys (Security!).
 
+## Supabase Frontend Setup
+- Trage in `app/index.html` im `<meta name="supabase">` deine Projekt-URL und den Anon-Key ein.
+- Aktiviere Discord-OAuth in Supabase; nur eingeloggte Nutzer können Items speichern.
+- Ohne Login stehen ausschließlich Lesezugriffe (Filter, Suche) zur Verfügung.
+
 Viel Erfolg! ✨
 
 ## Lokale Entwicklung & Deployment auf Cloudflare Pages (statisch)
