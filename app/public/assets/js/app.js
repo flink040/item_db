@@ -35,6 +35,10 @@ const DEFAULT_APP_CONFIG = {
   SUPABASE_ANON_KEY: null,
 };
 
+const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)';
+const MENU_MEDIA_LISTENER_KEY =
+  typeof Symbol === 'function' ? Symbol('menuMediaListener') : '__menuMediaListener';
+
 if (globalScope && typeof globalScope === 'object') {
   const runtimeConfig =
     globalScope.APP_CONFIG && typeof globalScope.APP_CONFIG === 'object' ? globalScope.APP_CONFIG : {};
@@ -618,16 +622,47 @@ function registerMenuToggle() {
     return;
   }
 
-  if (button.dataset.menuBound === 'true') {
-    return;
+  if (button.dataset.menuBound !== 'true') {
+    button.addEventListener('click', handleMenuToggleClick);
+    button.addEventListener('keydown', handleMenuToggleKeydown);
+    button.dataset.menuBound = 'true';
   }
 
-  button.addEventListener('click', handleMenuToggleClick);
-  button.addEventListener('keydown', handleMenuToggleKeydown);
-  button.dataset.menuBound = 'true';
+  const applyViewportState = (matches) => {
+    if (matches) {
+      setMenuExpanded(true);
+      return;
+    }
 
-  const expanded = button.getAttribute('aria-expanded') === 'true';
-  setMenuExpanded(expanded);
+    const expanded = button.getAttribute('aria-expanded') === 'true';
+    setMenuExpanded(expanded);
+  };
+
+  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+    const mediaQuery = window.matchMedia(DESKTOP_MENU_MEDIA_QUERY);
+    applyViewportState(mediaQuery.matches);
+
+    if (!button[MENU_MEDIA_LISTENER_KEY]) {
+      const handleChange = (event) => {
+        if (event.matches) {
+          setMenuExpanded(true);
+        } else {
+          setMenuExpanded(false);
+        }
+      };
+
+      if (typeof mediaQuery.addEventListener === 'function') {
+        mediaQuery.addEventListener('change', handleChange);
+      } else if (typeof mediaQuery.addListener === 'function') {
+        mediaQuery.addListener(handleChange);
+      }
+
+      button[MENU_MEDIA_LISTENER_KEY] = { mediaQuery, handleChange };
+    }
+  } else {
+    const expanded = button.getAttribute('aria-expanded') === 'true';
+    setMenuExpanded(expanded);
+  }
 }
 
 function handleMenuToggleClick(event) {

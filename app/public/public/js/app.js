@@ -38,10 +38,145 @@ const elements = {
   submitSpinner: document.querySelector('[data-loading-icon]'),
   toastContainer: document.getElementById('toast-container'),
   profileContainer: document.getElementById('profile-container'),
+  mobileMenuButton: document.querySelector('[data-js="mobile-menu-btn"]'),
+  mobileMenu: document.querySelector('[data-js="mobile-menu"]'),
 }
 
 let searchDebounceId = 0
 let authSubscription = null
+let menuMediaQuery = null
+let menuMediaHandler = null
+let ignoreNextMenuClick = false
+
+const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
+
+function setMenuExpanded(expanded) {
+  const button = elements.mobileMenuButton
+  const menu = elements.mobileMenu
+  if (!button || !menu) return
+
+  const shouldExpand = Boolean(expanded)
+  button.setAttribute('aria-expanded', String(shouldExpand))
+  button.dataset.menuOpen = String(shouldExpand)
+
+  menu.hidden = !shouldExpand
+  menu.setAttribute('aria-hidden', String(!shouldExpand))
+  menu.dataset.menuOpen = String(shouldExpand)
+}
+
+function toggleMenu(force) {
+  const button = elements.mobileMenuButton
+  if (!button) return
+
+  const expanded = button.getAttribute('aria-expanded') === 'true'
+  const shouldExpand = typeof force === 'boolean' ? force : !expanded
+  setMenuExpanded(shouldExpand)
+}
+
+function syncMenuToViewport(matches) {
+  if (matches) {
+    setMenuExpanded(true)
+    return
+  }
+
+  const button = elements.mobileMenuButton
+  const expanded = button?.getAttribute('aria-expanded') === 'true'
+  setMenuExpanded(expanded)
+}
+
+function bindMenuMediaQuery() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    const button = elements.mobileMenuButton
+    const expanded = button?.getAttribute('aria-expanded') === 'true'
+    setMenuExpanded(expanded)
+    return
+  }
+
+  menuMediaQuery = menuMediaQuery ?? window.matchMedia(DESKTOP_MENU_MEDIA_QUERY)
+  syncMenuToViewport(menuMediaQuery.matches)
+
+  if (menuMediaHandler) {
+    return
+  }
+
+  menuMediaHandler = (event) => {
+    if (event.matches) {
+      setMenuExpanded(true)
+    } else {
+      setMenuExpanded(false)
+    }
+  }
+
+  if (typeof menuMediaQuery.addEventListener === 'function') {
+    menuMediaQuery.addEventListener('change', menuMediaHandler)
+  } else if (typeof menuMediaQuery.addListener === 'function') {
+    menuMediaQuery.addListener(menuMediaHandler)
+  }
+}
+
+function handleMenuButtonClick(event) {
+  if (!(event.currentTarget instanceof HTMLElement)) {
+    return
+  }
+
+  if (ignoreNextMenuClick) {
+    ignoreNextMenuClick = false
+    return
+  }
+
+  event.preventDefault()
+  toggleMenu()
+}
+
+function handleMenuButtonKeydown(event) {
+  const key = event.key
+  if (key !== ' ' && key !== 'Spacebar' && key !== 'Enter') {
+    return
+  }
+
+  ignoreNextMenuClick = true
+  event.preventDefault()
+  toggleMenu()
+}
+
+function handleMenuLinkClick(event) {
+  const target = event.target
+  if (!(target instanceof Element)) {
+    return
+  }
+
+  const closeTrigger = target.closest('[data-menu-close="true"]')
+  if (!closeTrigger) {
+    return
+  }
+
+  if (menuMediaQuery?.matches) {
+    return
+  }
+
+  toggleMenu(false)
+}
+
+function initializeMenuControls() {
+  const button = elements.mobileMenuButton
+  const menu = elements.mobileMenu
+  if (!button || !menu) {
+    return
+  }
+
+  if (button.dataset.menuBound !== 'true') {
+    button.addEventListener('click', handleMenuButtonClick)
+    button.addEventListener('keydown', handleMenuButtonKeydown)
+    button.dataset.menuBound = 'true'
+  }
+
+  if (menu.dataset.menuBound !== 'true') {
+    menu.addEventListener('click', handleMenuLinkClick)
+    menu.dataset.menuBound = 'true'
+  }
+
+  bindMenuMediaQuery()
+}
 
 function setAriaBusy(isBusy) {
   if (elements.itemsList) {
@@ -914,6 +1049,7 @@ async function initialiseAuth() {
 }
 
 function init() {
+  initializeMenuControls()
   bindFilterEvents()
   bindModalEvents()
   initialiseAuth()
