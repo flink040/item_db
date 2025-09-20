@@ -78,8 +78,6 @@ const CONFIG_ADD_ITEM_ROUTE_KEYS = [
 const ADD_ITEM_MODAL_SELECTOR = '#item-modal';
 const ADD_ITEM_MODAL_INITIAL_FOCUS_SELECTOR = '#item-name-input';
 const ADD_ITEM_MODAL_FORM_SELECTOR = '#item-form';
-
-
 let activeRequestId = 0;
 let ignoreNextMenuClick = false;
 let ignoreNextBackToTopClick = false;
@@ -107,6 +105,7 @@ let addItemModalElement = null;
 let addItemModalOpen = false;
 let addItemModalFocusableItems = [];
 let addItemModalPreviouslyFocused = null;
+
 
 
 function isFocusableElement(element) {

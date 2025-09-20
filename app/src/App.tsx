@@ -412,12 +412,11 @@ export default function App() {
             <button
               type="button"
               onClick={() => setShowProfileModal(true)}
-              className="inline-flex items-center gap-3 rounded-full border border-slate-800/80 bg-slate-900/60 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-            >
-              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500/10 text-sm font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
+              className="inline-flex items-center gap-4 rounded-full border border-slate-800/80 bg-slate-900/60 px-7 py-2.5 text-base font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500
+              <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/10 text-base font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
                 U
               </span>
-              <span>Profil</span>
+              <span className="text-base">Profil</span>
             </button>
           </div>
         </div>
@@ -472,7 +471,7 @@ export default function App() {
                   </div>
                 </label>
 
-                <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))_auto] md:items-end">
+                <div className="grid gap-4 md:grid-cols-[repeat(3,minmax(0,1fr))_auto_auto] md:items-end">
                   <label className="block" htmlFor="filter-type">
                     <span className="text-sm font-medium text-slate-300">Item-Typ</span>
                     <select
@@ -526,6 +525,15 @@ export default function App() {
 
                   <div className="col-span-full md:col-auto md:self-end md:justify-self-end">
                     <button
+                      type="submit"
+                      className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 md:w-auto"
+                    >
+                      Suchen
+                    </button>
+                  </div>
+
+                  <div className="col-span-full md:col-auto md:self-end md:justify-self-end">
+                    <button
                       type="button"
                       onClick={() => setShowItemModal(true)}
                       className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-5 py-3 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 md:w-auto md:px-6 md:py-2.5"
@@ -536,15 +544,7 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <p className="text-sm text-slate-500">Nutze die Filter, um schneller zum passenden Item zu gelangen.</p>
-                  <button
-                    type="submit"
-                    className="inline-flex items-center gap-2 rounded-full bg-emerald-500 px-6 py-3 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                  >
-                    Suchen
-                  </button>
-                </div>
+                <p className="text-sm text-slate-500">Nutze die Filter, um schneller zum passenden Item zu gelangen.</p>
               </form>
             </div>
           </div>
