@@ -709,6 +709,7 @@ function ProfileModal({ onClose }: ModalProps) {
         </div>
       </div>
     </div>
+    </div>
   )
 }
 
@@ -855,15 +856,15 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="item-modal-title"
     >
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
-      <div className="relative z-10 w-full max-w-3xl rounded-2xl border border-slate-800/80 bg-slate-950 shadow-2xl shadow-emerald-500/10">
-        <div className="max-h-[min(66vh,calc(100vh-3rem))] overflow-y-auto p-8">
-          <div className="flex items-start justify-between gap-4">
+      <div className="relative z-10 w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950 shadow-2xl shadow-emerald-500/10">
+        <div className="flex max-h-[min(85vh,calc(100vh-3rem))] flex-col overflow-hidden">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-800/70 px-6 py-6 sm:px-8">
             <div>
               <h2 id="item-modal-title" className="text-2xl font-semibold text-slate-50">
                 Neues Item hinzufügen
@@ -882,184 +883,186 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
             </button>
           </div>
 
-          <form className="mt-6 space-y-6" aria-label="Item hinzufügen" onSubmit={handleSubmit}>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <label className="block" htmlFor="modal-item-name">
-                <span className="text-sm font-medium text-slate-300">Name *</span>
-                <input
-                  id="modal-item-name"
-                  name="name"
-                  ref={nameInputRef}
-                  type="text"
-                  required
-                  className={getFieldClassName('name')}
-                  placeholder="Z. B. OP Netherite Helm"
-                  value={formValues.name}
-                  onChange={handleFieldChange}
-                  aria-invalid={Boolean(errors.name)}
-                  aria-describedby={getErrorId('name')}
-                />
-                {errors.name && (
-                  <p id="item-modal-name-error" className="mt-2 text-sm text-rose-400">
-                    {errors.name}
-                  </p>
-                )}
-              </label>
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 sm:px-8 sm:py-8">
+            <form className="space-y-6" aria-label="Item hinzufügen" onSubmit={handleSubmit}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block" htmlFor="modal-item-name">
+                  <span className="text-sm font-medium text-slate-300">Name *</span>
+                  <input
+                    id="modal-item-name"
+                    name="name"
+                    ref={nameInputRef}
+                    type="text"
+                    required
+                    className={getFieldClassName('name')}
+                    placeholder="Z. B. OP Netherite Helm"
+                    value={formValues.name}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.name)}
+                    aria-describedby={getErrorId('name')}
+                  />
+                  {errors.name && (
+                    <p id="item-modal-name-error" className="mt-2 text-sm text-rose-400">
+                      {errors.name}
+                    </p>
+                  )}
+                </label>
 
-              <label className="block" htmlFor="modal-item-type">
-                <span className="text-sm font-medium text-slate-300">Item-Typ *</span>
-                <select
-                  id="modal-item-type"
-                  name="itemType"
-                  required
-                  className={getFieldClassName('itemType')}
-                  value={formValues.itemType}
-                  onChange={handleFieldChange}
-                  aria-invalid={Boolean(errors.itemType)}
-                  aria-describedby={getErrorId('itemType')}
+                <label className="block" htmlFor="modal-item-type">
+                  <span className="text-sm font-medium text-slate-300">Item-Typ *</span>
+                  <select
+                    id="modal-item-type"
+                    name="itemType"
+                    required
+                    className={getFieldClassName('itemType')}
+                    value={formValues.itemType}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.itemType)}
+                    aria-describedby={getErrorId('itemType')}
+                  >
+                    <option value="">Bitte auswählen</option>
+                    {typeOptions
+                      .filter((option) => option.value)
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </select>
+                  {errors.itemType && (
+                    <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
+                      {errors.itemType}
+                    </p>
+                  )}
+                </label>
+
+                <label className="block" htmlFor="modal-item-material">
+                  <span className="text-sm font-medium text-slate-300">Material *</span>
+                  <select
+                    id="modal-item-material"
+                    name="material"
+                    required
+                    className={getFieldClassName('material')}
+                    value={formValues.material}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.material)}
+                    aria-describedby={getErrorId('material')}
+                  >
+                    <option value="">Bitte auswählen</option>
+                    {materialOptions
+                      .filter((option) => option.value)
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </select>
+                  {errors.material && (
+                    <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
+                      {errors.material}
+                    </p>
+                  )}
+                </label>
+
+                <label className="block" htmlFor="modal-item-rarity">
+                  <span className="text-sm font-medium text-slate-300">Seltenheit *</span>
+                  <select
+                    id="modal-item-rarity"
+                    name="rarity"
+                    required
+                    className={getFieldClassName('rarity')}
+                    value={formValues.rarity}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.rarity)}
+                    aria-describedby={getErrorId('rarity')}
+                  >
+                    <option value="">Bitte auswählen</option>
+                    {rarityOptions
+                      .filter((option) => option.value)
+                      .map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                  </select>
+                  {errors.rarity && (
+                    <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
+                      {errors.rarity}
+                    </p>
+                  )}
+                </label>
+
+                <label className="sm:col-span-2 block" htmlFor="modal-item-lore">
+                  <span className="text-sm font-medium text-slate-300">Lore / Beschreibung</span>
+                  <textarea
+                    id="modal-item-lore"
+                    name="lore"
+                    rows={4}
+                    className={`${getFieldClassName('lore')} resize-none`}
+                    placeholder="Optionaler Beschreibungstext"
+                    value={formValues.lore}
+                    onChange={handleFieldChange}
+                  />
+                </label>
+
+                <label className="block" htmlFor="modal-item-price">
+                  <span className="text-sm font-medium text-slate-300">Preis</span>
+                  <input
+                    id="modal-item-price"
+                    name="price"
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    inputMode="decimal"
+                    className={getFieldClassName('price')}
+                    placeholder="0.00"
+                    value={formValues.price}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.price)}
+                    aria-describedby={getErrorId('price')}
+                  />
+                  {errors.price && (
+                    <p id="item-modal-price-error" className="mt-2 text-sm text-rose-400">
+                      {errors.price}
+                    </p>
+                  )}
+                </label>
+
+                <label className="block" htmlFor="modal-item-image">
+                  <span className="text-sm font-medium text-slate-300">Bild-URL</span>
+                  <input
+                    id="modal-item-image"
+                    name="imageUrl"
+                    type="url"
+                    className={getFieldClassName('imageUrl')}
+                    placeholder="https://example.com/item.png"
+                    value={formValues.imageUrl}
+                    onChange={handleFieldChange}
+                  />
+                </label>
+              </div>
+
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                 >
-                  <option value="">Bitte auswählen</option>
-                  {typeOptions
-                    .filter((option) => option.value)
-                    .map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                </select>
-                {errors.itemType && (
-                  <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
-                    {errors.itemType}
-                  </p>
-                )}
-              </label>
-
-              <label className="block" htmlFor="modal-item-material">
-                <span className="text-sm font-medium text-slate-300">Material *</span>
-                <select
-                  id="modal-item-material"
-                  name="material"
-                  required
-                  className={getFieldClassName('material')}
-                  value={formValues.material}
-                  onChange={handleFieldChange}
-                  aria-invalid={Boolean(errors.material)}
-                  aria-describedby={getErrorId('material')}
+                  Abbrechen
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 disabled:cursor-not-allowed disabled:opacity-70"
                 >
-                  <option value="">Bitte auswählen</option>
-                  {materialOptions
-                    .filter((option) => option.value)
-                    .map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                </select>
-                {errors.material && (
-                  <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
-                    {errors.material}
-                  </p>
-                )}
-              </label>
-
-              <label className="block" htmlFor="modal-item-rarity">
-                <span className="text-sm font-medium text-slate-300">Seltenheit *</span>
-                <select
-                  id="modal-item-rarity"
-                  name="rarity"
-                  required
-                  className={getFieldClassName('rarity')}
-                  value={formValues.rarity}
-                  onChange={handleFieldChange}
-                  aria-invalid={Boolean(errors.rarity)}
-                  aria-describedby={getErrorId('rarity')}
-                >
-                  <option value="">Bitte auswählen</option>
-                  {rarityOptions
-                    .filter((option) => option.value)
-                    .map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                </select>
-                {errors.rarity && (
-                  <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
-                    {errors.rarity}
-                  </p>
-                )}
-              </label>
-
-              <label className="sm:col-span-2 block" htmlFor="modal-item-lore">
-                <span className="text-sm font-medium text-slate-300">Lore / Beschreibung</span>
-                <textarea
-                  id="modal-item-lore"
-                  name="lore"
-                  rows={4}
-                  className={`${getFieldClassName('lore')} resize-none`}
-                  placeholder="Optionaler Beschreibungstext"
-                  value={formValues.lore}
-                  onChange={handleFieldChange}
-                />
-              </label>
-
-              <label className="block" htmlFor="modal-item-price">
-                <span className="text-sm font-medium text-slate-300">Preis</span>
-                <input
-                  id="modal-item-price"
-                  name="price"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  inputMode="decimal"
-                  className={getFieldClassName('price')}
-                  placeholder="0.00"
-                  value={formValues.price}
-                  onChange={handleFieldChange}
-                  aria-invalid={Boolean(errors.price)}
-                  aria-describedby={getErrorId('price')}
-                />
-                {errors.price && (
-                  <p id="item-modal-price-error" className="mt-2 text-sm text-rose-400">
-                    {errors.price}
-                  </p>
-                )}
-              </label>
-
-              <label className="block" htmlFor="modal-item-image">
-                <span className="text-sm font-medium text-slate-300">Bild-URL</span>
-                <input
-                  id="modal-item-image"
-                  name="imageUrl"
-                  type="url"
-                  className={getFieldClassName('imageUrl')}
-                  placeholder="https://example.com/item.png"
-                  value={formValues.imageUrl}
-                  onChange={handleFieldChange}
-                />
-              </label>
-            </div>
-
-            <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                className="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-              >
-                Abbrechen
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 disabled:cursor-not-allowed disabled:opacity-70"
-              >
-                {submitting && <SpinnerIcon className="h-4 w-4" />}
-                Speichern
-              </button>
-            </div>
-          </form>
+                  {submitting && <SpinnerIcon className="h-4 w-4" />}
+                  Speichern
+                </button>
+              </div>
+            </form>
         </div>
       </div>
+    </div>
     </div>
   )
 }
