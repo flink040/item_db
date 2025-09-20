@@ -66,6 +66,15 @@ const INFINITE_SCROLL_THRESHOLD_PX = 320;
 const INFINITE_SCROLL_THROTTLE_MS = 180;
 const INFINITE_SCROLL_RESET_MS = 400;
 const ADD_ITEM_ROUTE_CANDIDATES = ['/add', '/items/new'];
+const CONFIG_ADD_ITEM_ROUTE_KEYS = [
+  'add',
+  'addItem',
+  'createItem',
+  'itemCreate',
+  'itemsNew',
+  'newItem',
+  'itemNew',
+];
 
 
 let activeRequestId = 0;
@@ -91,7 +100,6 @@ let authUser = null;
 let authPending = false;
 let authUiAvailable = false;
 let resolvedAddItemRoute = null;
-let addItemRoutePromise = null;
 
 
 function isFocusableElement(element) {
@@ -294,8 +302,7 @@ function getAddItemRouteCandidates() {
 
     const nestedRoutes = config.routes;
     if (nestedRoutes && typeof nestedRoutes === 'object') {
-      const routeKeys = ['add', 'addItem', 'createItem', 'itemCreate', 'itemsNew', 'newItem', 'itemNew'];
-      for (const key of routeKeys) {
+      for (const key of CONFIG_ADD_ITEM_ROUTE_KEYS) {
         const value = nestedRoutes[key];
         if (typeof value === 'string' && value.trim()) {
           candidates.add(value);
@@ -350,58 +357,48 @@ function findAvailableAddItemRoute() {
     resolvedAddItemRoute = domRoute;
     return Promise.resolve(domRoute);
   }
-
-  if (typeof window === 'undefined' || typeof fetch !== 'function') {
-    return Promise.resolve(null);
+  const configuredRoute = getConfiguredAddItemRoute();
+  if (configuredRoute) {
+    resolvedAddItemRoute = configuredRoute;
+    return Promise.resolve(configuredRoute);
   }
 
-  if (addItemRoutePromise) {
-    return addItemRoutePromise;
+  resolvedAddItemRoute = null;
+  return Promise.resolve(null);
+}
+
+function getConfiguredAddItemRoute() {
+  const config = globalScope && typeof globalScope.APP_CONFIG === 'object' ? globalScope.APP_CONFIG : null;
+  if (!config || typeof config !== 'object') {
+    return null;
   }
 
-  addItemRoutePromise = (async () => {
-    for (const candidate of candidates) {
-      const normalized = normalizeRouteCandidate(candidate);
-      if (!normalized) {
-        continue;
-      }
+  const directCandidates = [
+    config.addItemRoute,
+    config.addItemPath,
+    config.itemAddRoute,
+    config.itemCreateRoute,
+  ];
 
-      try {
-        let response = await fetch(normalized, { method: 'HEAD', redirect: 'manual' });
-        if (response && (response.ok || (response.status >= 200 && response.status < 400) || response.type === 'opaqueredirect')) {
-          resolvedAddItemRoute = normalized;
-          return normalized;
-        }
+  for (const entry of directCandidates) {
+    const normalized = normalizeRouteCandidate(entry);
+    if (normalized) {
+      return normalized;
+    }
+  }
 
-        if (response && (response.status === 405 || response.status === 501)) {
-          response = await fetch(normalized, { method: 'GET', redirect: 'manual', cache: 'no-store' });
-          if (
-            response &&
-            (response.ok || (response.status >= 200 && response.status < 400) || response.type === 'opaqueredirect')
-          ) {
-            resolvedAddItemRoute = normalized;
-            return normalized;
-          }
-        }
-      } catch (error) {
-        // Ignore network errors and continue with the next candidate.
-        void error;
+  const nestedRoutes = config.routes;
+  if (nestedRoutes && typeof nestedRoutes === 'object') {
+    for (const key of CONFIG_ADD_ITEM_ROUTE_KEYS) {
+      const value = nestedRoutes[key];
+      const normalized = normalizeRouteCandidate(value);
+      if (normalized) {
+        return normalized;
       }
     }
+  }
 
-    return null;
-  })();
-
-  return addItemRoutePromise
-    .then((route) => {
-      if (!route) {
-        resolvedAddItemRoute = null;
-      }
-      return route;
-    })
-    .finally(() => {
-      addItemRoutePromise = null;
-    });
+  return null;
 }
 
 function registerEventListeners() {
