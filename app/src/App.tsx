@@ -327,7 +327,7 @@ export default function App() {
   return (
     <div className="min-h-full flex flex-col">
       <div
-        className="pointer-events-none fixed inset-x-0 top-4 z-[60] flex flex-col items-center gap-3 px-4 sm:items-end sm:px-6"
+        className="pointer-events-none fixed top-4 left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col items-center gap-3 px-4 sm:px-0"
         aria-live="assertive"
       >
         {toasts.map((toast) => (
@@ -336,7 +336,7 @@ export default function App() {
             role={toast.type === 'error' ? 'alert' : 'status'}
             className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-xl border px-4 py-3 text-sm shadow-lg transition ${
               toast.type === 'error'
-                ? 'border-rose-500/40 bg-rose-500/10 text-rose-100 shadow-rose-500/10'
+                ? 'border-red-500/50 bg-red-500/10 text-red-100 shadow-red-500/10'
                 : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-100 shadow-emerald-500/10'
             }`}
           >
