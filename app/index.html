@@ -3,6 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="supabase" data-url="https://YOUR-PROJECT.supabase.co" data-key="YOUR-ANON-KEY" />
     <title>OP Item DB</title>
     <meta name="description" content="Community-driven OPSUCHT OP Item-Datenbank" />
     <link rel="icon" type="image/svg+xml" href="/logo.svg" />
@@ -165,14 +166,7 @@
                             data-filter="type"
                             data-js="filter-type"
                           >
-                            <option value="">Alle Item-Typen</option>
-                            <option value="Waffe">Waffe</option>
-                            <option value="Werkzeug">Werkzeug</option>
-                            <option value="Rüstung">Rüstung</option>
-                            <option value="Block">Block</option>
-                            <option value="Trank">Trank</option>
-                            <option value="Nahrung">Nahrung</option>
-                            <option value="Sonstiges">Sonstiges</option>
+                            <option value="">Alle</option>
                           </select>
                         </label>
                       </div>
@@ -186,33 +180,21 @@
                             data-filter="material"
                             data-js="filter-material"
                           >
-                            <option value="">Alle Materialien</option>
-                            <option value="Holz">Holz</option>
-                            <option value="Stein">Stein</option>
-                            <option value="Eisen">Eisen</option>
-                            <option value="Gold">Gold</option>
-                            <option value="Diamant">Diamant</option>
-                            <option value="Netherit">Netherit</option>
-                            <option value="Leder">Leder</option>
-                            <option value="Kette">Kette</option>
+                            <option value="">Alle</option>
                           </select>
                         </label>
                       </div>
                       <div class="space-y-2">
-                        <label class="block w-full sm:max-w-xs lg:max-w-none" for="app-filter-rarity">
+                        <label class="block w-full sm:max-w-xs lg:max-w-none" for="filter-rarity">
                           <span class="text-sm font-medium text-slate-300">Seltenheit</span>
                           <select
-                            id="app-filter-rarity"
+                            id="filter-rarity"
                             class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                             name="rarity"
                             data-js="filter-rarity"
                             data-filter="rarity"
                           >
-                            <option value="">Alle Seltenheiten</option>
-                            <option value="gewöhnlich">Gewöhnlich</option>
-                            <option value="selten">Selten</option>
-                            <option value="episch">Episch</option>
-                            <option value="legendär">Legendär</option>
+                            <option value="">Alle</option>
                           </select>
                         </label>
                       </div>
@@ -239,412 +221,205 @@
               </div>
               <div class="rounded-2xl border border-slate-800/70 bg-slate-900/40 p-6 shadow-inner shadow-slate-950/40">
                 <div
-                  id="item-grid"
-                  class="app-shell__grid min-h-[320px] space-y-4"
-                  data-js="grid"
+                  id="itemsList"
+                  class="grid min-h-[320px] gap-6 sm:grid-cols-2 xl:grid-cols-3"
                   aria-live="polite"
                   aria-busy="false"
                 ></div>
-                <div class="app-shell__empty mt-6" data-js="empty-state" hidden></div>
+                <div
+                  id="itemsEmptyState"
+                  class="mt-6 hidden rounded-2xl border border-slate-800/60 bg-slate-950/60 p-6 text-sm text-slate-400"
+                >
+                  Keine Items gefunden. Passe deine Suche an oder füge ein neues Item hinzu.
+                </div>
               </div>
             </div>
           </section>
         </main>
       </div>
       <div
-        class="app-modal fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
-        data-js="modal"
+        id="addItemModal"
+        class="fixed inset-0 z-50 hidden items-center justify-center bg-slate-950/80 p-6"
         role="dialog"
         aria-modal="true"
+        aria-labelledby="addItemModalTitle"
         aria-hidden="true"
-        hidden
       >
-        <div class="app-modal__backdrop absolute inset-0" data-js="modal-backdrop" tabindex="-1"></div>
+        <div class="absolute inset-0" data-modal-overlay></div>
         <div
-          class="app-modal__dialog relative z-10 w-full max-w-2xl rounded-2xl border border-slate-800/80 bg-slate-950 p-6 shadow-2xl shadow-emerald-500/10"
+          class="relative z-10 w-full max-w-2xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
           role="document"
         >
-          <button
-            type="button"
-            class="app-modal__close absolute right-4 top-4 rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-            data-js="modal-close"
-            aria-label="Schließen"
-          >
-            <span class="sr-only">Schließen</span>
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="h-5 w-5"
-              aria-hidden="true"
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="addItemModalTitle" class="text-xl font-semibold text-slate-50">Neues Item hinzufügen</h2>
+              <p class="mt-1 text-sm text-slate-400">
+                Fülle alle Pflichtfelder aus, um ein Item in die Datenbank zu speichern.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+              data-modal-close
+              aria-label="Modal schließen"
             >
-              <path d="m6 6 12 12" />
-              <path d="m18 6-12 12" />
-            </svg>
-          </button>
-          <div class="app-modal__body space-y-4 text-sm text-slate-200" data-js="modal-body"></div>
-        </div>
-      </div>
-    </div>
-    <div
-      id="item-modal"
-      class="fixed inset-0 z-50 hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="item-modal-title"
-      aria-hidden="true"
-    >
-      <div class="absolute inset-0" data-modal-overlay></div>
-      <div class="relative z-10 w-full md:w-2/3">
-        <div class="rounded-2xl border border-slate-800/80 bg-slate-950 shadow-2xl shadow-emerald-500/10">
-          <div
-            class="max-h-[min(66vh,calc(100vh-3rem))] overflow-y-auto p-8"
-            data-dropdown-container
-          >
-            <div class="flex items-start justify-between gap-4">
-              <div>
-                <h2 id="item-modal-title" class="text-2xl font-semibold text-slate-50">Neues Item hinzufügen</h2>
-                <p class="mt-1 text-sm text-slate-400">
-                  Trage alle Pflichtfelder ein, um ein Item in die Datenbank aufzunehmen.
-                </p>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="h-5 w-5"
+                aria-hidden="true"
+              >
+                <path d="m6 6 12 12" />
+                <path d="m18 6-12 12" />
+              </svg>
+            </button>
+          </div>
+          <form id="addItemForm" class="mt-6 space-y-6" aria-describedby="addItemFormError" novalidate>
+            <div
+              id="addItemFormError"
+              class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+              role="alert"
+            ></div>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div class="sm:col-span-2">
+                <label class="block" for="itemTitle">
+                  <span class="text-sm font-medium text-slate-300">Titel<span class="text-rose-400">*</span></span>
+                  <input
+                    id="itemTitle"
+                    name="title"
+                    type="text"
+                    maxlength="120"
+                    required
+                    autocomplete="off"
+                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    aria-describedby="itemTitleError"
+                  />
+                </label>
+                <p id="itemTitleError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="title"></p>
               </div>
+              <div>
+                <label class="block" for="itemTypeSelect">
+                  <span class="text-sm font-medium text-slate-300">Item-Typ<span class="text-rose-400">*</span></span>
+                  <select
+                    id="itemTypeSelect"
+                    name="itemType"
+                    required
+                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    aria-describedby="itemTypeError"
+                  ></select>
+                </label>
+                <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="itemType"></p>
+              </div>
+              <div>
+                <label class="block" for="itemMaterialSelect">
+                  <span class="text-sm font-medium text-slate-300">Material<span class="text-rose-400">*</span></span>
+                  <select
+                    id="itemMaterialSelect"
+                    name="material"
+                    required
+                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    aria-describedby="itemMaterialError"
+                  ></select>
+                </label>
+                <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material"></p>
+              </div>
+              <div>
+                <label class="block" for="itemRaritySelect">
+                  <span class="text-sm font-medium text-slate-300">Seltenheit<span class="text-rose-400">*</span></span>
+                  <select
+                    id="itemRaritySelect"
+                    name="rarity"
+                    required
+                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    aria-describedby="itemRarityError"
+                  ></select>
+                </label>
+                <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity"></p>
+              </div>
+              <div>
+                <label class="block" for="itemStars">
+                  <span class="text-sm font-medium text-slate-300">Sterne<span class="text-rose-400">*</span></span>
+                  <select
+                    id="itemStars"
+                    name="stars"
+                    required
+                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    aria-describedby="itemStarsError"
+                  >
+                    <option value="">Auswählen…</option>
+                    <option value="0">0</option>
+                    <option value="1">1</option>
+                    <option value="2">2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                    <option value="5">5</option>
+                  </select>
+                </label>
+                <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
+              </div>
+              <div class="sm:col-span-2">
+                <label class="block" for="itemLore">
+                  <span class="text-sm font-medium text-slate-300">Lore (optional)</span>
+                  <textarea
+                    id="itemLore"
+                    name="lore"
+                    maxlength="1500"
+                    rows="4"
+                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    aria-describedby="itemLoreHelp"
+                  ></textarea>
+                </label>
+                <p id="itemLoreHelp" class="mt-1 text-xs text-slate-500">Maximal 1.500 Zeichen.</p>
+              </div>
+            </div>
+            <div class="space-y-4">
+              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <span class="text-sm font-medium text-slate-300">Verzauberungen</span>
+                <span class="text-xs text-slate-500">Optional – aktiviere Einträge nach Bedarf</span>
+              </div>
+              <div
+                id="enchantmentsList"
+                class="max-h-60 space-y-3 overflow-y-auto rounded-xl border border-slate-800/70 bg-slate-900/40 p-3"
+              >
+                <p class="text-sm text-slate-500">Verzauberungen werden geladen…</p>
+              </div>
+              <p class="text-xs text-rose-400 hidden" data-error-for="enchantments"></p>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
               <button
                 type="button"
-                class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                data-modal-close
-                aria-label="Modal schließen"
+                class="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                data-modal-cancel
               >
+                Abbrechen
+              </button>
+              <button
+                type="submit"
+                class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                id="addItemSubmit"
+              >
+                <span>Speichern</span>
                 <svg
-                  xmlns="http://www.w3.org/2000/svg"
+                  class="hidden h-4 w-4 animate-spin text-emerald-950"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
                   stroke-width="1.5"
                   stroke-linecap="round"
                   stroke-linejoin="round"
-                  class="h-5 w-5"
                   aria-hidden="true"
+                  data-loading-icon
                 >
-                  <path d="m6 6 12 12" />
-                  <path d="m18 6-12 12" />
+                  <path d="M12 3a9 9 0 1 1-9 9" />
                 </svg>
               </button>
             </div>
-            <form id="item-form" class="mt-6 space-y-6" aria-label="Item hinzufügen" novalidate>
-              <div
-                class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
-                role="alert"
-                data-form-error
-              ></div>
-
-              <div class="grid gap-4 sm:grid-cols-2">
-                <div class="sm:col-span-2">
-                  <label class="block" for="item-name-input">
-                    <span class="text-sm font-medium text-slate-300">Name<span class="text-rose-400">*</span></span>
-                    <input
-                      id="item-name-input"
-                      name="name"
-                      type="text"
-                      required
-                      autocomplete="off"
-                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                      placeholder="Beispiel: Netherite Schwert"
-                      aria-describedby="item-name-error"
-                    />
-                  </label>
-                  <p id="item-name-error" class="mt-1 text-xs text-rose-400 hidden" data-error-for="name"></p>
-                </div>
-
-                <div>
-                  <label class="block" for="item-type-select">
-                    <span class="text-sm font-medium text-slate-300">Item-Typ<span class="text-rose-400">*</span></span>
-                    <select
-                      id="item-type-select"
-                      name="type"
-                      required
-                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                      aria-describedby="item-type-error"
-                    ></select>
-                  </label>
-                  <p id="item-type-error" class="mt-1 text-xs text-rose-400 hidden" data-error-for="type"></p>
-                </div>
-
-                <div>
-                  <label class="block" for="item-rarity-select">
-                    <span class="text-sm font-medium text-slate-300">Seltenheit<span class="text-rose-400">*</span></span>
-                    <select
-                      id="item-rarity-select"
-                      name="rarity"
-                      required
-                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                      aria-describedby="item-rarity-error"
-                    ></select>
-                  </label>
-                  <p id="item-rarity-error" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity"></p>
-                </div>
-
-                <div>
-                  <label class="block" for="item-material-select">
-                    <span class="text-sm font-medium text-slate-300">Material<span class="text-rose-400">*</span></span>
-                    <select
-                      id="item-material-select"
-                      name="material"
-                      required
-                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                      aria-describedby="item-material-error"
-                    ></select>
-                  </label>
-                  <p id="item-material-error" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material"></p>
-                </div>
-
-                <div>
-                  <span id="item-star-level-label" class="text-sm font-medium text-slate-300">Stern-Level</span>
-                  <input id="item-star-level-input" name="star_level" type="hidden" value="" data-star-input />
-                  <div
-                    class="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
-                    role="radiogroup"
-                    aria-labelledby="item-star-level-label"
-                    aria-describedby="item-star-level-error"
-                    data-star-rating
-                  >
-                    <button
-                      type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                      data-star-value="1"
-                      role="radio"
-                      aria-label="1 von 3 Sternen"
-                      aria-checked="false"
-                    >
-                      <span aria-hidden="true" data-star-icon>☆</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                      data-star-value="2"
-                      role="radio"
-                      aria-label="2 von 3 Sternen"
-                      aria-checked="false"
-                    >
-                      <span aria-hidden="true" data-star-icon>☆</span>
-                    </button>
-                    <button
-                      type="button"
-                      class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                      data-star-value="3"
-                      role="radio"
-                      aria-label="3 von 3 Sternen"
-                      aria-checked="false"
-                    >
-                      <span aria-hidden="true" data-star-icon>☆</span>
-                    </button>
-                  </div>
-                  <p id="item-star-level-error" class="mt-1 text-xs text-rose-400 hidden" data-error-for="star_level"></p>
-                </div>
-
-                <div class="sm:col-span-2 space-y-2">
-                  <label class="block" for="item-image-input">
-                    <span class="text-sm font-medium text-slate-300">Bild-URL</span>
-                    <input
-                      id="item-image-input"
-                      name="image_url"
-                      type="url"
-                      inputmode="url"
-                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                      placeholder="https://example.com/item.png"
-                      aria-describedby="item-image-error"
-                    />
-                  </label>
-                  <p id="item-image-error" class="text-xs text-rose-400 hidden" data-error-for="image_url"></p>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <input type="file" accept="image/*" class="hidden" data-image-upload-input />
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 rounded-lg border border-emerald-500/60 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-200 transition hover:bg-emerald-500/20 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                      data-image-upload-button
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        class="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                      </svg>
-                      Bild hochladen
-                    </button>
-                    <span class="text-xs text-slate-500" data-image-upload-status>Max. 5&nbsp;MB · Nur Bilddateien</span>
-                  </div>
-                  <div
-                    class="hidden h-2 w-full overflow-hidden rounded-full bg-slate-800/80"
-                    aria-hidden="true"
-                    data-image-upload-progress
-                  >
-                    <div class="h-full w-0 bg-emerald-500 transition-all duration-200" data-image-upload-progress-bar></div>
-                  </div>
-                  <p class="text-xs text-rose-400 hidden" data-image-upload-error></p>
-                </div>
-
-                <div class="sm:col-span-2">
-                  <label class="block" for="item-description-input">
-                    <span class="text-sm font-medium text-slate-300">Beschreibung</span>
-                    <textarea
-                      id="item-description-input"
-                      name="description"
-                      maxlength="500"
-                      class="mt-1 h-28 w-full resize-none rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                      placeholder="Optionaler Beschreibungstext (max. 500 Zeichen)"
-                      aria-describedby="item-description-error"
-                    ></textarea>
-                  </label>
-                  <p id="item-description-error" class="mt-1 text-xs text-rose-400 hidden" data-error-for="description"></p>
-                </div>
-              </div>
-
-              <div class="space-y-3">
-                <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                  <span class="text-sm font-medium text-slate-300">Verzauberungen</span>
-                  <span class="text-xs text-slate-500">Optional – wähle Einträge aus der Liste</span>
-                </div>
-                <div class="rounded-xl border border-slate-800 bg-slate-900/60">
-                  <div class="border-b border-slate-800/80 p-3">
-                    <label class="block" for="enchantment-search-input">
-                      <span class="sr-only">Verzauberungen durchsuchen</span>
-                      <div class="relative">
-                        <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.5"
-                            stroke-linecap="round"
-                            stroke-linejoin="round"
-                            class="h-4 w-4"
-                            aria-hidden="true"
-                          >
-                            <path d="m21 21-4.35-4.35" />
-                            <circle cx="11" cy="11" r="7" />
-                          </svg>
-                        </span>
-                        <input
-                          id="enchantment-search-input"
-                          type="search"
-                          autocomplete="off"
-                          class="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                          placeholder="Suchen..."
-                          data-enchantment-search
-                        />
-                      </div>
-                    </label>
-                  </div>
-                  <div
-                    class="max-h-48 overflow-y-auto p-2 text-sm"
-                    data-enchantment-list
-                    aria-live="polite"
-                  >
-                    <p class="px-2 py-4 text-xs text-slate-500">Verzauberungen werden geladen ...</p>
-                  </div>
-                </div>
-                <div class="space-y-3" data-selected-enchantments>
-                  <p class="text-xs text-slate-500">Noch keine Verzauberungen ausgewählt.</p>
-                </div>
-                <p id="item-enchantments-error" class="text-xs text-rose-400 hidden" data-error-for="enchantments"></p>
-              </div>
-
-              <div class="flex justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  class="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                  data-modal-close
-                >
-                  Abbrechen
-                </button>
-                <button
-                  type="submit"
-                  class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                  data-submit-button
-                >
-                  <span data-submit-text>Speichern</span>
-                  <svg
-                    class="hidden h-4 w-4 animate-spin text-emerald-950"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.5"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
-                    data-submit-spinner
-                  >
-                    <path d="M12 3a9 9 0 1 1-9 9" />
-                  </svg>
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      </div>
-    </div>
-    <div
-      data-profile-modal-overlay
-      class="fixed inset-0 z-[60] hidden flex items-center justify-center bg-slate-950/80 px-4 py-6 backdrop-blur"
-      aria-hidden="true"
-    >
-      <div
-        class="relative w-full max-w-md rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
-        role="dialog"
-        aria-modal="true"
-      >
-        <button
-          type="button"
-          data-profile-close
-          class="absolute right-4 top-4 inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-          aria-label="Schließen"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true">
-            <path d="m6 6 12 12"></path>
-            <path d="m18 6-12 12"></path>
-          </svg>
-        </button>
-        <div class="space-y-6">
-          <div class="flex flex-col items-center gap-4">
-            <div
-              data-profile-avatar
-              class="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-900/80 text-lg font-semibold text-emerald-300 ring-1 ring-slate-800"
-            >
-              <img data-profile-avatar-image alt="" class="hidden h-full w-full object-cover" />
-              <div data-profile-avatar-fallback>–</div>
-            </div>
-            <div class="text-center">
-              <h3 data-profile-display-name class="text-lg font-semibold text-slate-100">Profil</h3>
-              <p data-profile-loading class="mt-2 text-sm text-slate-400">Statistiken werden geladen…</p>
-              <p data-profile-error class="mt-2 hidden text-sm text-rose-400">Statistiken konnten nicht geladen werden.</p>
-            </div>
-          </div>
-          <div class="grid grid-cols-1 gap-4 text-center sm:grid-cols-2">
-            <div class="rounded-2xl border border-slate-800/70 bg-slate-900/60 p-4">
-              <p class="text-xs uppercase tracking-wide text-slate-500">Eingereichte Items</p>
-              <p class="mt-2 text-3xl font-semibold text-emerald-300">
-                <span data-profile-items>–</span>
-              </p>
-            </div>
-            <div class="rounded-2xl border border-slate-800/70 bg-slate-900/60 p-4">
-              <p class="text-xs uppercase tracking-wide text-slate-500">Erhaltene Likes</p>
-              <p class="mt-2 text-3xl font-semibold text-emerald-300">
-                <span data-profile-likes>–</span>
-              </p>
-            </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>
@@ -654,39 +429,6 @@
       aria-live="polite"
       aria-atomic="true"
     ></div>
-    <script type="module">
-      const globalScope = typeof window !== 'undefined' ? window : globalThis
-      const env = (typeof import.meta !== 'undefined' && import.meta.env) || {}
-
-      const existingEnv =
-        globalScope && globalScope.__ENV && typeof globalScope.__ENV === 'object'
-          ? globalScope.__ENV
-          : {}
-
-      const supabaseUrl = env.VITE_SUPABASE_URL ?? existingEnv.VITE_SUPABASE_URL ?? ''
-      const supabaseAnonKey =
-        env.VITE_SUPABASE_ANON_KEY ?? existingEnv.VITE_SUPABASE_ANON_KEY ?? ''
-
-      globalScope.__ENV = {
-        ...existingEnv,
-        VITE_SUPABASE_URL: supabaseUrl,
-        VITE_SUPABASE_ANON_KEY: supabaseAnonKey,
-      }
-
-      const existingConfig =
-        globalScope && globalScope.APP_CONFIG && typeof globalScope.APP_CONFIG === 'object'
-          ? globalScope.APP_CONFIG
-          : {}
-
-      globalScope.APP_CONFIG = {
-        ...existingConfig,
-        SUPABASE_URL: supabaseUrl || existingConfig.SUPABASE_URL || null,
-        SUPABASE_ANON_KEY: supabaseAnonKey || existingConfig.SUPABASE_ANON_KEY || null,
-      }
-    </script>
-    <script src="/assets/js/supabase.js" defer></script>
-    <script src="/assets/js/auth.js" defer></script>
-    <script src="/assets/js/profile.js" defer></script>
-    <script type="module" src="/assets/js/app.js"></script>
+    <script type="module" src="/public/js/app.js"></script>
   </body>
 </html>
