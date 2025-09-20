@@ -66,6 +66,18 @@ const INFINITE_SCROLL_THRESHOLD_PX = 320;
 const INFINITE_SCROLL_THROTTLE_MS = 180;
 const INFINITE_SCROLL_RESET_MS = 400;
 const ADD_ITEM_ROUTE_CANDIDATES = ['/add', '/items/new'];
+const CONFIG_ADD_ITEM_ROUTE_KEYS = [
+  'add',
+  'addItem',
+  'createItem',
+  'itemCreate',
+  'itemsNew',
+  'newItem',
+  'itemNew',
+];
+const ADD_ITEM_MODAL_SELECTOR = '#item-modal';
+const ADD_ITEM_MODAL_INITIAL_FOCUS_SELECTOR = '#item-name-input';
+const ADD_ITEM_MODAL_FORM_SELECTOR = '#item-form';
 
 
 let activeRequestId = 0;
@@ -91,7 +103,10 @@ let authUser = null;
 let authPending = false;
 let authUiAvailable = false;
 let resolvedAddItemRoute = null;
-let addItemRoutePromise = null;
+let addItemModalElement = null;
+let addItemModalOpen = false;
+let addItemModalFocusableItems = [];
+let addItemModalPreviouslyFocused = null;
 
 
 function isFocusableElement(element) {
@@ -294,8 +309,7 @@ function getAddItemRouteCandidates() {
 
     const nestedRoutes = config.routes;
     if (nestedRoutes && typeof nestedRoutes === 'object') {
-      const routeKeys = ['add', 'addItem', 'createItem', 'itemCreate', 'itemsNew', 'newItem', 'itemNew'];
-      for (const key of routeKeys) {
+      for (const key of CONFIG_ADD_ITEM_ROUTE_KEYS) {
         const value = nestedRoutes[key];
         if (typeof value === 'string' && value.trim()) {
           candidates.add(value);
@@ -350,58 +364,48 @@ function findAvailableAddItemRoute() {
     resolvedAddItemRoute = domRoute;
     return Promise.resolve(domRoute);
   }
-
-  if (typeof window === 'undefined' || typeof fetch !== 'function') {
-    return Promise.resolve(null);
+  const configuredRoute = getConfiguredAddItemRoute();
+  if (configuredRoute) {
+    resolvedAddItemRoute = configuredRoute;
+    return Promise.resolve(configuredRoute);
   }
 
-  if (addItemRoutePromise) {
-    return addItemRoutePromise;
+  resolvedAddItemRoute = null;
+  return Promise.resolve(null);
+}
+
+function getConfiguredAddItemRoute() {
+  const config = globalScope && typeof globalScope.APP_CONFIG === 'object' ? globalScope.APP_CONFIG : null;
+  if (!config || typeof config !== 'object') {
+    return null;
   }
 
-  addItemRoutePromise = (async () => {
-    for (const candidate of candidates) {
-      const normalized = normalizeRouteCandidate(candidate);
-      if (!normalized) {
-        continue;
-      }
+  const directCandidates = [
+    config.addItemRoute,
+    config.addItemPath,
+    config.itemAddRoute,
+    config.itemCreateRoute,
+  ];
 
-      try {
-        let response = await fetch(normalized, { method: 'HEAD', redirect: 'manual' });
-        if (response && (response.ok || (response.status >= 200 && response.status < 400) || response.type === 'opaqueredirect')) {
-          resolvedAddItemRoute = normalized;
-          return normalized;
-        }
+  for (const entry of directCandidates) {
+    const normalized = normalizeRouteCandidate(entry);
+    if (normalized) {
+      return normalized;
+    }
+  }
 
-        if (response && (response.status === 405 || response.status === 501)) {
-          response = await fetch(normalized, { method: 'GET', redirect: 'manual', cache: 'no-store' });
-          if (
-            response &&
-            (response.ok || (response.status >= 200 && response.status < 400) || response.type === 'opaqueredirect')
-          ) {
-            resolvedAddItemRoute = normalized;
-            return normalized;
-          }
-        }
-      } catch (error) {
-        // Ignore network errors and continue with the next candidate.
-        void error;
+  const nestedRoutes = config.routes;
+  if (nestedRoutes && typeof nestedRoutes === 'object') {
+    for (const key of CONFIG_ADD_ITEM_ROUTE_KEYS) {
+      const value = nestedRoutes[key];
+      const normalized = normalizeRouteCandidate(value);
+      if (normalized) {
+        return normalized;
       }
     }
+  }
 
-    return null;
-  })();
-
-  return addItemRoutePromise
-    .then((route) => {
-      if (!route) {
-        resolvedAddItemRoute = null;
-      }
-      return route;
-    })
-    .finally(() => {
-      addItemRoutePromise = null;
-    });
+  return null;
 }
 
 function registerEventListeners() {
@@ -1326,32 +1330,327 @@ function updateUrlFromState({ replace = false } = {}) {
   }
 }
 
-function createAddItemFallbackView() {
-  const container = document.createElement('div');
-  container.className = 'space-y-4';
+function getAddItemModalElement() {
+  if (typeof document === 'undefined') {
+    return null;
+  }
 
-  const headingId = `add-item-fallback-title-${Date.now().toString(36)}-${Math.random()
-    .toString(36)
-    .slice(2, 7)}`;
+  if (addItemModalElement instanceof HTMLElement && document.body.contains(addItemModalElement)) {
+    return addItemModalElement;
+  }
 
-  const heading = document.createElement('h2');
-  heading.id = headingId;
-  heading.className = 'text-xl font-semibold text-slate-100';
-  heading.textContent = 'Item hinzufügen';
+  const element = document.querySelector(ADD_ITEM_MODAL_SELECTOR);
+  addItemModalElement = element instanceof HTMLElement ? element : null;
+  return addItemModalElement;
+}
 
-  const description = document.createElement('p');
-  description.className = 'text-sm leading-relaxed text-slate-400';
-  description.textContent =
-    'Hier kannst du bald neue Items direkt zur Datenbank hinzufügen. Die Funktion wird aktuell vorbereitet.';
+function refreshAddItemModalFocusableItems(modal) {
+  if (!modal) {
+    addItemModalFocusableItems = [];
+    return addItemModalFocusableItems;
+  }
 
-  const hint = document.createElement('p');
-  hint.className = 'text-sm leading-relaxed text-slate-500';
-  hint.textContent =
-    'Bis dahin kannst du dein Feedback oder Item-Ideen im Community-Discord teilen oder das Team direkt kontaktieren.';
+  const selectors = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+    '[contenteditable]:not([contenteditable="false"])',
+  ];
 
-  container.append(heading, description, hint);
+  addItemModalFocusableItems = Array.from(modal.querySelectorAll(selectors.join(','))).filter((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false;
+    }
 
-  return { element: container, labelledBy: headingId };
+    if (element.hasAttribute('disabled')) {
+      return false;
+    }
+
+    if (element.getAttribute('aria-hidden') === 'true') {
+      return false;
+    }
+
+    if (element.hidden) {
+      return false;
+    }
+
+    if (element.closest('[hidden]')) {
+      return false;
+    }
+
+    if (element.closest('[aria-hidden="true"]')) {
+      return false;
+    }
+
+    if (element.closest('[inert]')) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (addItemModalFocusableItems.length === 0) {
+    if (modal.getAttribute('tabindex') !== '-1') {
+      modal.setAttribute('tabindex', '-1');
+    }
+    addItemModalFocusableItems = [modal];
+  } else if (modal.getAttribute('tabindex') === '-1') {
+    modal.removeAttribute('tabindex');
+  }
+
+  return addItemModalFocusableItems;
+}
+
+function ensureAddItemModalBindings(modal) {
+  if (!modal) {
+    return null;
+  }
+
+  if (modal.dataset.itemModalBound === 'true') {
+    return modal;
+  }
+
+  const overlay = modal.querySelector('[data-modal-overlay]');
+  if (overlay instanceof HTMLElement) {
+    overlay.addEventListener('click', () => {
+      closeAddItemFallbackModal();
+    });
+  }
+
+  const closeButtons = modal.querySelectorAll('[data-modal-close]');
+  closeButtons.forEach((button) => {
+    if (button instanceof HTMLElement) {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        closeAddItemFallbackModal();
+      });
+    }
+  });
+
+  const form = modal.querySelector(ADD_ITEM_MODAL_FORM_SELECTOR);
+  if (form instanceof HTMLFormElement && form.dataset.addItemSubmitBound !== 'true') {
+    form.addEventListener('submit', handleAddItemFormSubmit);
+    form.dataset.addItemSubmitBound = 'true';
+  }
+
+  modal.addEventListener('keydown', handleAddItemModalKeydown);
+  modal.addEventListener('focusin', handleAddItemModalFocusIn);
+
+  modal.dataset.itemModalBound = 'true';
+  return modal;
+}
+
+function resetAddItemModalFormState(modal) {
+  if (!modal) {
+    return;
+  }
+
+  const form = modal.querySelector(ADD_ITEM_MODAL_FORM_SELECTOR);
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  form.reset();
+
+  const error = form.querySelector('[data-form-error]');
+  if (error instanceof HTMLElement) {
+    error.textContent = '';
+    error.classList.add('hidden');
+  }
+}
+
+function focusAddItemModal(modal) {
+  const preferred = modal.querySelector(ADD_ITEM_MODAL_INITIAL_FOCUS_SELECTOR);
+  const candidates = refreshAddItemModalFocusableItems(modal);
+  const target =
+    preferred instanceof HTMLElement && !preferred.hasAttribute('disabled') && preferred.getAttribute('aria-hidden') !== 'true'
+      ? preferred
+      : candidates[0];
+
+  if (target instanceof HTMLElement) {
+    window.requestAnimationFrame(() => {
+      try {
+        target.focus({ preventScroll: true });
+        return;
+      } catch (error) {
+        void error;
+      }
+
+      try {
+        target.focus();
+      } catch (focusError) {
+        void focusError;
+      }
+    });
+  }
+}
+
+function openAddItemFallbackModal({ trigger } = {}) {
+  const modal = ensureAddItemModalBindings(getAddItemModalElement());
+  if (!modal) {
+    return false;
+  }
+
+  resetAddItemModalFormState(modal);
+
+  addItemModalPreviouslyFocused =
+    trigger instanceof HTMLElement
+      ? trigger
+      : document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+  modal.classList.remove('hidden');
+  modal.removeAttribute('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  addItemModalOpen = true;
+
+  focusAddItemModal(modal);
+  return true;
+}
+
+function closeAddItemFallbackModal({ restoreFocus = true } = {}) {
+  const modal = getAddItemModalElement();
+  if (!modal || !addItemModalOpen) {
+    return;
+  }
+
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  if (!modal.hasAttribute('hidden')) {
+    modal.setAttribute('hidden', '');
+  }
+
+  addItemModalOpen = false;
+  addItemModalFocusableItems = [];
+
+  if (!restoreFocus) {
+    addItemModalPreviouslyFocused = null;
+    return;
+  }
+
+  const previous = addItemModalPreviouslyFocused;
+  addItemModalPreviouslyFocused = null;
+
+  const focusTarget =
+    previous instanceof HTMLElement && document.contains(previous)
+      ? previous
+      : typeof document !== 'undefined'
+      ? document.getElementById('btn-add-item')
+      : null;
+
+  if (focusTarget instanceof HTMLElement) {
+    window.requestAnimationFrame(() => {
+      try {
+        focusTarget.focus({ preventScroll: true });
+        return;
+      } catch (error) {
+        void error;
+      }
+
+      try {
+        focusTarget.focus();
+      } catch (focusError) {
+        void focusError;
+      }
+    });
+  }
+}
+
+function handleAddItemModalKeydown(event) {
+  if (!addItemModalOpen) {
+    return;
+  }
+
+  const modal = getAddItemModalElement();
+  if (!modal) {
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeAddItemFallbackModal();
+    return;
+  }
+
+  if (event.key !== 'Tab') {
+    return;
+  }
+
+  const items = refreshAddItemModalFocusableItems(modal);
+  if (items.length === 0) {
+    event.preventDefault();
+    return;
+  }
+
+  const first = items[0];
+  const last = items[items.length - 1];
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
+  if (!activeElement || !modal.contains(activeElement)) {
+    event.preventDefault();
+    const fallback = event.shiftKey ? last : first;
+    if (fallback instanceof HTMLElement) {
+      fallback.focus();
+    }
+    return;
+  }
+
+  if (event.shiftKey && activeElement === first) {
+    event.preventDefault();
+    if (last instanceof HTMLElement) {
+      last.focus();
+    }
+  } else if (!event.shiftKey && activeElement === last) {
+    event.preventDefault();
+    if (first instanceof HTMLElement) {
+      first.focus();
+    }
+  }
+}
+
+function handleAddItemModalFocusIn(event) {
+  if (!addItemModalOpen) {
+    return;
+  }
+
+  const modal = getAddItemModalElement();
+  if (!modal) {
+    return;
+  }
+
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+
+  if (!modal.contains(target)) {
+    const [first] = refreshAddItemModalFocusableItems(modal);
+    if (first instanceof HTMLElement) {
+      window.requestAnimationFrame(() => {
+        first.focus();
+      });
+    }
+  }
+}
+
+function handleAddItemFormSubmit(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+
+  const error = form.querySelector('[data-form-error]');
+  if (error instanceof HTMLElement) {
+    error.textContent = 'Das direkte Hinzufügen von Items steht in dieser Vorschau noch nicht zur Verfügung.';
+    error.classList.remove('hidden');
+  }
+
+  showToast('Das Hinzufügen von Items ist in dieser Vorschau noch nicht möglich.', { type: 'info' });
 }
 
 async function handleAddItemButtonClick(event) {
@@ -1385,14 +1684,14 @@ async function handleAddItemButtonClick(event) {
     return;
   }
 
-  if (typeof openModal === 'function') {
-    const fallback = createAddItemFallbackView();
-    if (fallback.element instanceof HTMLElement) {
-      openModal(fallback.element, {
-        labelledBy: fallback.labelledBy,
-        ariaLabel: fallback.labelledBy ? undefined : 'Item hinzufügen',
-      });
-    }
+  if (!openAddItemFallbackModal({ trigger: button }) && typeof openModal === 'function') {
+    const fallback = document.createElement('div');
+    fallback.className = 'space-y-4';
+    const message = document.createElement('p');
+    message.className = 'text-sm leading-relaxed text-slate-400';
+    message.textContent = 'Das Item-Modal konnte nicht geöffnet werden.';
+    fallback.appendChild(message);
+    openModal(fallback, { ariaLabel: 'Item hinzufügen' });
   }
 }
 
