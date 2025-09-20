@@ -337,15 +337,16 @@ function showToast(message, type = 'info', options = {}) {
   if (!container) return
 
   const toast = document.createElement('div')
-  toast.className = `pointer-events-auto rounded-2xl border px-4 py-3 text-sm shadow-lg shadow-emerald-500/10 ${
+  const themeClass =
     type === 'error'
-      ? 'border-rose-500/40 bg-rose-500/10 text-rose-200'
+      ? 'border-red-500/50 bg-red-500/10 text-red-100 shadow-red-500/10'
       : type === 'success'
-        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200'
+        ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200 shadow-emerald-500/10'
         : type === 'warning'
-          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200'
-          : 'border-slate-700/60 bg-slate-900/80 text-slate-200'
-  }`
+          ? 'border-amber-500/40 bg-amber-500/10 text-amber-200 shadow-amber-500/10'
+          : 'border-slate-700/60 bg-slate-900/80 text-slate-200 shadow-slate-900/30'
+
+  toast.className = `pointer-events-auto rounded-2xl border px-4 py-3 text-sm shadow-lg transition ${themeClass}`
 
   const content = document.createElement('div')
   content.className = 'flex items-center justify-between gap-3'
