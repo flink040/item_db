@@ -592,18 +592,24 @@
   }
 
   (async () => {
-    state.supabase = await resolveSupabaseClient();
-    render();
-
-    if (!state.supabase) {
-      scheduleOAuthHashCleanup(true);
-      return;
-    }
-
-    await exchangeCodeIfPresent();
-    await refreshSession();
     scheduleOAuthHashCleanup(true);
-    subscribeToAuthChanges();
+
+    try {
+      state.supabase = await resolveSupabaseClient();
+      render();
+
+      if (!state.supabase) {
+        scheduleOAuthHashCleanup(true);
+        return;
+      }
+
+      await exchangeCodeIfPresent();
+      await refreshSession();
+      scheduleOAuthHashCleanup(true);
+      subscribeToAuthChanges();
+    } finally {
+      scheduleOAuthHashCleanup(true);
+    }
   })();
  
   if (typeof globalScope.addEventListener === 'function') {
