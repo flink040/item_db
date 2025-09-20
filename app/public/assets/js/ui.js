@@ -244,6 +244,12 @@ function ensureToastContainer() {
     return toastContainer;
   }
 
+  const preset = document.getElementById('toast-container');
+  if (preset instanceof HTMLElement) {
+    toastContainer = preset;
+    return toastContainer;
+  }
+
   const container = document.createElement('div');
   container.className = 'app-toast-container';
   container.dataset.js = 'toast-container';
