@@ -100,9 +100,12 @@ type ItemFormValues = {
   itemType: string
   material: string
   rarity: string
-  lore: string
   price: string
-  imageUrl: string
+}
+
+type ItemFormFileValues = {
+  itemImage: File | null
+  itemLoreImage: File | null
 }
 
 const initialItemFormValues: ItemFormValues = {
@@ -110,13 +113,20 @@ const initialItemFormValues: ItemFormValues = {
   itemType: '',
   material: '',
   rarity: '',
-  lore: '',
-  price: '',
-  imageUrl: ''
+  price: ''
+}
+
+const initialItemFormFileValues: ItemFormFileValues = {
+  itemImage: null,
+  itemLoreImage: null
 }
 
 const createInitialItemFormValues = (): ItemFormValues => ({
   ...initialItemFormValues
+})
+
+const createInitialItemFormFileValues = (): ItemFormFileValues => ({
+  ...initialItemFormFileValues
 })
 
 type ItemFormErrors = Partial<Record<keyof ItemFormValues, string>>
@@ -891,6 +901,7 @@ function ProfileModal({ onClose }: ModalProps) {
 
 function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   const [formValues, setFormValues] = useState<ItemFormValues>(() => createInitialItemFormValues())
+  const [fileValues, setFileValues] = useState<ItemFormFileValues>(() => createInitialItemFormFileValues())
   const [errors, setErrors] = useState<ItemFormErrors>({})
   const [submitting, setSubmitting] = useState(false)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
@@ -935,6 +946,16 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     })
   }
 
+  const handleFileChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const fieldName = event.target.name as keyof ItemFormFileValues
+    const file = event.target.files?.[0] ?? null
+
+    setFileValues((prev) => ({
+      ...prev,
+      [fieldName]: file
+    }))
+  }
+
   const getFieldClassName = (field: keyof ItemFormValues) => {
     const hasError = Boolean(errors[field])
     return [
@@ -952,8 +973,6 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     event.preventDefault()
 
     const trimmedName = formValues.name.trim()
-    const trimmedLore = formValues.lore.trim()
-    const trimmedImageUrl = formValues.imageUrl.trim()
     const priceValue = formValues.price.trim()
     const nextErrors: ItemFormErrors = {}
 
@@ -993,20 +1012,27 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     setSubmitting(true)
 
     try {
+      const formData = new FormData()
+      formData.append('name', trimmedName)
+      formData.append('itemType', formValues.itemType)
+      formData.append('material', formValues.material)
+      formData.append('rarity', formValues.rarity)
+
+      if (priceValue && normalizedPrice !== null) {
+        formData.append('price', normalizedPrice.toString())
+      }
+
+      if (fileValues.itemImage) {
+        formData.append('itemImage', fileValues.itemImage)
+      }
+
+      if (fileValues.itemLoreImage) {
+        formData.append('itemLoreImage', fileValues.itemLoreImage)
+      }
+
       const response = await fetch('/api/items', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          name: trimmedName,
-          itemType: formValues.itemType,
-          material: formValues.material,
-          rarity: formValues.rarity,
-          lore: trimmedLore ? trimmedLore : null,
-          price: priceValue ? normalizedPrice : null,
-          imageUrl: trimmedImageUrl ? trimmedImageUrl : null
-        })
+        body: formData
       })
 
       if (!response.ok) {
@@ -1021,6 +1047,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
       onSuccess('Item gespeichert ✅')
       setFormValues(createInitialItemFormValues())
+      setFileValues(createInitialItemFormFileValues())
       setErrors({})
       onClose()
     } catch (error) {
@@ -1168,19 +1195,6 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   )}
                 </label>
 
-                <label className="sm:col-span-2 block" htmlFor="modal-item-lore">
-                  <span className="text-sm font-medium text-slate-300">Lore / Beschreibung</span>
-                  <textarea
-                    id="modal-item-lore"
-                    name="lore"
-                    rows={4}
-                    className={`${getFieldClassName('lore')} resize-none`}
-                    placeholder="Optionaler Beschreibungstext"
-                    value={formValues.lore}
-                    onChange={handleFieldChange}
-                  />
-                </label>
-
                 <label className="block" htmlFor="modal-item-price">
                   <span className="text-sm font-medium text-slate-300">Preis</span>
                   <input
@@ -1204,17 +1218,38 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   )}
                 </label>
 
-                <label className="block" htmlFor="modal-item-image">
-                  <span className="text-sm font-medium text-slate-300">Bild-URL</span>
+                <label className="sm:col-span-2 block" htmlFor="modal-item-image">
+                  <span className="text-sm font-medium text-slate-300">Item-Bild hochladen</span>
                   <input
                     id="modal-item-image"
-                    name="imageUrl"
-                    type="url"
-                    className={getFieldClassName('imageUrl')}
-                    placeholder="https://example.com/item.png"
-                    value={formValues.imageUrl}
-                    onChange={handleFieldChange}
+                    name="itemImage"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="mt-1 block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                   />
+                  <p className="mt-2 text-xs text-slate-500">
+                    {fileValues.itemImage
+                      ? `Ausgewählte Datei: ${fileValues.itemImage.name}`
+                      : 'Unterstützte Formate: PNG, JPG, GIF'}
+                  </p>
+                </label>
+
+                <label className="sm:col-span-2 block" htmlFor="modal-item-lore-image">
+                  <span className="text-sm font-medium text-slate-300">Lore-Bild hochladen</span>
+                  <input
+                    id="modal-item-lore-image"
+                    name="itemLoreImage"
+                    type="file"
+                    accept="image/*"
+                    onChange={handleFileChange}
+                    className="mt-1 block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                  />
+                  <p className="mt-2 text-xs text-slate-500">
+                    {fileValues.itemLoreImage
+                      ? `Ausgewählte Datei: ${fileValues.itemLoreImage.name}`
+                      : 'Optional: Lade ein zusätzliches Lore-Bild hoch'}
+                  </p>
                 </label>
               </div>
 
