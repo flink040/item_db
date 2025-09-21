@@ -11,6 +11,10 @@ const state = {
   materials: [],
   rarities: [],
   enchantments: [],
+  enchantmentsLoaded: false,
+  enchantmentsError: false,
+  enchantmentsSearch: '',
+  selectedEnchantments: new Map(),
   user: null,
   profile: null,
   profileStats: null,
@@ -33,6 +37,7 @@ const elements = {
   addItemButton: document.getElementById('btn-add-item'),
   addItemModal: document.getElementById('addItemModal'),
   addItemForm: document.getElementById('addItemForm'),
+  enchantmentsSearchInput: document.getElementById('enchantmentsSearch'),
   enchantmentsList: document.getElementById('enchantmentsList'),
   formError: document.getElementById('addItemFormError'),
   submitButton: document.getElementById('addItemSubmit'),
@@ -73,6 +78,7 @@ let menuMediaHandler = null
 let ignoreNextMenuClick = false
 
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
+const MAX_VISIBLE_ENCHANTMENTS = 5
 
 function setMenuExpanded(expanded) {
   const button = elements.mobileMenuButton
@@ -380,6 +386,15 @@ function handleSearchInput(event) {
   }, 250)
 }
 
+function handleEnchantmentsSearchInput(event) {
+  const target = event.target
+  if (!(target instanceof HTMLInputElement)) {
+    return
+  }
+  state.enchantmentsSearch = target.value ?? ''
+  renderEnchantmentsList()
+}
+
 function bindFilterEvents() {
   elements.filterType?.addEventListener('change', (event) => handleSelectChange(event, 'typeId'))
   elements.filterMaterial?.addEventListener('change', (event) => handleSelectChange(event, 'materialId'))
@@ -415,6 +430,16 @@ function bindModalEvents() {
   elements.addItemModal?.querySelectorAll('[data-modal-cancel]').forEach((button) => {
     button.addEventListener('click', closeAddItemModal)
   })
+
+  if (elements.enchantmentsSearchInput) {
+    elements.enchantmentsSearchInput.addEventListener('input', handleEnchantmentsSearchInput)
+    elements.enchantmentsSearchInput.addEventListener('search', handleEnchantmentsSearchInput)
+    elements.enchantmentsSearchInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+      }
+    })
+  }
 
   if (elements.addItemForm) {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
@@ -458,15 +483,12 @@ function resetAddItemForm() {
   if (elements.formError) {
     elements.formError.textContent = ''
   }
-  if (elements.enchantmentsList) {
-    elements.enchantmentsList.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
-      checkbox.checked = false
-    })
-    elements.enchantmentsList.querySelectorAll('select').forEach((select) => {
-      select.disabled = true
-      select.value = '1'
-    })
+  state.selectedEnchantments.clear()
+  state.enchantmentsSearch = ''
+  if (elements.enchantmentsSearchInput) {
+    elements.enchantmentsSearchInput.value = ''
   }
+  renderEnchantmentsList()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -1091,17 +1113,71 @@ async function loadProfile() {
 }
 
 function renderEnchantmentsList() {
-  if (!elements.enchantmentsList) return
+  const container = elements.enchantmentsList
+  if (!container) return
+
+  container.innerHTML = ''
+  container.style.removeProperty('--enchantments-max-height')
+
+  if (!state.enchantmentsLoaded) {
+    container.innerHTML = '<p class="text-sm text-slate-500">Verzauberungen werden geladen…</p>'
+    container.scrollTop = 0
+    return
+  }
+
+  if (state.enchantmentsError) {
+    container.innerHTML = '<p class="text-sm text-slate-500">Verzauberungen konnten nicht geladen werden.</p>'
+    container.scrollTop = 0
+    return
+  }
+
+  const rawSearch = typeof state.enchantmentsSearch === 'string' ? state.enchantmentsSearch : ''
+  const searchTerm = rawSearch.trim().toLowerCase().replace(/\s+/g, ' ')
+
+  const validIds = new Set()
+  state.enchantments.forEach((enchant) => {
+    const id = Number(enchant.id)
+    if (Number.isFinite(id)) {
+      validIds.add(id)
+    }
+  })
+  state.selectedEnchantments.forEach((_level, id) => {
+    if (!validIds.has(id)) {
+      state.selectedEnchantments.delete(id)
+    }
+  })
 
   if (!state.enchantments.length) {
-    elements.enchantmentsList.innerHTML = '<p class="text-sm text-slate-500">Keine Verzauberungen verfügbar.</p>'
+    container.innerHTML = '<p class="text-sm text-slate-500">Keine Verzauberungen verfügbar.</p>'
+    container.scrollTop = 0
+    return
+  }
+
+  const filteredEnchantments = searchTerm
+    ? state.enchantments.filter((enchant) => {
+        const label = typeof enchant.label === 'string' ? enchant.label.toLowerCase() : ''
+        return label.includes(searchTerm)
+      })
+    : state.enchantments.slice()
+
+  if (!filteredEnchantments.length) {
+    container.innerHTML = '<p class="text-sm text-slate-500">Keine Verzauberungen gefunden.</p>'
+    container.scrollTop = 0
     return
   }
 
   const fragment = document.createDocumentFragment()
-  state.enchantments.forEach((enchant) => {
+
+  filteredEnchantments.forEach((enchant) => {
+    const id = Number(enchant.id)
+    if (!Number.isFinite(id)) {
+      return
+    }
+
     const row = document.createElement('div')
-    row.className = 'flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/50 px-3 py-2'
+    row.className =
+      'flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/50 px-3 py-2'
+    row.dataset.enchantmentRow = 'true'
 
     const label = document.createElement('label')
     label.className = 'flex flex-1 items-center gap-3 text-sm text-slate-200'
@@ -1112,29 +1188,56 @@ function renderEnchantmentsList() {
     checkbox.dataset.enchantmentId = String(enchant.id)
 
     const name = document.createElement('span')
-    name.textContent = enchant.label
+    name.textContent = typeof enchant.label === 'string' ? enchant.label : ''
 
     label.append(checkbox, name)
 
     const levelSelect = document.createElement('select')
-    levelSelect.className = 'rounded-lg border border-slate-800 bg-slate-900 px-3 py-1 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40'
+    levelSelect.className =
+      'rounded-lg border border-slate-800 bg-slate-900 px-3 py-1 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40'
     levelSelect.dataset.enchantmentLevel = String(enchant.id)
-    levelSelect.dataset.maxLevel = String(enchant.max_level ?? 1)
-    levelSelect.disabled = true
 
     const maxLevel = Math.max(1, Number(enchant.max_level) || 1)
+    levelSelect.dataset.maxLevel = String(maxLevel)
+
     for (let level = 1; level <= maxLevel; level += 1) {
       const option = document.createElement('option')
       option.value = String(level)
       option.textContent = String(level)
       levelSelect.appendChild(option)
     }
-    levelSelect.value = '1'
+
+    const savedLevel = state.selectedEnchantments.get(id)
+    const hasSavedLevel = Number.isFinite(savedLevel)
+    const initialLevel = hasSavedLevel ? Math.min(Math.max(Number(savedLevel), 1), maxLevel) : 1
+
+    levelSelect.value = String(initialLevel)
+    levelSelect.disabled = !hasSavedLevel
+    checkbox.checked = hasSavedLevel
+
+    if (hasSavedLevel && initialLevel !== savedLevel) {
+      state.selectedEnchantments.set(id, initialLevel)
+    }
 
     checkbox.addEventListener('change', () => {
-      levelSelect.disabled = !checkbox.checked
       if (checkbox.checked) {
+        levelSelect.disabled = false
+        const level = Math.min(Math.max(Number(levelSelect.value) || 1, 1), maxLevel)
+        levelSelect.value = String(level)
+        state.selectedEnchantments.set(id, level)
         levelSelect.focus()
+      } else {
+        levelSelect.disabled = true
+        levelSelect.value = '1'
+        state.selectedEnchantments.delete(id)
+      }
+    })
+
+    levelSelect.addEventListener('change', () => {
+      const level = Math.min(Math.max(Number(levelSelect.value) || 1, 1), maxLevel)
+      levelSelect.value = String(level)
+      if (checkbox.checked) {
+        state.selectedEnchantments.set(id, level)
       }
     })
 
@@ -1142,37 +1245,61 @@ function renderEnchantmentsList() {
     fragment.appendChild(row)
   })
 
-  elements.enchantmentsList.innerHTML = ''
-  elements.enchantmentsList.appendChild(fragment)
+  container.appendChild(fragment)
+  container.scrollTop = 0
+  updateEnchantmentsListMaxHeight()
+}
+
+function updateEnchantmentsListMaxHeight() {
+  const container = elements.enchantmentsList
+  if (!container) return
+
+  const rows = container.querySelectorAll('[data-enchantment-row]')
+  if (rows.length <= MAX_VISIBLE_ENCHANTMENTS) {
+    container.style.removeProperty('--enchantments-max-height')
+    return
+  }
+
+  const referenceRow = rows[MAX_VISIBLE_ENCHANTMENTS - 1]
+  if (!referenceRow) {
+    container.style.removeProperty('--enchantments-max-height')
+    return
+  }
+
+  const style = window.getComputedStyle(container)
+  const paddingBottom = Number.parseFloat(style.paddingBottom) || 0
+  const maxHeight = referenceRow.offsetTop + referenceRow.offsetHeight + paddingBottom
+
+  container.style.setProperty('--enchantments-max-height', `${Math.ceil(maxHeight)}px`)
 }
 
 function collectSelectedEnchantments() {
-  if (!elements.enchantmentsList) {
-    return { selections: [], error: null }
-  }
-
   const selections = []
   let validationError = null
 
-  const checkboxes = elements.enchantmentsList.querySelectorAll('input[type="checkbox"][data-enchantment-id]:checked')
-  checkboxes.forEach((checkbox) => {
-    const enchantmentId = Number(checkbox.dataset.enchantmentId)
-    if (!Number.isFinite(enchantmentId)) {
+  const enchantmentMap = new Map()
+  state.enchantments.forEach((enchant) => {
+    const id = Number(enchant.id)
+    if (Number.isFinite(id)) {
+      enchantmentMap.set(id, enchant)
+    }
+  })
+
+  state.selectedEnchantments.forEach((savedLevel, id) => {
+    const enchantment = enchantmentMap.get(id)
+    if (!enchantment) {
+      state.selectedEnchantments.delete(id)
       return
     }
-    const levelSelect = elements.enchantmentsList.querySelector(
-      `select[data-enchantment-level="${checkbox.dataset.enchantmentId}"]`
-    )
-    if (!levelSelect) {
-      return
-    }
-    const maxLevel = Number(levelSelect.dataset.maxLevel || '1')
-    const level = Number(levelSelect.value)
+
+    const maxLevel = Math.max(1, Number(enchantment.max_level) || 1)
+    const level = Number(savedLevel)
     if (!Number.isFinite(level) || level < 1 || level > maxLevel) {
       validationError = `Level muss zwischen 1 und ${maxLevel} liegen.`
       return
     }
-    selections.push({ id: enchantmentId, level })
+
+    selections.push({ id, level })
   })
 
   return { selections, error: validationError }
@@ -1307,8 +1434,13 @@ async function handleAddItemSubmit(event) {
 async function loadFiltersAndLists() {
   if (!supabase) {
     renderItemsError('Supabase ist nicht konfiguriert. Bitte Meta-Daten ergänzen.')
+    state.enchantmentsLoaded = true
+    state.enchantmentsError = true
+    renderEnchantmentsList()
     return
   }
+  state.enchantmentsLoaded = false
+  state.enchantmentsError = false
   setAriaBusy(true)
   renderSkeleton(6)
   try {
@@ -1332,6 +1464,8 @@ async function loadFiltersAndLists() {
     state.materials = materialsResult.data ?? []
     state.rarities = raritiesResult.data ?? []
     state.enchantments = enchantmentsResult.data ?? []
+    state.enchantmentsLoaded = true
+    state.enchantmentsError = false
 
     populateSelect(elements.filterType, state.itemTypes)
     populateSelect(elements.filterMaterial, state.materials)
@@ -1345,6 +1479,9 @@ async function loadFiltersAndLists() {
     await loadItems()
   } catch (error) {
     console.error(error)
+    state.enchantmentsLoaded = true
+    state.enchantmentsError = true
+    renderEnchantmentsList()
     renderItemsError('Daten konnten nicht geladen werden.')
     showToast('Initiale Daten konnten nicht geladen werden.', 'error')
   } finally {
@@ -1469,6 +1606,8 @@ if (document.readyState === 'loading') {
 } else {
   init()
 }
+
+window.addEventListener('resize', updateEnchantmentsListMaxHeight)
 
 window.addEventListener('beforeunload', () => {
   authSubscription?.unsubscribe?.()
