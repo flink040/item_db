@@ -1032,7 +1032,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-4 sm:p-6"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-slate-950/80 p-4 sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="item-modal-title"
