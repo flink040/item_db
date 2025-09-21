@@ -112,6 +112,7 @@ function formatFileSize(bytes) {
   return `${value.toFixed(decimals)} ${units[index]}`
 }
 
+
 function setMenuExpanded(expanded) {
   const button = elements.mobileMenuButton
   const menu = elements.mobileMenu
