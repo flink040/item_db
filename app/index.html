@@ -239,14 +239,14 @@
           </section>
         </main>
       </div>
-      <div
-        id="addItemModal"
-        class="fixed inset-0 z-50 hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="addItemModalTitle"
-        aria-hidden="true"
-      >
+    <div
+      id="addItemModal"
+      class="fixed inset-0 z-50 hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="addItemModalTitle"
+      aria-hidden="true"
+    >
         <div class="absolute inset-0" data-modal-overlay></div>
         <div
           class="relative z-10 w-full max-w-2xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
@@ -422,6 +422,95 @@
               </button>
             </div>
           </form>
+        </div>
+      </div>
+    </div>
+    <div
+      id="profileModal"
+      class="fixed inset-0 z-[60] hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="profile-modal-title"
+      aria-hidden="true"
+      data-profile-modal
+    >
+      <div class="absolute inset-0" data-profile-modal-overlay></div>
+      <div
+        class="relative z-10 w-full max-w-md rounded-2xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
+        role="document"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="profile-modal-title" class="text-xl font-semibold text-slate-50">Profil</h2>
+            <p class="mt-1 text-sm text-slate-400">
+              Melde dich an, um Items einzureichen und Community-Erfolge zu sammeln.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            data-profile-close
+            aria-label="Modal schließen"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12" />
+              <path d="m18 6-12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="mt-6 space-y-6">
+          <div class="flex items-center gap-4">
+            <span
+              class="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-900/80 text-xl font-semibold text-slate-200 ring-1 ring-slate-800"
+              data-profile-avatar
+            >
+              <img data-profile-avatar-image class="hidden h-full w-full object-cover" alt="" />
+              <span data-profile-avatar-fallback>?</span>
+            </span>
+            <div>
+              <p class="text-sm text-slate-500">Anzeigename</p>
+              <p class="text-lg font-semibold text-slate-100" data-profile-display-name>Nicht angemeldet</p>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Eingereichte Items</p>
+              <p class="mt-2 text-2xl font-semibold text-emerald-300" data-profile-items>–</p>
+            </div>
+            <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+              <p class="text-xs uppercase tracking-[0.2em] text-slate-500">Erhaltene Likes</p>
+              <p class="mt-2 text-2xl font-semibold text-emerald-300" data-profile-likes>–</p>
+            </div>
+          </div>
+          <div class="space-y-3 text-sm text-slate-400">
+            <p class="hidden" data-profile-loading>Statistiken werden geladen…</p>
+            <p class="hidden text-rose-400" data-profile-error></p>
+            <p>
+              Verbinde deinen Minecraft-Account, um Profildaten zu speichern und deinen Namen in der Item-Liste erscheinen zu lassen.
+            </p>
+            <p class="text-xs text-slate-500">
+              Hinweis: Die Anmeldung wird aktuell nicht bereitgestellt – nutze die Supabase Auth Integration in deiner produktiven Instanz.
+            </p>
+          </div>
+          <div class="flex justify-end">
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+              data-profile-close
+            >
+              Schließen
+            </button>
+          </div>
         </div>
       </div>
     </div>
