@@ -1601,3 +1601,10 @@ body.opidb {
   width: 1.25rem;
   height: 1.25rem;
 }
+
+.opidb .enchantments-list {
+  max-height: var(--enchantments-max-height, none);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
