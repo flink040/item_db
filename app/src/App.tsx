@@ -1032,14 +1032,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-4 sm:p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="item-modal-title"
     >
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
-      <div className="relative z-10 w-full max-w-3xl overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950 shadow-2xl shadow-emerald-500/10">
-        <div className="flex max-h-[min(85vh,calc(100vh-3rem))] flex-col overflow-hidden">
+      <div className="relative z-10 w-full max-w-3xl max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-4rem)] overflow-hidden rounded-2xl border border-slate-800/80 bg-slate-950 shadow-2xl shadow-emerald-500/10">
+        <div className="flex h-full max-h-full flex-col overflow-hidden">
           <div className="flex items-start justify-between gap-4 border-b border-slate-800/70 px-6 py-6 sm:px-8">
             <div>
               <h2 id="item-modal-title" className="text-2xl font-semibold text-slate-50">
@@ -1236,9 +1236,9 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                 </button>
               </div>
             </form>
+          </div>
         </div>
       </div>
-    </div>
     </div>
   )
 }
