@@ -76,6 +76,7 @@ let authSubscription = null
 let menuMediaQuery = null
 let menuMediaHandler = null
 let ignoreNextMenuClick = false
+const customFileInputs = new Map()
 
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
 const MAX_VISIBLE_ENCHANTMENTS = 5
@@ -91,6 +92,26 @@ const IMAGE_MIME_EXTENSION_MAP = {
   'image/webp': '.webp',
   'image/gif': '.gif',
 };
+
+function formatFileSize(bytes) {
+  const size = Number(bytes)
+  if (!Number.isFinite(size) || size < 0) {
+    return ''
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB']
+  let index = 0
+  let value = size
+
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+
+  const decimals = value >= 10 || index === 0 ? 0 : 1
+  return `${value.toFixed(decimals)} ${units[index]}`
+}
+
 
 function setMenuExpanded(expanded) {
   const button = elements.mobileMenuButton
@@ -491,6 +512,8 @@ function bindModalEvents() {
 
   if (elements.addItemForm) {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
+    elements.addItemForm.addEventListener('reset', handleAddItemFormReset)
+    initializeCustomFileInputs()
   }
 
   document.addEventListener('keydown', (event) => {
@@ -537,6 +560,7 @@ function resetAddItemForm() {
     elements.enchantmentsSearchInput.value = ''
   }
   renderEnchantmentsList()
+  resetCustomFileInputs()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -703,11 +727,113 @@ function clearFormErrors() {
   })
 }
 
+function clearFieldError(field) {
+  const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
+  if (!target) return
+  target.textContent = ''
+  target.classList.add('hidden')
+}
+
 function showFieldError(field, message) {
   const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
   if (!target) return
   target.textContent = message
   target.classList.remove('hidden')
+}
+
+function updateCustomFileInput(entry) {
+  if (!entry || !(entry.input instanceof HTMLInputElement) || !(entry.display instanceof HTMLElement)) {
+    return
+  }
+
+  const files = entry.input.files
+  const file = files && files.length ? files[0] : null
+  const hasFile = Boolean(file)
+  const fallback = entry.defaultText || 'Keine Datei ausgewählt'
+  const sizeText = file ? formatFileSize(file.size) : ''
+  const text = hasFile ? [file.name, sizeText].filter(Boolean).join(' · ') : fallback
+
+  entry.display.textContent = text
+  entry.display.title = text
+  entry.display.dataset.fileHasValue = hasFile ? 'true' : 'false'
+  entry.display.classList.toggle('text-slate-500', !hasFile)
+  entry.display.classList.toggle('text-slate-200', hasFile)
+  entry.display.classList.toggle('font-medium', hasFile)
+
+  if (entry.resetButton instanceof HTMLElement) {
+    entry.resetButton.hidden = !hasFile
+  }
+
+  const field = entry.input.name || entry.input.id || ''
+  if (field) {
+    clearFieldError(field)
+  }
+}
+
+function registerCustomFileInput(input) {
+  if (!(input instanceof HTMLInputElement)) {
+    return
+  }
+
+  const key = input.dataset.fileInput || input.name || input.id
+  if (!key || customFileInputs.has(key)) {
+    return
+  }
+
+  const display = elements.addItemForm?.querySelector(`[data-file-display="${key}"]`)
+  if (!(display instanceof HTMLElement)) {
+    return
+  }
+
+  const resetButton = elements.addItemForm?.querySelector(`[data-file-reset="${key}"]`)
+  const entry = {
+    input,
+    display,
+    resetButton: resetButton instanceof HTMLElement ? resetButton : null,
+    defaultText: display.dataset.fileDefault || display.textContent || 'Keine Datei ausgewählt',
+    update: null,
+  }
+
+  entry.update = () => updateCustomFileInput(entry)
+
+  input.addEventListener('change', entry.update)
+
+  if (entry.resetButton) {
+    entry.resetButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      input.value = ''
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      input.focus()
+    })
+  }
+
+  customFileInputs.set(key, entry)
+  entry.update()
+}
+
+function initializeCustomFileInputs() {
+  if (!elements.addItemForm) {
+    return
+  }
+
+  const inputs = elements.addItemForm.querySelectorAll('[data-file-input]')
+  inputs.forEach((node) => {
+    if (node instanceof HTMLInputElement) {
+      registerCustomFileInput(node)
+    }
+  })
+}
+
+function resetCustomFileInputs() {
+  customFileInputs.forEach((entry) => {
+    entry.update?.()
+  })
+}
+
+function handleAddItemFormReset() {
+  window.setTimeout(() => {
+    resetCustomFileInputs()
+  }, 0)
 }
 
 function showToast(message, type = 'info', options = {}) {
