@@ -13,6 +13,7 @@ const state = {
   enchantments: [],
   user: null,
   profile: null,
+  profileStats: null,
   itemsLoading: false,
   reloadRequested: false,
   authMenu: {
@@ -40,6 +41,29 @@ const elements = {
   profileContainer: document.getElementById('profile-container'),
   mobileMenuButton: document.querySelector('[data-js="mobile-menu-btn"]'),
   mobileMenu: document.querySelector('[data-js="mobile-menu"]'),
+}
+
+const profileModalElements = (() => {
+  const modal = document.querySelector('[data-profile-modal]')
+  return {
+    modal,
+    overlay: modal?.querySelector('[data-profile-modal-overlay]') ?? null,
+    closeButtons: modal ? Array.from(modal.querySelectorAll('[data-profile-close]')) : [],
+    avatarFrame: modal?.querySelector('[data-profile-avatar]') ?? null,
+    avatarImage: modal?.querySelector('[data-profile-avatar-image]') ?? null,
+    avatarFallback: modal?.querySelector('[data-profile-avatar-fallback]') ?? null,
+    displayName: modal?.querySelector('[data-profile-display-name]') ?? null,
+    items: modal?.querySelector('[data-profile-items]') ?? null,
+    likes: modal?.querySelector('[data-profile-likes]') ?? null,
+    loading: modal?.querySelector('[data-profile-loading]') ?? null,
+    error: modal?.querySelector('[data-profile-error]') ?? null,
+  }
+})()
+
+const profileModalState = {
+  isOpen: false,
+  lastFocusedElement: null,
+  activeFetchToken: 0,
 }
 
 let searchDebounceId = 0
@@ -520,6 +544,367 @@ function showToast(message, type = 'info', options = {}) {
   })
 }
 
+function formatProfileCount(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+  if (typeof value === 'string') {
+    return value
+  }
+  return '0'
+}
+
+function getProfileDisplayName() {
+  if (!state.user) {
+    return 'Profil'
+  }
+
+  const profileName =
+    typeof state.profile?.username === 'string' ? state.profile.username.trim() : ''
+  if (profileName) {
+    return profileName
+  }
+
+  const metadata =
+    state.user.user_metadata && typeof state.user.user_metadata === 'object'
+      ? state.user.user_metadata
+      : {}
+  const fallbackEmail = typeof state.user.email === 'string' ? state.user.email : ''
+  const candidates = [
+    metadata.user_name,
+    metadata.full_name,
+    metadata.name,
+    metadata.display_name,
+    fallbackEmail,
+  ]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+  }
+
+  return 'Profil'
+}
+
+function resolveProfileAvatar() {
+  if (!state.user) {
+    return { url: '', fallback: '?' }
+  }
+
+  const profileAvatar =
+    typeof state.profile?.avatar_url === 'string' ? state.profile.avatar_url.trim() : ''
+  if (profileAvatar) {
+    return { url: profileAvatar, fallback: '' }
+  }
+
+  const metadata =
+    state.user.user_metadata && typeof state.user.user_metadata === 'object'
+      ? state.user.user_metadata
+      : {}
+  const candidates = [metadata.avatar_url, metadata.picture, metadata.image_url, metadata.avatar]
+
+  for (const value of candidates) {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed) {
+        return { url: trimmed, fallback: '' }
+      }
+    }
+  }
+
+  const name = getProfileDisplayName()
+  const initial = name ? name.charAt(0).toUpperCase() : 'P'
+  return { url: '', fallback: initial }
+}
+
+function setProfileModalCounts(items, likes) {
+  if (profileModalElements.items) {
+    profileModalElements.items.textContent = formatProfileCount(items)
+  }
+  if (profileModalElements.likes) {
+    profileModalElements.likes.textContent = formatProfileCount(likes)
+  }
+}
+
+function setProfileModalLoading(isLoading) {
+  if (!profileModalElements.loading) return
+  profileModalElements.loading.classList.toggle('hidden', !isLoading)
+}
+
+function setProfileModalError(message) {
+  const element = profileModalElements.error
+  if (!element) return
+  if (message) {
+    element.textContent = message
+    element.classList.remove('hidden')
+  } else {
+    element.textContent = ''
+    element.classList.add('hidden')
+  }
+}
+
+function updateProfileModalUserInfo() {
+  if (!profileModalElements.modal) {
+    return
+  }
+
+  const hasUser = Boolean(state.user)
+  const displayName = hasUser ? getProfileDisplayName() : 'Nicht angemeldet'
+
+  if (profileModalElements.displayName) {
+    profileModalElements.displayName.textContent = displayName
+  }
+
+  const { url, fallback } = resolveProfileAvatar()
+  if (profileModalElements.avatarImage) {
+    profileModalElements.avatarImage.src = url || ''
+    profileModalElements.avatarImage.alt = url ? `${displayName} Avatar` : ''
+    profileModalElements.avatarImage.classList.toggle('hidden', !url)
+  }
+  if (profileModalElements.avatarFallback) {
+    const fallbackValue = fallback || '–'
+    profileModalElements.avatarFallback.textContent = url ? '' : fallbackValue
+    profileModalElements.avatarFallback.classList.toggle('hidden', Boolean(url))
+  }
+  if (profileModalElements.avatarFrame) {
+    profileModalElements.avatarFrame.classList.toggle('bg-slate-900/80', !url)
+  }
+
+  if (!hasUser) {
+    setProfileModalCounts('–', '–')
+    setProfileModalError('')
+    setProfileModalLoading(false)
+  } else if (state.profileStats) {
+    setProfileModalCounts(state.profileStats.items, state.profileStats.likes)
+  }
+}
+
+async function tryCountLikes(table, itemIds) {
+  if (!supabase || !Array.isArray(itemIds) || itemIds.length === 0) {
+    return { count: 0, missing: false, errored: false }
+  }
+  try {
+    const { count, error } = await supabase
+      .from(table)
+      .select('*', { count: 'exact', head: true })
+      .in('item_id', itemIds)
+    if (error) {
+      throw error
+    }
+    return { count: typeof count === 'number' ? count : 0, missing: false, errored: false }
+  } catch (error) {
+    const message = typeof error?.message === 'string' ? error.message : ''
+    const code = typeof error?.code === 'string' ? error.code : ''
+    const tableMissing =
+      code === '42P01' ||
+      code === 'PGRST302' ||
+      /does not exist/i.test(message) ||
+      /not exist/i.test(message)
+    if (tableMissing) {
+      console.warn(`[profile] Tabelle "${table}" wurde nicht gefunden.`, error)
+      return { count: 0, missing: true, errored: false }
+    }
+    console.warn(`[profile] Fehler beim Abrufen der Likes aus "${table}".`, error)
+    return { count: 0, missing: false, errored: true }
+  }
+}
+
+async function fetchProfileStats() {
+  if (!supabase || !state.user?.id) {
+    setProfileModalError('Supabase-Client nicht verfügbar.')
+    return { items: 0, likes: 0 }
+  }
+
+  let itemsCount = 0
+  let likesCount = 0
+  let hadError = false
+  let itemIds = []
+
+  try {
+    const { count, error } = await supabase
+      .from('items')
+      .select('*', { count: 'exact', head: true })
+      .eq('created_by', state.user.id)
+    if (error) {
+      throw error
+    }
+    itemsCount = typeof count === 'number' ? count : 0
+  } catch (error) {
+    console.warn('[profile] Konnte Anzahl der Items nicht ermitteln.', error)
+    hadError = true
+  }
+
+  if (itemsCount > 0) {
+    try {
+      const { data, error } = await supabase
+        .from('items')
+        .select('id')
+        .eq('created_by', state.user.id)
+      if (error) {
+        throw error
+      }
+      itemIds = Array.isArray(data)
+        ? data.map((row) => row?.id).filter((id) => id !== null && id !== undefined)
+        : []
+    } catch (error) {
+      console.warn('[profile] Konnte Item-IDs nicht laden.', error)
+      hadError = true
+      itemIds = []
+    }
+  }
+
+  if (itemIds.length > 0) {
+    const primary = await tryCountLikes('item_likes', itemIds)
+    if (primary.missing) {
+      const fallback = await tryCountLikes('likes', itemIds)
+      likesCount = fallback.count
+      if (!fallback.missing && fallback.errored) {
+        hadError = true
+      }
+    } else {
+      likesCount = primary.count
+      if (primary.errored) {
+        hadError = true
+      }
+    }
+  }
+
+  setProfileModalError(hadError ? 'Daten konnten nicht vollständig geladen werden.' : '')
+
+  return { items: itemsCount, likes: likesCount }
+}
+
+function handleProfileModalKeydown(event) {
+  if (event.key === 'Escape' || event.key === 'Esc') {
+    event.preventDefault()
+    closeProfileModal()
+  }
+}
+
+function closeProfileModal() {
+  if (!profileModalElements.modal || !profileModalState.isOpen) {
+    return
+  }
+
+  profileModalState.isOpen = false
+  profileModalState.activeFetchToken += 1
+  profileModalElements.modal.classList.add('hidden')
+  profileModalElements.modal.setAttribute('aria-hidden', 'true')
+  setProfileModalLoading(false)
+
+  document.removeEventListener('keydown', handleProfileModalKeydown, true)
+
+  const focusTarget = profileModalState.lastFocusedElement
+  profileModalState.lastFocusedElement = null
+  if (focusTarget instanceof HTMLElement) {
+    try {
+      focusTarget.focus({ preventScroll: true })
+    } catch (error) {
+      focusTarget.focus()
+    }
+  }
+}
+
+function openProfileModal() {
+  if (!profileModalElements.modal) {
+    showToast('Profilbereich ist derzeit nicht verfügbar.', 'info')
+    return
+  }
+
+  if (!state.user) {
+    showToast('Bitte melde dich an, um dein Profil zu sehen.', 'info')
+    return
+  }
+
+  profileModalState.lastFocusedElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+  profileModalElements.modal.classList.remove('hidden')
+  profileModalElements.modal.setAttribute('aria-hidden', 'false')
+  profileModalState.isOpen = true
+
+  updateProfileModalUserInfo()
+
+  if (state.profileStats) {
+    setProfileModalCounts(state.profileStats.items, state.profileStats.likes)
+  } else {
+    setProfileModalCounts('–', '–')
+  }
+
+  setProfileModalError('')
+  setProfileModalLoading(true)
+
+  const fetchToken = ++profileModalState.activeFetchToken
+
+  fetchProfileStats()
+    .then((result) => {
+      if (fetchToken !== profileModalState.activeFetchToken) {
+        return
+      }
+      state.profileStats = result
+      setProfileModalCounts(result.items, result.likes)
+      updateProfileModalUserInfo()
+    })
+    .catch((error) => {
+      console.error('[profile] Fehler beim Laden der Statistiken.', error)
+      if (fetchToken !== profileModalState.activeFetchToken) {
+        return
+      }
+      setProfileModalError('Statistiken konnten nicht geladen werden.')
+    })
+    .finally(() => {
+      if (fetchToken === profileModalState.activeFetchToken) {
+        setProfileModalLoading(false)
+      }
+    })
+
+  document.addEventListener('keydown', handleProfileModalKeydown, true)
+
+  const closeTarget = profileModalElements.closeButtons[0]
+  if (closeTarget instanceof HTMLElement) {
+    try {
+      closeTarget.focus({ preventScroll: true })
+    } catch (error) {
+      closeTarget.focus()
+    }
+  }
+}
+
+if (profileModalElements.overlay) {
+  profileModalElements.overlay.addEventListener('click', (event) => {
+    event.preventDefault()
+    closeProfileModal()
+  })
+}
+
+if (profileModalElements.modal) {
+  profileModalElements.modal.addEventListener('click', (event) => {
+    if (event.target === profileModalElements.modal) {
+      closeProfileModal()
+    }
+  })
+}
+
+profileModalElements.closeButtons.forEach((button) => {
+  if (button instanceof HTMLElement) {
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      closeProfileModal()
+    })
+  }
+})
+
+if (typeof window !== 'undefined') {
+  window.ProfileModal = {
+    open: openProfileModal,
+    close: closeProfileModal,
+  }
+}
+
 function toggleAuthMenu(show) {
   const trigger = state.authMenu.trigger
   const menu = state.authMenu.menu
@@ -551,6 +936,9 @@ function renderAuthState() {
   container.innerHTML = ''
 
   if (!state.user) {
+    state.profileStats = null
+    updateProfileModalUserInfo()
+    closeProfileModal()
     const loginButton = document.createElement('button')
     loginButton.type = 'button'
     loginButton.className = 'inline-flex items-center gap-2 rounded-full border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-sm font-semibold text-emerald-200 transition hover:bg-emerald-500/20 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60'
@@ -560,6 +948,8 @@ function renderAuthState() {
     state.authMenu = { trigger: null, menu: null }
     return
   }
+
+  updateProfileModalUserInfo()
 
   const wrapper = document.createElement('div')
   wrapper.className = 'relative'
@@ -614,7 +1004,7 @@ function renderAuthState() {
   profileButton.textContent = 'Profil'
   profileButton.addEventListener('click', () => {
     closeAuthMenu()
-    showToast('Profilbereich folgt bald.', 'info')
+    openProfileModal()
   })
 
   const logoutButton = document.createElement('button')
@@ -671,6 +1061,7 @@ async function handleLogout() {
 async function loadProfile() {
   if (!supabase || !state.user?.id) {
     state.profile = null
+    updateProfileModalUserInfo()
     return
   }
   try {
@@ -694,6 +1085,8 @@ async function loadProfile() {
       username: state.user?.user_metadata?.full_name ?? null,
       avatar_url: state.user?.user_metadata?.avatar_url ?? null,
     }
+  } finally {
+    updateProfileModalUserInfo()
   }
 }
 
@@ -1019,6 +1412,10 @@ async function loadItems() {
 
 async function initialiseAuth() {
   if (!supabase) {
+    state.user = null
+    state.profile = null
+    state.profileStats = null
+    updateProfileModalUserInfo()
     renderAuthState()
     return
   }
@@ -1026,11 +1423,19 @@ async function initialiseAuth() {
     const { data } = await supabase.auth.getUser()
     state.user = data?.user ?? null
     if (state.user) {
+      state.profileStats = null
       await loadProfile()
+    } else {
+      state.profile = null
+      state.profileStats = null
+      updateProfileModalUserInfo()
     }
   } catch (error) {
     console.error(error)
     state.user = null
+    state.profile = null
+    state.profileStats = null
+    updateProfileModalUserInfo()
   }
 
   renderAuthState()
@@ -1038,9 +1443,12 @@ async function initialiseAuth() {
   const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
     state.user = session?.user ?? null
     if (state.user) {
+      state.profileStats = null
       await loadProfile()
     } else {
       state.profile = null
+      state.profileStats = null
+      updateProfileModalUserInfo()
     }
     renderAuthState()
   })
