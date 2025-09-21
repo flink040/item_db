@@ -364,19 +364,145 @@
                 </label>
                 <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
               </div>
-              <div class="sm:col-span-2">
-                <label class="block" for="itemLore">
-                  <span class="text-sm font-medium text-slate-300">Lore (optional)</span>
-                  <textarea
-                    id="itemLore"
-                    name="lore"
-                    maxlength="1500"
-                    rows="4"
-                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemLoreHelp"
-                  ></textarea>
-                </label>
-                <p id="itemLoreHelp" class="mt-1 text-xs text-slate-500">Maximal 1.500 Zeichen.</p>
+              <div class="sm:col-span-2 space-y-2">
+                <div class="space-y-2">
+                  <label class="text-sm font-medium text-slate-300" for="itemImage">Item-Bild</label>
+                  <input
+                    id="itemImage"
+                    name="itemImage"
+                    type="file"
+                    accept="image/*"
+                    class="sr-only"
+                    data-file-input="itemImage"
+                    aria-describedby="itemImageHelp itemImageError"
+                  />
+                  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4">
+                    <label
+                      for="itemImage"
+                      class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                      <span>Bild auswählen</span>
+                    </label>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                      data-file-reset="itemImage"
+                      hidden
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 6 12 12" />
+                        <path d="m18 6-12 12" />
+                      </svg>
+                      <span>Zurücksetzen</span>
+                    </button>
+                    <span
+                      class="min-w-0 flex-1 truncate text-sm text-slate-500"
+                      data-file-display="itemImage"
+                      data-file-default="Keine Datei ausgewählt"
+                      aria-live="polite"
+                    >
+                      Keine Datei ausgewählt
+                    </span>
+                  </div>
+                </div>
+                <p id="itemImageHelp" class="text-xs text-slate-500">
+                  Unterstützte Formate: PNG, JPG, WebP, GIF · Maximal 5&nbsp;MB.
+                </p>
+                <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage"></p>
+              </div>
+              <div class="sm:col-span-2 space-y-2">
+                <div class="space-y-2">
+                  <label class="text-sm font-medium text-slate-300" for="itemLoreImage">Lore-Bild (optional)</label>
+                  <input
+                    id="itemLoreImage"
+                    name="itemLoreImage"
+                    type="file"
+                    accept="image/*"
+                    class="sr-only"
+                    data-file-input="itemLoreImage"
+                    aria-describedby="itemLoreImageHelp itemLoreImageError"
+                  />
+                  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4">
+                    <label
+                      for="itemLoreImage"
+                      class="inline-flex items-center gap-2 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-slate-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="M12 5v14" />
+                        <path d="M5 12h14" />
+                      </svg>
+                      <span>Bild hinzufügen</span>
+                    </label>
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                      data-file-reset="itemLoreImage"
+                      hidden
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="1.5"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        class="h-4 w-4"
+                        aria-hidden="true"
+                      >
+                        <path d="m6 6 12 12" />
+                        <path d="m18 6-12 12" />
+                      </svg>
+                      <span>Zurücksetzen</span>
+                    </button>
+                    <span
+                      class="min-w-0 flex-1 truncate text-sm text-slate-500"
+                      data-file-display="itemLoreImage"
+                      data-file-default="Keine Datei ausgewählt"
+                      aria-live="polite"
+                    >
+                      Keine Datei ausgewählt
+                    </span>
+                  </div>
+                </div>
+                <p id="itemLoreImageHelp" class="text-xs text-slate-500">
+                  Optionales Zusatzbild für Lore-Ansichten. Unterstützte Formate wie oben.
+                </p>
+                <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage"></p>
               </div>
             </div>
             <div class="space-y-4">

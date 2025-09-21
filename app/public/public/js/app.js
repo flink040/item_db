@@ -76,9 +76,41 @@ let authSubscription = null
 let menuMediaQuery = null
 let menuMediaHandler = null
 let ignoreNextMenuClick = false
+const customFileInputs = new Map()
 
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
 const MAX_VISIBLE_ENCHANTMENTS = 5
+const STORAGE_BUCKET_ITEM_MEDIA = 'item-media'
+const STORAGE_UPLOAD_ROOT = 'items'
+const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024
+const MAX_IMAGE_SIZE_MB = 5
+const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif']
+const IMAGE_MIME_EXTENSION_MAP = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/webp': '.webp',
+  'image/gif': '.gif',
+};
+
+function formatFileSize(bytes) {
+  const size = Number(bytes)
+  if (!Number.isFinite(size) || size < 0) {
+    return ''
+  }
+
+  const units = ['B', 'KB', 'MB', 'GB']
+  let index = 0
+  let value = size
+
+  while (value >= 1024 && index < units.length - 1) {
+    value /= 1024
+    index += 1
+  }
+
+  const decimals = value >= 10 || index === 0 ? 0 : 1
+  return `${value.toFixed(decimals)} ${units[index]}`
+}
 
 function setMenuExpanded(expanded) {
   const button = elements.mobileMenuButton
@@ -272,6 +304,19 @@ function renderItems(items) {
     const card = document.createElement('article')
     card.className = 'flex h-full flex-col gap-4 rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-sm shadow-slate-950/40'
 
+    const primaryImageUrl = resolvePrimaryImageUrl(item)
+    if (primaryImageUrl) {
+      const imageWrapper = document.createElement('div')
+      imageWrapper.className = 'overflow-hidden rounded-xl border border-slate-800/60'
+      const image = document.createElement('img')
+      image.src = primaryImageUrl
+      image.alt = item?.title ? `Abbildung von ${item.title}` : 'Item-Bild'
+      image.loading = 'lazy'
+      image.className = 'h-40 w-full object-cover'
+      imageWrapper.appendChild(image)
+      card.appendChild(imageWrapper)
+    }
+
     const header = document.createElement('div')
     header.className = 'flex items-start justify-between gap-3'
 
@@ -301,11 +346,34 @@ function renderItems(items) {
 
     card.appendChild(meta)
 
-    const lore = truncateText(item?.lore, 360)
-    const loreParagraph = document.createElement('p')
-    loreParagraph.className = 'text-sm leading-relaxed text-slate-300'
-    loreParagraph.textContent = lore ?? 'Keine Lore hinterlegt.'
-    card.appendChild(loreParagraph)
+    const loreText = truncateText(item?.lore, 360)
+    const loreImageUrl = resolveLoreImageUrl(item)
+
+    if (loreText) {
+      const loreParagraph = document.createElement('p')
+      loreParagraph.className = 'text-sm leading-relaxed text-slate-300'
+      loreParagraph.textContent = loreText
+      card.appendChild(loreParagraph)
+    }
+
+    if (loreImageUrl) {
+      const loreImageWrapper = document.createElement('div')
+      loreImageWrapper.className = 'overflow-hidden rounded-xl border border-slate-800/60'
+      const loreImage = document.createElement('img')
+      loreImage.src = loreImageUrl
+      loreImage.alt = item?.title ? `Lore-Bild zu ${item.title}` : 'Lore-Bild'
+      loreImage.loading = 'lazy'
+      loreImage.className = 'h-48 w-full object-cover'
+      loreImageWrapper.appendChild(loreImage)
+      card.appendChild(loreImageWrapper)
+    }
+
+    if (!loreText && !loreImageUrl) {
+      const fallback = document.createElement('p')
+      fallback.className = 'text-sm leading-relaxed text-slate-300'
+      fallback.textContent = 'Keine zusätzlichen Informationen hinterlegt.'
+      card.appendChild(fallback)
+    }
 
     if (item?.created_at) {
       const created = document.createElement('p')
@@ -443,6 +511,8 @@ function bindModalEvents() {
 
   if (elements.addItemForm) {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
+    elements.addItemForm.addEventListener('reset', handleAddItemFormReset)
+    initializeCustomFileInputs()
   }
 
   document.addEventListener('keydown', (event) => {
@@ -489,6 +559,7 @@ function resetAddItemForm() {
     elements.enchantmentsSearchInput.value = ''
   }
   renderEnchantmentsList()
+  resetCustomFileInputs()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -499,6 +570,155 @@ function toggleSubmitLoading(isLoading) {
   elements.submitSpinner?.classList.toggle('hidden', !isLoading)
 }
 
+function normalizeFileValue(value) {
+  if (typeof File !== 'undefined' && value instanceof File) {
+    return value.size > 0 ? value : null
+  }
+  if (!value || typeof value !== 'object') {
+    return null
+  }
+  const size = Number(value.size)
+  const name = typeof value.name === 'string' ? value.name.trim() : ''
+  if (!Number.isFinite(size) || size <= 0 || !name) {
+    return null
+  }
+  return value
+}
+
+function getFileExtension(name) {
+  if (typeof name !== 'string') {
+    return ''
+  }
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return ''
+  }
+  const dotIndex = trimmed.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex === trimmed.length - 1) {
+    return ''
+  }
+  return trimmed.slice(dotIndex).toLowerCase()
+}
+
+function hasAllowedImageExtension(extension) {
+  return ALLOWED_IMAGE_EXTENSIONS.includes(extension)
+}
+
+function inferImageExtension(file) {
+  if (!file) {
+    return ''
+  }
+  const fromName = getFileExtension(file.name)
+  if (hasAllowedImageExtension(fromName)) {
+    return fromName
+  }
+  const mimeType = typeof file.type === 'string' ? file.type.toLowerCase() : ''
+  if (mimeType && IMAGE_MIME_EXTENSION_MAP[mimeType]) {
+    return IMAGE_MIME_EXTENSION_MAP[mimeType]
+  }
+  return ''
+}
+
+function inferMimeTypeFromExtension(extension) {
+  switch (extension) {
+    case '.png':
+      return 'image/png'
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg'
+    case '.webp':
+      return 'image/webp'
+    case '.gif':
+      return 'image/gif'
+    default:
+      return 'application/octet-stream'
+  }
+}
+
+function isAllowedImageFile(file) {
+  return Boolean(inferImageExtension(file))
+}
+
+function sanitizeStorageSegment(value, fallback) {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+  const normalized = value.toLowerCase().replace(/[^a-z0-9-_]/g, '')
+  return normalized || fallback
+}
+
+function createUniqueId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+function buildStoragePath(userId, variant, extension) {
+  const safeUserId = sanitizeStorageSegment(userId ?? '', 'anonymous')
+  const safeVariant = sanitizeStorageSegment(variant ?? '', 'asset')
+  const unique = createUniqueId()
+  return `${STORAGE_UPLOAD_ROOT}/${safeUserId}/${safeVariant}/${unique}${extension}`
+}
+
+async function uploadImageFile(file, variant, userId) {
+  if (!supabase) {
+    throw new Error('Supabase ist nicht konfiguriert.')
+  }
+  const extension = inferImageExtension(file)
+  if (!extension || !hasAllowedImageExtension(extension)) {
+    throw new Error('Ungültiges Dateiformat.')
+  }
+  const path = buildStoragePath(userId, variant, extension)
+  const contentType = typeof file.type === 'string' && file.type.trim() ? file.type : inferMimeTypeFromExtension(extension)
+  const { error } = await supabase.storage
+    .from(STORAGE_BUCKET_ITEM_MEDIA)
+    .upload(path, file, { cacheControl: '3600', upsert: false, contentType })
+  if (error) {
+    throw error
+  }
+  const publicUrlResult = supabase.storage.from(STORAGE_BUCKET_ITEM_MEDIA).getPublicUrl(path)
+  if (publicUrlResult?.error) {
+    console.warn('Konnte öffentliche URL nicht ermitteln.', publicUrlResult.error)
+  }
+  const publicUrl = publicUrlResult?.data?.publicUrl ?? null
+  return { path, publicUrl }
+}
+
+function resolvePrimaryImageUrl(item) {
+  if (!item || typeof item !== 'object') {
+    return null
+  }
+  const candidates = [item.image_url, item.imageUrl, item.image]
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue
+    }
+    const trimmed = candidate.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return null
+}
+
+function resolveLoreImageUrl(item) {
+  if (!item || typeof item !== 'object') {
+    return null
+  }
+  const candidates = [item.lore_image_url, item.loreImageUrl, item.lore_image, item.loreImage]
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue
+    }
+    const trimmed = candidate.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return null
+}
+
 function clearFormErrors() {
   elements.addItemForm?.querySelectorAll('[data-error-for]').forEach((element) => {
     element.classList.add('hidden')
@@ -506,11 +726,113 @@ function clearFormErrors() {
   })
 }
 
+function clearFieldError(field) {
+  const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
+  if (!target) return
+  target.textContent = ''
+  target.classList.add('hidden')
+}
+
 function showFieldError(field, message) {
   const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
   if (!target) return
   target.textContent = message
   target.classList.remove('hidden')
+}
+
+function updateCustomFileInput(entry) {
+  if (!entry || !(entry.input instanceof HTMLInputElement) || !(entry.display instanceof HTMLElement)) {
+    return
+  }
+
+  const files = entry.input.files
+  const file = files && files.length ? files[0] : null
+  const hasFile = Boolean(file)
+  const fallback = entry.defaultText || 'Keine Datei ausgewählt'
+  const sizeText = file ? formatFileSize(file.size) : ''
+  const text = hasFile ? [file.name, sizeText].filter(Boolean).join(' · ') : fallback
+
+  entry.display.textContent = text
+  entry.display.title = text
+  entry.display.dataset.fileHasValue = hasFile ? 'true' : 'false'
+  entry.display.classList.toggle('text-slate-500', !hasFile)
+  entry.display.classList.toggle('text-slate-200', hasFile)
+  entry.display.classList.toggle('font-medium', hasFile)
+
+  if (entry.resetButton instanceof HTMLElement) {
+    entry.resetButton.hidden = !hasFile
+  }
+
+  const field = entry.input.name || entry.input.id || ''
+  if (field) {
+    clearFieldError(field)
+  }
+}
+
+function registerCustomFileInput(input) {
+  if (!(input instanceof HTMLInputElement)) {
+    return
+  }
+
+  const key = input.dataset.fileInput || input.name || input.id
+  if (!key || customFileInputs.has(key)) {
+    return
+  }
+
+  const display = elements.addItemForm?.querySelector(`[data-file-display="${key}"]`)
+  if (!(display instanceof HTMLElement)) {
+    return
+  }
+
+  const resetButton = elements.addItemForm?.querySelector(`[data-file-reset="${key}"]`)
+  const entry = {
+    input,
+    display,
+    resetButton: resetButton instanceof HTMLElement ? resetButton : null,
+    defaultText: display.dataset.fileDefault || display.textContent || 'Keine Datei ausgewählt',
+    update: null,
+  }
+
+  entry.update = () => updateCustomFileInput(entry)
+
+  input.addEventListener('change', entry.update)
+
+  if (entry.resetButton) {
+    entry.resetButton.addEventListener('click', (event) => {
+      event.preventDefault()
+      input.value = ''
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      input.focus()
+    })
+  }
+
+  customFileInputs.set(key, entry)
+  entry.update()
+}
+
+function initializeCustomFileInputs() {
+  if (!elements.addItemForm) {
+    return
+  }
+
+  const inputs = elements.addItemForm.querySelectorAll('[data-file-input]')
+  inputs.forEach((node) => {
+    if (node instanceof HTMLInputElement) {
+      registerCustomFileInput(node)
+    }
+  })
+}
+
+function resetCustomFileInputs() {
+  customFileInputs.forEach((entry) => {
+    entry.update?.()
+  })
+}
+
+function handleAddItemFormReset() {
+  window.setTimeout(() => {
+    resetCustomFileInputs()
+  }, 0)
 }
 
 function showToast(message, type = 'info', options = {}) {
@@ -1324,7 +1646,8 @@ async function handleAddItemSubmit(event) {
   const materialId = formData.get('material')?.toString() ?? ''
   const rarityId = formData.get('rarity')?.toString() ?? ''
   const starsValue = formData.get('stars')?.toString() ?? ''
-  const lore = (formData.get('lore') || '').toString().trim() || null
+  const itemImageFile = normalizeFileValue(formData.get('itemImage'))
+  const loreImageFile = normalizeFileValue(formData.get('itemLoreImage'))
 
   let hasError = false
   if (!title || title.length < 1 || title.length > 120) {
@@ -1354,6 +1677,26 @@ async function handleAddItemSubmit(event) {
     }
   }
 
+  const fileChecks = [
+    { file: itemImageFile, field: 'itemImage', label: 'Item-Bild' },
+    { file: loreImageFile, field: 'itemLoreImage', label: 'Lore-Bild' },
+  ]
+
+  fileChecks.forEach(({ file, field, label }) => {
+    if (!file) {
+      return
+    }
+    if (Number(file.size) > MAX_IMAGE_SIZE_BYTES) {
+      showFieldError(field, `${label} darf maximal ${MAX_IMAGE_SIZE_MB} MB groß sein.`)
+      hasError = true
+      return
+    }
+    if (!isAllowedImageFile(file)) {
+      showFieldError(field, `${label} muss ein Bild (PNG, JPG/JPEG, WebP oder GIF) sein.`)
+      hasError = true
+    }
+  })
+
   if (hasError) {
     return
   }
@@ -1366,6 +1709,12 @@ async function handleAddItemSubmit(event) {
 
   toggleSubmitLoading(true)
 
+  let uploadFailed = false
+  const uploadedFilePaths = []
+  let createdItem = null
+  let itemImageUpload = null
+  let loreImageUpload = null
+
   try {
     const { data: userData, error: userError } = await supabase.auth.getUser()
     if (userError) throw userError
@@ -1376,14 +1725,50 @@ async function handleAddItemSubmit(event) {
       return
     }
 
+    if (itemImageFile) {
+      try {
+        itemImageUpload = await uploadImageFile(itemImageFile, 'item', user.id)
+        if (itemImageUpload?.path) {
+          uploadedFilePaths.push(itemImageUpload.path)
+        }
+      } catch (error) {
+        uploadFailed = true
+        showFieldError('itemImage', 'Upload des Item-Bildes ist fehlgeschlagen.')
+        throw error
+      }
+    }
+
+    if (loreImageFile) {
+      try {
+        loreImageUpload = await uploadImageFile(loreImageFile, 'item-lore', user.id)
+        if (loreImageUpload?.path) {
+          uploadedFilePaths.push(loreImageUpload.path)
+        }
+      } catch (error) {
+        uploadFailed = true
+        showFieldError('itemLoreImage', 'Upload des Lore-Bildes ist fehlgeschlagen.')
+        throw error
+      }
+    }
+
     const payload = {
       title,
-      lore,
       owner: user.id,
       item_type_id: Number(typeId),
       material_id: Number(materialId),
       rarity_id: Number(rarityId),
       stars: Number(starsValue),
+    }
+
+    const itemImageUrl =
+      typeof itemImageUpload?.publicUrl === 'string' ? itemImageUpload.publicUrl.trim() : ''
+    if (itemImageUrl) {
+      payload.image_url = itemImageUrl
+    }
+    const loreImageUrlValue =
+      typeof loreImageUpload?.publicUrl === 'string' ? loreImageUpload.publicUrl.trim() : ''
+    if (loreImageUrlValue) {
+      payload.lore_image_url = loreImageUrlValue
     }
 
     const { data: item, error: insertError } = await supabase
@@ -1395,6 +1780,8 @@ async function handleAddItemSubmit(event) {
     if (insertError) {
       throw insertError
     }
+
+    createdItem = item
 
     if (selections.length) {
       const enchantRows = selections.map((entry) => ({
@@ -1413,8 +1800,23 @@ async function handleAddItemSubmit(event) {
     await loadItems()
   } catch (error) {
     console.error(error)
+    if (!createdItem && uploadedFilePaths.length && supabase) {
+      try {
+        await supabase.storage.from(STORAGE_BUCKET_ITEM_MEDIA).remove(uploadedFilePaths)
+      } catch (cleanupError) {
+        console.warn('Aufräumen fehlgeschlagen.', cleanupError)
+      }
+    }
+
     if (error?.code === 'PGRST301') {
       showToast('Bitte anmelden, um Items zu speichern.', 'warning')
+    } else if (uploadFailed) {
+      const message = 'Upload der Bilder ist fehlgeschlagen. Bitte versuche es erneut.'
+      if (elements.formError) {
+        elements.formError.textContent = message
+        elements.formError.classList.remove('hidden')
+      }
+      showToast(message, 'error')
     } else {
       const message =
         typeof error?.message === 'string'
@@ -1506,7 +1908,7 @@ async function loadItems() {
     let query = supabase
       .from('items')
       .select(
-        `id,title,lore,stars,created_at,
+        `id,title,lore,stars,created_at,image_url,lore_image_url,
         item_types:item_type_id(id,label),
         materials:material_id(id,label),
         rarities:rarity_id(id,label,sort)`
