@@ -227,7 +227,8 @@ async function insertItemWithEnchantments(
     material_id: number
     rarity_id: number | null
     rarity?: string | null
-    stars: number
+    stars?: number
+    star_level?: number
     created_by: string
     image_url?: string | null
     lore_image_url?: string | null
@@ -235,70 +236,121 @@ async function insertItemWithEnchantments(
   },
   enchantments: Array<{ enchantment_id: number; level: number }>
 ) {
-  const prefers = { headers: { Prefer: 'return=representation' } }
 
-  const basePayload: Record<string, unknown> = {
-    created_by: item.created_by,
-    is_published: item.is_published,
-    item_type_id: item.item_type_id,
-    material_id: item.material_id,
-    stars: item.stars,
+  const resolvedStars =
+    typeof item.star_level === 'number'
+      ? item.star_level
+      : typeof item.stars === 'number'
+        ? item.stars
+        : 0
+
+  const buildPayloadVariant = (starColumn: 'stars' | 'star_level', useLegacyFallback: boolean) => {
+    const payload: Record<string, unknown> = {
+      is_published: item.is_published,
+      item_type_id: item.item_type_id,
+      material_id: item.material_id,
+    }
+
+    if (starColumn === 'star_level') {
+      payload.star_level = resolvedStars
+    } else {
+      payload.stars = resolvedStars
+    }
+
+    if (item.title) {
+      payload.title = item.title
+    }
+
+    if (item.image_url !== undefined) {
+      payload.image_url = item.image_url
+    }
+
+    if (item.lore_image_url !== undefined) {
+      payload.lore_image_url = item.lore_image_url
+    }
+
+    if (item.rarity_id !== null) {
+      payload.rarity_id = item.rarity_id
+    }
+
+    if (item.description !== undefined) {
+      payload.lore = item.description
+      if (!useLegacyFallback) {
+        payload.description = item.description
+      }
+    }
+
+    if (useLegacyFallback) {
+      payload.owner = item.created_by
+    } else {
+      payload.created_by = item.created_by
+      if (item.name) {
+        payload.name = item.name
+      }
+      if (item.rarity) {
+        payload.rarity = item.rarity
+      }
+    }
+
+    return payload
   }
 
-  if (item.title) {
-    basePayload.title = item.title
-  }
+  const executeInsert = async (starColumn: 'stars' | 'star_level', useLegacyFallback: boolean) =>
+    client.from('items').insert(buildPayloadVariant(starColumn, useLegacyFallback)).select().single()
 
-  if (item.name) {
-    basePayload.name = item.name
-  }
+  const starColumns: Array<'stars' | 'star_level'> = ['stars', 'star_level']
+  let itemResult: Awaited<ReturnType<typeof executeInsert>> | null = null
+  let lastError: unknown = null
 
-  if (item.description !== undefined) {
-    basePayload.description = item.description
-    basePayload.lore = item.description
-  }
+  for (const starColumn of starColumns) {
+    let result = await executeInsert(starColumn, false)
+    if (!result.error && result.data) {
+      itemResult = result
+      break
+    }
 
-  if (item.rarity_id !== null) {
-    basePayload.rarity_id = item.rarity_id
-  }
+    lastError = result.error ?? null
 
-  if (item.rarity) {
-    basePayload.rarity = item.rarity
-  }
+    const message = String(result.error?.message ?? '').toLowerCase()
+    const missingStarColumn =
+      message.includes('column "stars"') || message.includes('column items.stars')
+    const legacyColumnErrors = ['name', 'description', 'rarity']
+    const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
 
-  if (item.image_url !== undefined) {
-    basePayload.image_url = item.image_url
-  }
+    if (hasLegacyIssue) {
+      result = await executeInsert(starColumn, true)
+      if (!result.error && result.data) {
+        itemResult = result
+        break
+      }
+      lastError = result.error ?? null
+    }
 
-  if (item.lore_image_url !== undefined) {
-    basePayload.lore_image_url = item.lore_image_url
-  }
-
-  const attemptInsert = async (payload: Record<string, unknown>) =>
-    client.from('items').insert(payload, prefers).select().single()
-
-  let itemResult = await attemptInsert(basePayload)
-
-  if (itemResult.error) {
-    const message = String(itemResult.error.message ?? '')
-    const columnErrors = ['name', 'description', 'rarity']
-    const hasColumnIssue = columnErrors.some((column) => message.includes(`column "${column}`))
-
-    if (hasColumnIssue) {
-      const legacyPayload = { ...basePayload }
-      delete legacyPayload.name
-      delete legacyPayload.description
-      delete legacyPayload.rarity
-
-      itemResult = await attemptInsert(legacyPayload)
+    if (starColumn === 'stars' && !missingStarColumn) {
+      break
     }
   }
 
-  if (itemResult.error || !itemResult.data) {
-    throw Object.assign(new Error('item_insert_failed'), { cause: itemResult.error })
+  if (!itemResult || itemResult.error || !itemResult.data) {
+    throw Object.assign(new Error('item_insert_failed'), { cause: itemResult?.error ?? lastError })
   }
 
-  const insertedItem = itemResult.data
+  const insertedItem = { ...itemResult.data } as Record<string, unknown> & {
+    stars?: number | null
+    star_level?: number | null
+  }
+
+  const derivedStars =
+    typeof insertedItem.stars === 'number'
+      ? insertedItem.stars
+      : typeof insertedItem.star_level === 'number'
+        ? insertedItem.star_level
+        : resolvedStars
+
+  insertedItem.stars = derivedStars
+  if (typeof insertedItem.star_level !== 'number') {
+    insertedItem.star_level = derivedStars
+  }
 
   if (!enchantments.length) {
     return { item: insertedItem, enchantments: [] }
@@ -311,7 +363,7 @@ async function insertItemWithEnchantments(
 
   const { error: enchantError, data: enchantRows } = await client
     .from('item_enchantments')
-    .insert(enchantPayload, prefers)
+    .insert(enchantPayload)
 
   if (enchantError) {
     await client.from('items').delete().eq('id', insertedItem.id)
@@ -376,7 +428,7 @@ app.get('/api/items', async (c) => {
     headers: { apikey: c.env.SUPABASE_ANON_KEY }
   })
 
-  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status)
+  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any)
 
   return c.json(await res.json(), 200, {
     'cache-control': 'public, max-age=60, stale-while-revalidate=120'
@@ -437,6 +489,7 @@ app.post('/api/items', async (c) => {
     rarity_id: normalized.rarity_id ?? null,
     rarity: normalized.rarity ?? null,
     stars: normalized.star_level,
+    star_level: normalized.star_level,
     created_by: user.id,
     image_url: normalized.image_url ?? undefined,
     lore_image_url: normalized.lore_image_url ?? undefined,
@@ -463,7 +516,7 @@ app.post('/api/items', async (c) => {
     if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
       const status = error.status as number
       const message = error instanceof Error ? error.message : 'Speichern fehlgeschlagen.'
-      return c.json({ error: 'validation', message }, status)
+      return c.json({ error: 'validation', message }, status as any)
     }
 
     const message = error instanceof Error ? error.message : 'Speichern fehlgeschlagen.'
@@ -477,7 +530,7 @@ app.get('/api/enchantments', async (c) => {
     headers: { apikey: c.env.SUPABASE_ANON_KEY }
   })
 
-  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status)
+  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any)
 
   return c.json(await res.json(), 200, {
     'cache-control': 'public, max-age=3600, stale-while-revalidate=86400'

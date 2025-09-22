@@ -300,6 +300,26 @@ function renderStars(starCount) {
   return Array.from({ length: 5 }, (_, index) => (index < normalized ? '★' : '☆')).join('')
 }
 
+function normaliseItemStarFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const result = { ...entry }
+  const resolvedStars = Number.isFinite(Number(result.stars))
+    ? Number(result.stars)
+    : Number.isFinite(Number(result.star_level))
+      ? Number(result.star_level)
+      : 0
+
+  result.stars = resolvedStars
+  if (!Number.isFinite(Number(result.star_level))) {
+    result.star_level = resolvedStars
+  }
+
+  return result
+}
+
 function renderItems(items) {
   if (!elements.itemsList) return
   if (!Array.isArray(items) || items.length === 0) {
@@ -337,10 +357,16 @@ function renderItems(items) {
     title.textContent = item?.title ?? 'Unbenanntes Item'
     header.appendChild(title)
 
+    const starValue = Number.isFinite(Number(item?.stars))
+      ? Number(item?.stars)
+      : Number.isFinite(Number(item?.star_level))
+        ? Number(item?.star_level)
+        : 0
+
     const stars = document.createElement('span')
     stars.className = 'text-sm font-medium text-amber-300'
-    stars.setAttribute('aria-label', `${Number(item?.stars ?? 0)} von 5 Sternen`)
-    stars.textContent = renderStars(item?.stars ?? 0)
+    stars.setAttribute('aria-label', `${starValue} von 5 Sternen`)
+    stars.textContent = renderStars(starValue)
     header.appendChild(stars)
 
     card.appendChild(header)
@@ -1810,6 +1836,12 @@ async function attemptBffInsert({ payload, token, userId }) {
 }
 
 async function attemptDirectInsert({ user, payload, enchantments }) {
+  const resolvedStars = Number.isFinite(Number(payload.star_level))
+    ? Number(payload.star_level)
+    : Number.isFinite(Number(payload.stars))
+      ? Number(payload.stars)
+      : 0
+
   const basePayload = {
     title: payload.name ?? payload.title ?? '',
     name: payload.name ?? payload.title ?? '',
@@ -1817,48 +1849,89 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     material_id: payload.material_id,
     rarity_id: payload.rarity_id ?? null,
     rarity: payload.rarity ?? null,
-    stars: payload.star_level ?? payload.stars ?? 0,
+    stars: resolvedStars,
+    star_level: resolvedStars,
     created_by: user.id,
     image_url: payload.image_url ?? null,
     lore_image_url: payload.lore_image_url ?? null,
     is_published: payload.is_published === true,
   }
 
+  const buildPayloadVariant = (starColumn, useLegacyFallback) => {
+    const variant = { ...basePayload }
+    delete variant.stars
+    delete variant.star_level
+
+    if (starColumn === 'star_level') {
+      variant.star_level = resolvedStars
+    } else {
+      variant.stars = resolvedStars
+    }
+
+    if (useLegacyFallback) {
+      delete variant.created_by
+      delete variant.name
+      delete variant.rarity
+      variant.owner = user.id
+    }
+
+    return variant
+  }
+
   const logPayload = { ...payload, enchantments }
 
-  let insertResult = await supabase
-    .from('items')
-    .insert([basePayload])
-    .select()
-    .single()
+  const executeInsert = async (starColumn, useLegacyFallback) =>
+    supabase.from('items').insert([buildPayloadVariant(starColumn, useLegacyFallback)]).select().single()
 
-  if (insertResult.error) {
-    const message = String(insertResult.error.message ?? '').toLowerCase()
-    if (
+  const starColumns = ['stars', 'star_level']
+  let insertResult = null
+  let lastError = null
+  let lastStatus = null
+
+  for (const starColumn of starColumns) {
+    let result = await executeInsert(starColumn, false)
+    if (!result.error && result.data) {
+      insertResult = result
+      break
+    }
+
+    lastError = result.error ?? null
+    lastStatus = result.status ?? null
+
+    const message = String(result.error?.message ?? '').toLowerCase()
+    const missingStarColumn =
+      message.includes('column "stars"') || message.includes('column items.stars')
+    const legacyColumnIssue =
       message.includes('column "created_by"') ||
       message.includes('column "name"') ||
       message.includes('column "rarity"')
-    ) {
-      const legacyPayload = { ...basePayload }
-      delete legacyPayload.created_by
-      delete legacyPayload.name
-      delete legacyPayload.rarity
-      legacyPayload.owner = user.id
-      insertResult = await supabase.from('items').insert([legacyPayload]).select().single()
+
+    if (legacyColumnIssue) {
+      result = await executeInsert(starColumn, true)
+      if (!result.error && result.data) {
+        insertResult = result
+        break
+      }
+      lastError = result.error ?? null
+      lastStatus = result.status ?? null
+    }
+
+    if (starColumn === 'stars' && !missingStarColumn) {
+      break
     }
   }
 
-  if (insertResult.error || !insertResult.data) {
+  if (!insertResult || insertResult.error || !insertResult.data) {
     logInsertAttempt('supabase', {
       payload: logPayload,
-      status: insertResult.status ?? null,
-      error: insertResult.error ?? 'insert_failed',
+      status: insertResult?.status ?? lastStatus ?? null,
+      error: insertResult?.error ?? lastError ?? 'insert_failed',
       userId: user.id,
     })
-    throw insertResult.error || new Error('Item konnte nicht gespeichert werden.')
+    throw insertResult?.error || lastError || new Error('Item konnte nicht gespeichert werden.')
   }
 
-  const createdItem = insertResult.data
+  const createdItem = normaliseItemStarFields(insertResult.data)
 
   if (enchantments.length) {
     const enchantRows = enchantments.map((entry) => ({
@@ -2352,36 +2425,63 @@ async function loadItems() {
   setAriaBusy(true)
   renderSkeleton(3)
   try {
-    let query = supabase
-      .from('items')
-      .select(
-        `id,title,lore,stars,created_at,image_url,lore_image_url,
-        item_types:item_type_id(id,label),
-        materials:material_id(id,label),
-        rarities:rarity_id(id,label,sort)`
-      )
-      .order('created_at', { ascending: false })
+    const sanitizedSearch = state.filters.search
+      ? state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      : ''
 
-    if (state.filters.typeId) {
-      query = query.eq('item_type_id', state.filters.typeId)
-    }
-    if (state.filters.materialId) {
-      query = query.eq('material_id', state.filters.materialId)
-    }
-    if (state.filters.rarityId) {
-      query = query.eq('rarity_id', state.filters.rarityId)
-    }
-    if (state.filters.search) {
-      const sanitized = state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
-      query = query.or(`title.ilike.%${sanitized}%,lore.ilike.%${sanitized}%`)
+    const buildItemsQuery = (starColumn) => {
+      const selectColumns = [
+        'id',
+        'title',
+        'lore',
+        starColumn,
+        'created_at',
+        'image_url',
+        'lore_image_url',
+        'item_types:item_type_id(id,label)',
+        'materials:material_id(id,label)',
+        'rarities:rarity_id(id,label,sort)',
+      ].join(',')
+
+      let query = supabase
+        .from('items')
+        .select(selectColumns)
+        .order('created_at', { ascending: false })
+
+      if (state.filters.typeId) {
+        query = query.eq('item_type_id', state.filters.typeId)
+      }
+      if (state.filters.materialId) {
+        query = query.eq('material_id', state.filters.materialId)
+      }
+      if (state.filters.rarityId) {
+        query = query.eq('rarity_id', state.filters.rarityId)
+      }
+      if (sanitizedSearch) {
+        query = query.or(`title.ilike.%${sanitizedSearch}%,lore.ilike.%${sanitizedSearch}%`)
+      }
+
+      return query
     }
 
-    const { data, error } = await query
+    const { data, error } = await buildItemsQuery('stars')
     if (error) {
+      if (error?.code === '42703') {
+        const { data: fallbackData, error: fallbackError } = await buildItemsQuery('stars:star_level')
+        if (fallbackError) {
+          throw fallbackError
+        }
+        const normalisedFallback = Array.isArray(fallbackData)
+          ? fallbackData.map(normaliseItemStarFields)
+          : []
+        renderItems(normalisedFallback)
+        return
+      }
       throw error
     }
 
-    renderItems(data ?? [])
+    const normalisedItems = Array.isArray(data) ? data.map(normaliseItemStarFields) : []
+    renderItems(normalisedItems)
   } catch (error) {
     console.error(error)
     renderItemsError('Items konnten nicht geladen werden.')
