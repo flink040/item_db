@@ -262,11 +262,19 @@ async function insertItemWithEnchantments(
     }
 
     if (item.image_url !== undefined) {
-      payload.image_url = item.image_url
+      if (useLegacyFallback) {
+        payload.image = item.image_url
+      } else {
+        payload.image_url = item.image_url
+      }
     }
 
     if (item.lore_image_url !== undefined) {
-      payload.lore_image_url = item.lore_image_url
+      if (useLegacyFallback) {
+        payload.lore_image = item.lore_image_url
+      } else {
+        payload.lore_image_url = item.lore_image_url
+      }
     }
 
     if (item.rarity_id !== null) {
@@ -314,8 +322,10 @@ async function insertItemWithEnchantments(
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumnErrors = ['name', 'description', 'rarity']
-    const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
+    const legacyColumnErrors = ['name', 'description', 'rarity', 'created_by', 'image_url', 'lore_image_url']
+    const hasLegacyIssue = legacyColumnErrors.some((column) =>
+      message.includes(`column "${column}`) || message.includes(`column items.${column}`)
+    )
 
     if (hasLegacyIssue) {
       result = await executeInsert(starColumn, true)
