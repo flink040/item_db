@@ -18,6 +18,10 @@
     dropdownCleanup: null,
     hashCleanupTimer: null,
     hashCleanupAttempts: 0,
+    profileRole: null,
+    profileRoleUserId: null,
+    profileRoleLoaded: false,
+    roleRequestId: 0,
   };
 
   const OAUTH_FRAGMENT_KEYS = [
@@ -147,6 +151,9 @@
   const chevronSvg =
     '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" class="h-4 w-4 transition-transform duration-150"><path d="M6.7 8.7 12 14l5.3-5.3 1.4 1.4L12 16.8 5.3 10.1z"/></svg>';
 
+  const DROPDOWN_ITEM_CLASS =
+    'block w-full rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-900/60 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/40';
+
   function ensureProfileContainer() {
     const doc = globalScope.document;
     let container = doc.getElementById('profile-container');
@@ -251,6 +258,14 @@
   function renderLoggedOut() {
     clearContainer();
 
+    if (typeof globalScope.showModerationLink === 'function') {
+      try {
+        globalScope.showModerationLink(null);
+      } catch (error) {
+        void error;
+      }
+    }
+
     const wrapper = document.createElement('div');
     wrapper.className = 'relative';
 
@@ -348,22 +363,34 @@
     dropdown.hidden = true;
     dropdown.setAttribute('role', 'menu');
     dropdown.setAttribute('aria-hidden', 'true');
+    dropdown.dataset.profileDropdown = 'true';
+    if (!dropdown.getAttribute('data-profile-dropdown')) {
+      dropdown.setAttribute('data-profile-dropdown', 'true');
+    }
 
     const profileButton = document.createElement('button');
     profileButton.type = 'button';
     profileButton.dataset.menuItem = 'profile';
-    profileButton.className = 'flex w-full items-center justify-between gap-2 rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-900/60 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/40';
-    profileButton.innerHTML = '<span>Profil</span>';
+    profileButton.className = DROPDOWN_ITEM_CLASS;
+    profileButton.textContent = 'Profil';
 
     const logoutButton = document.createElement('button');
     logoutButton.type = 'button';
     logoutButton.dataset.menuItem = 'logout';
-    logoutButton.className = 'mt-1 flex w-full items-center justify-between gap-2 rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-900/60 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/40';
-    logoutButton.innerHTML = '<span>Abmelden</span>';
+    logoutButton.className = `${DROPDOWN_ITEM_CLASS} mt-1`;
+    logoutButton.textContent = 'Abmelden';
 
     dropdown.append(profileButton, logoutButton);
     wrapper.append(button, dropdown);
     container.appendChild(wrapper);
+
+    if (typeof globalScope.showModerationLink === 'function') {
+      try {
+        globalScope.showModerationLink(state.profileRole, { dropdown });
+      } catch (error) {
+        console.warn('[auth] Moderationslink konnte nicht aktualisiert werden.', error);
+      }
+    }
 
     function setDropdownOpen(open) {
       if (open) {
@@ -448,6 +475,87 @@
       badge.className = 'rounded-full border border-slate-800/70 px-3 py-1 text-xs text-slate-400';
       badge.textContent = 'Login derzeit nicht verfügbar';
       container.appendChild(badge);
+    }
+  }
+
+  function normalizeRoleValue(role) {
+    if (typeof role !== 'string') {
+      return null;
+    }
+    const trimmed = role.trim().toLowerCase();
+    return trimmed ? trimmed : null;
+  }
+
+  function setProfileRole(role, userId, loaded) {
+    const normalizedRole = normalizeRoleValue(role);
+    const normalizedUserId =
+      typeof userId === 'string' && userId.trim().length > 0 ? userId : null;
+    const normalizedLoaded = Boolean(loaded);
+
+    const changed =
+      state.profileRole !== normalizedRole ||
+      state.profileRoleUserId !== normalizedUserId ||
+      state.profileRoleLoaded !== normalizedLoaded;
+
+    if (changed) {
+      state.profileRole = normalizedRole;
+      state.profileRoleUserId = normalizedUserId;
+      state.profileRoleLoaded = normalizedLoaded;
+    }
+
+    return changed;
+  }
+
+  function resetProfileRole() {
+    return setProfileRole(null, null, false);
+  }
+
+  async function syncProfileRole(user) {
+    const userId = user && typeof user.id === 'string' ? user.id : null;
+
+    if (!userId || !state.supabase) {
+      const changed = setProfileRole(null, userId, false);
+      if (changed) {
+        render();
+      }
+      return;
+    }
+
+    if (state.profileRoleLoaded && state.profileRoleUserId === userId) {
+      return;
+    }
+
+    const requestId = ++state.roleRequestId;
+
+    try {
+      const { data, error } = await state.supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+
+      if (requestId !== state.roleRequestId) {
+        return;
+      }
+
+      if (error) {
+        throw error;
+      }
+
+      const resolvedRole = normalizeRoleValue(data?.role ?? null);
+      const changed = setProfileRole(resolvedRole, userId, true);
+      if (changed) {
+        render();
+      }
+    } catch (error) {
+      if (requestId !== state.roleRequestId) {
+        return;
+      }
+      console.warn('[auth] Rolle konnte nicht ermittelt werden.', error);
+      const changed = setProfileRole(null, userId, true);
+      if (changed) {
+        render();
+      }
     }
   }
 
@@ -571,6 +679,7 @@
   async function refreshSession() {
     if (!state.supabase) {
       state.session = null;
+      resetProfileRole();
       render();
       return;
     }
@@ -583,8 +692,25 @@
     } catch (error) {
       console.error('[auth] Session konnte nicht geladen werden.', error);
       state.session = null;
+      resetProfileRole();
+      render();
+      return;
     }
+    const user = state.session?.user;
+    const userId = user && typeof user.id === 'string' ? user.id : null;
+
+    if (!userId) {
+      resetProfileRole();
+      render();
+      return;
+    }
+
+    if (state.profileRoleUserId !== userId || !state.profileRoleLoaded) {
+      setProfileRole(null, userId, false);
+    }
+
     render();
+    await syncProfileRole(user);
   }
 
   function subscribeToAuthChanges() {
@@ -593,7 +719,19 @@
     }
     state.supabase.auth.onAuthStateChange((_event, session) => {
       state.session = session || null;
+      const user = state.session?.user;
+      const userId = user && typeof user.id === 'string' ? user.id : null;
+
+      if (!userId) {
+        resetProfileRole();
+      } else if (state.profileRoleUserId !== userId) {
+        setProfileRole(null, userId, false);
+      }
+
       render();
+      if (userId) {
+        void syncProfileRole(user);
+      }
       scheduleOAuthHashCleanup(true);
     });
   }
