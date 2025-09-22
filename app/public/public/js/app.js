@@ -805,7 +805,8 @@ function buildStoragePath(userId, variant, extension) {
   const safeUserId = sanitizeStorageSegment(userId ?? '', 'anonymous')
   const safeVariant = sanitizeStorageSegment(variant ?? '', 'asset')
   const unique = createUniqueId()
-  return `${STORAGE_UPLOAD_ROOT}/${safeUserId}/${safeVariant}/${unique}${extension}`
+  const variantPrefix = safeVariant ? `${safeVariant}-` : ''
+  return `${STORAGE_UPLOAD_ROOT}/${safeUserId}/${variantPrefix}${unique}${extension}`
 }
 
 async function uploadImageFile(file, variant, userId) {
