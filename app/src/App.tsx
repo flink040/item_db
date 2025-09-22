@@ -5,7 +5,8 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent
+  type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent
 } from 'react'
 import type { SVGProps } from 'react'
 
@@ -21,6 +22,58 @@ type Item = {
   star_level?: number | null
   description?: string | null
   image_url?: string | null
+}
+
+type Enchantment = {
+  id: number
+  label: string
+  slug: string | null
+  description: string | null
+  maxLevel: number
+}
+
+const STAR_LEVEL_VALUES = [1, 2, 3] as const
+const MAX_STAR_LEVEL = STAR_LEVEL_VALUES[STAR_LEVEL_VALUES.length - 1]
+
+const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
+  if (!Array.isArray(input)) {
+    return []
+  }
+
+  return input
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+
+      const record = entry as Record<string, unknown>
+      const id = Number(record.id)
+      if (!Number.isFinite(id)) {
+        return null
+      }
+
+      const rawLabel = record.label
+      const label =
+        typeof rawLabel === 'string' && rawLabel.trim().length > 0
+          ? rawLabel.trim()
+          : `Verzauberung ${id}`
+
+      const rawSlug = record.slug
+      const slug = typeof rawSlug === 'string' && rawSlug.trim().length > 0 ? rawSlug.trim() : null
+
+      const rawDescription = record.description
+      const descriptionText =
+        typeof rawDescription === 'string' ? rawDescription.trim() : ''
+      const description = descriptionText.length > 0 ? descriptionText : null
+
+      const rawMaxLevelValue = Number(record['max_level'])
+      const maxLevel =
+        Number.isInteger(rawMaxLevelValue) && rawMaxLevelValue > 0 ? rawMaxLevelValue : 1
+
+      return { id, label, slug, description, maxLevel }
+    })
+    .filter((value): value is Enchantment => value !== null)
+    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
 const typeOptions = [
@@ -101,6 +154,7 @@ type ItemFormValues = {
   material: string
   rarity: string
   price: string
+  starLevel: string
 }
 
 type ItemFormFileValues = {
@@ -113,7 +167,8 @@ const initialItemFormValues: ItemFormValues = {
   itemType: '',
   material: '',
   rarity: '',
-  price: ''
+  price: '',
+  starLevel: '0'
 }
 
 const initialItemFormFileValues: ItemFormFileValues = {
@@ -904,7 +959,21 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   const [fileValues, setFileValues] = useState<ItemFormFileValues>(() => createInitialItemFormFileValues())
   const [errors, setErrors] = useState<ItemFormErrors>({})
   const [submitting, setSubmitting] = useState(false)
+  const [enchantments, setEnchantments] = useState<Enchantment[]>([])
+  const [enchantmentsLoading, setEnchantmentsLoading] = useState(false)
+  const [enchantmentsError, setEnchantmentsError] = useState<string | null>(null)
+  const [enchantmentsSearch, setEnchantmentsSearch] = useState('')
+  const [selectedEnchantments, setSelectedEnchantments] = useState<Map<number, number>>(
+    () => new Map()
+  )
+  const [enchantmentError, setEnchantmentError] = useState<string | null>(null)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const enchantmentsAbortControllerRef = useRef<AbortController | null>(null)
+
+  const starLevelValue = Math.max(
+    0,
+    Math.min(MAX_STAR_LEVEL, Number(formValues.starLevel) || 0)
+  )
 
   useEffect(() => {
     nameInputRef.current?.focus()
@@ -924,6 +993,83 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [onClose])
+
+  useEffect(() => {
+    let isActive = true
+    const controller = new AbortController()
+    enchantmentsAbortControllerRef.current = controller
+
+    const loadEnchantments = async () => {
+      setEnchantmentsLoading(true)
+      setEnchantmentsError(null)
+
+      try {
+        const response = await fetch('/api/enchantments', { signal: controller.signal })
+        if (!response.ok) {
+          throw new Error('Request failed')
+        }
+
+        const data = await response.json().catch(() => null)
+        if (!isActive) {
+          return
+        }
+
+        setEnchantments(parseEnchantmentsResponse(data))
+      } catch (error) {
+        if (controller.signal.aborted || !isActive) {
+          return
+        }
+
+        setEnchantmentsError('Verzauberungen konnten nicht geladen werden.')
+        setEnchantments([])
+      } finally {
+        if (isActive) {
+          setEnchantmentsLoading(false)
+        }
+      }
+    }
+
+    void loadEnchantments()
+
+    return () => {
+      isActive = false
+      controller.abort()
+      enchantmentsAbortControllerRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    setSelectedEnchantments((prev) => {
+      if (prev.size === 0) {
+        return prev
+      }
+
+      const byId = new Map(enchantments.map((enchantment) => [enchantment.id, enchantment]))
+      let changed = false
+      const next = new Map<number, number>()
+
+      prev.forEach((level, id) => {
+        const enchantment = byId.get(id)
+        if (!enchantment) {
+          changed = true
+          return
+        }
+
+        const normalizedLevel = Math.max(
+          1,
+          Math.min(enchantment.maxLevel, Math.round(level) || 1)
+        )
+
+        next.set(id, normalizedLevel)
+
+        if (normalizedLevel !== level) {
+          changed = true
+        }
+      })
+
+      return changed ? next : prev
+    })
+  }, [enchantments])
 
   const handleFieldChange = (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -955,6 +1101,172 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       [fieldName]: file
     }))
   }
+
+  const updateStarLevel = (nextValue: number) => {
+    const normalized = Math.max(0, Math.min(MAX_STAR_LEVEL, Math.round(nextValue) || 0))
+
+    setFormValues((prev) => ({
+      ...prev,
+      starLevel: String(normalized)
+    }))
+
+    setErrors((prev) => {
+      if (!prev.starLevel) {
+        return prev
+      }
+      const next = { ...prev }
+      delete next.starLevel
+      return next
+    })
+  }
+
+  const handleStarSelect = (value: number) => {
+    updateStarLevel(starLevelValue === value ? 0 : value)
+  }
+
+  const handleStarKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, value: number) => {
+    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      const previous = starLevelValue <= 0 ? 0 : starLevelValue - 1
+      updateStarLevel(previous)
+      return
+    }
+
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      const next = starLevelValue >= MAX_STAR_LEVEL ? MAX_STAR_LEVEL : starLevelValue + 1
+      updateStarLevel(next)
+      return
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      handleStarSelect(value)
+    }
+  }
+
+  const handleEnchantmentSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setEnchantmentsSearch(event.target.value)
+  }
+
+  const handleEnchantmentToggle = (enchantment: Enchantment, checked: boolean) => {
+    setSelectedEnchantments((prev) => {
+      const next = new Map(prev)
+      if (checked) {
+        const level = next.get(enchantment.id) ?? 1
+        const normalized = Math.max(
+          1,
+          Math.min(enchantment.maxLevel, Math.round(level) || 1)
+        )
+        next.set(enchantment.id, normalized)
+      } else {
+        next.delete(enchantment.id)
+      }
+      return next
+    })
+    setEnchantmentError(null)
+  }
+
+  const handleEnchantmentLevelChange = (enchantment: Enchantment, value: string) => {
+    const level = Number(value)
+
+    setSelectedEnchantments((prev) => {
+      if (!prev.has(enchantment.id)) {
+        return prev
+      }
+
+      const next = new Map(prev)
+      const normalized = Math.max(
+        1,
+        Math.min(enchantment.maxLevel, Number.isFinite(level) ? Math.round(level) : 1)
+      )
+      next.set(enchantment.id, normalized)
+      return next
+    })
+    setEnchantmentError(null)
+  }
+
+  const handleRemoveSelectedEnchantment = (id: number) => {
+    setSelectedEnchantments((prev) => {
+      if (!prev.has(id)) {
+        return prev
+      }
+      const next = new Map(prev)
+      next.delete(id)
+      return next
+    })
+    setEnchantmentError(null)
+  }
+
+  const filteredEnchantments = useMemo(() => {
+    const normalizedSearch = enchantmentsSearch.trim().toLowerCase().replace(/\s+/g, ' ')
+    if (!normalizedSearch) {
+      return enchantments
+    }
+
+    return enchantments.filter((enchantment) => {
+      const haystacks = [
+        enchantment.label,
+        enchantment.slug ?? '',
+        enchantment.description ?? ''
+      ]
+      return haystacks.some((value) => value.toLowerCase().includes(normalizedSearch))
+    })
+  }, [enchantments, enchantmentsSearch])
+
+  const selectedEnchantmentEntries = useMemo(() => {
+    if (selectedEnchantments.size === 0) {
+      return []
+    }
+
+    const byId = new Map(enchantments.map((enchantment) => [enchantment.id, enchantment]))
+
+    return Array.from(selectedEnchantments.entries())
+      .map(([id, level]) => {
+        const enchantment = byId.get(id)
+        if (!enchantment) {
+          return null
+        }
+
+        const normalizedLevel = Math.max(
+          1,
+          Math.min(enchantment.maxLevel, Math.round(level) || 1)
+        )
+
+        return { enchantment, level: normalizedLevel }
+      })
+      .filter((entry): entry is { enchantment: Enchantment; level: number } => entry !== null)
+      .sort((a, b) =>
+        a.enchantment.label.localeCompare(b.enchantment.label, 'de', { sensitivity: 'base' })
+      )
+  }, [enchantments, selectedEnchantments])
+
+  const collectSelectedEnchantments = useCallback(() => {
+    const byId = new Map(enchantments.map((enchantment) => [enchantment.id, enchantment]))
+    const selections: { id: number; level: number }[] = []
+    let validationError: string | null = null
+
+    selectedEnchantments.forEach((level, id) => {
+      const enchantment = byId.get(id)
+      if (!enchantment) {
+        return
+      }
+
+      if (!Number.isFinite(level)) {
+        validationError = 'Ungültiges Level für Verzauberungen.'
+        return
+      }
+
+      const normalizedLevel = Math.max(
+        1,
+        Math.min(enchantment.maxLevel, Math.round(level))
+      )
+
+      selections.push({ id, level: normalizedLevel })
+    })
+
+    return { selections, error: validationError }
+  }, [enchantments, selectedEnchantments])
 
   const getFieldClassName = (field: keyof ItemFormValues) => {
     const hasError = Boolean(errors[field])
@@ -1004,11 +1316,26 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       }
     }
 
+    const rawStarLevel = Number(formValues.starLevel)
+    const starLevelIsValid =
+      Number.isInteger(rawStarLevel) && rawStarLevel >= 0 && rawStarLevel <= MAX_STAR_LEVEL
+    const normalizedStarLevel = starLevelIsValid ? rawStarLevel : 0
+    if (!starLevelIsValid) {
+      nextErrors.starLevel = `Stern-Level muss zwischen 0 und ${MAX_STAR_LEVEL} liegen.`
+    }
+
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
       return
     }
 
+    const { selections, error: enchantmentsValidationError } = collectSelectedEnchantments()
+    if (enchantmentsValidationError) {
+      setEnchantmentError(enchantmentsValidationError)
+      return
+    }
+
+    setEnchantmentError(null)
     setSubmitting(true)
 
     try {
@@ -1017,6 +1344,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       formData.append('itemType', formValues.itemType)
       formData.append('material', formValues.material)
       formData.append('rarity', formValues.rarity)
+      formData.append('starLevel', normalizedStarLevel.toString())
 
       if (priceValue && normalizedPrice !== null) {
         formData.append('price', normalizedPrice.toString())
@@ -1028,6 +1356,10 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
       if (fileValues.itemLoreImage) {
         formData.append('itemLoreImage', fileValues.itemLoreImage)
+      }
+
+      if (selections.length > 0) {
+        formData.append('enchantments', JSON.stringify(selections))
       }
 
       const response = await fetch('/api/items', {
@@ -1049,6 +1381,9 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       setFormValues(createInitialItemFormValues())
       setFileValues(createInitialItemFormFileValues())
       setErrors({})
+      setEnchantmentsSearch('')
+      setSelectedEnchantments(() => new Map())
+      setEnchantmentError(null)
       onClose()
     } catch (error) {
       onError('Fehler beim Speichern ❌')
@@ -1195,6 +1530,45 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   )}
                 </label>
 
+                <div>
+                  <span id="modal-item-star-level-label" className="text-sm font-medium text-slate-300">
+                    Stern-Level
+                  </span>
+                  <div
+                    className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                    role="radiogroup"
+                    aria-labelledby="modal-item-star-level-label"
+                    aria-describedby={errors.starLevel ? 'item-modal-starLevel-error' : undefined}
+                  >
+                    {STAR_LEVEL_VALUES.map((value) => {
+                      const isActive = starLevelValue > 0 && value <= starLevelValue
+                      const isSelected = starLevelValue === value
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => handleStarSelect(value)}
+                          onKeyDown={(event) => handleStarKeyDown(event, value)}
+                          className={`flex h-9 w-9 items-center justify-center rounded-full text-2xl transition focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 ${
+                            isActive ? 'text-amber-300' : 'text-slate-600'
+                          }`}
+                          role="radio"
+                          aria-label={`${value} von ${MAX_STAR_LEVEL} Sternen`}
+                          aria-checked={isSelected}
+                        >
+                          <span aria-hidden="true">{isActive ? '★' : '☆'}</span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne.</p>
+                  {errors.starLevel && (
+                    <p id="item-modal-starLevel-error" className="mt-2 text-sm text-rose-400">
+                      {errors.starLevel}
+                    </p>
+                  )}
+                </div>
+
                 <label className="block" htmlFor="modal-item-price">
                   <span className="text-sm font-medium text-slate-300">Preis</span>
                   <input
@@ -1253,6 +1627,133 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                 </label>
               </div>
 
+              <div className="space-y-4">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <span className="text-sm font-medium text-slate-300">Verzauberungen</span>
+                  <span className="text-xs text-slate-500">Optional – wähle Einträge aus der Liste</span>
+                </div>
+                <div className="rounded-xl border border-slate-800 bg-slate-900/60">
+                  <div className="border-b border-slate-800/80 p-3">
+                    <label className="block" htmlFor="modal-enchantments-search">
+                      <span className="sr-only">Verzauberungen durchsuchen</span>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
+                          <SearchIcon className="h-4 w-4" />
+                        </span>
+                        <input
+                          id="modal-enchantments-search"
+                          type="search"
+                          autoComplete="off"
+                          className="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                          placeholder="Verzauberungen durchsuchen…"
+                          value={enchantmentsSearch}
+                          onChange={handleEnchantmentSearchChange}
+                        />
+                      </div>
+                    </label>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto p-2 text-sm" aria-live="polite">
+                    {enchantmentsLoading ? (
+                      <p className="px-2 py-4 text-xs text-slate-500">Verzauberungen werden geladen…</p>
+                    ) : enchantmentsError ? (
+                      <p className="px-2 py-4 text-xs text-slate-500">{enchantmentsError}</p>
+                    ) : filteredEnchantments.length === 0 ? (
+                      <p className="px-2 py-4 text-xs text-slate-500">
+                        {enchantments.length === 0
+                          ? 'Keine Verzauberungen verfügbar.'
+                          : 'Keine Verzauberungen gefunden.'}
+                      </p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {filteredEnchantments.map((enchantment) => {
+                          const checkboxId = `modal-enchantment-${enchantment.id}`
+                          const isSelected = selectedEnchantments.has(enchantment.id)
+                          const levelValue = selectedEnchantments.get(enchantment.id) ?? 1
+
+                          return (
+                            <li
+                              key={enchantment.id}
+                              className="flex items-center justify-between gap-3 rounded-xl border border-slate-800/70 bg-slate-950/50 px-3 py-2"
+                            >
+                              <label
+                                className="flex flex-1 items-center gap-3 text-sm text-slate-200"
+                                htmlFor={checkboxId}
+                              >
+                                <input
+                                  id={checkboxId}
+                                  type="checkbox"
+                                  className="h-4 w-4 rounded border-slate-700 bg-slate-900 text-emerald-500 focus:ring-emerald-500"
+                                  checked={isSelected}
+                                  onChange={(event) =>
+                                    handleEnchantmentToggle(enchantment, event.target.checked)
+                                  }
+                                />
+                                <span className="flex min-w-0 flex-col">
+                                  <span className="truncate">{enchantment.label}</span>
+                                  {enchantment.description && (
+                                    <span className="mt-1 text-xs text-slate-500">
+                                      {enchantment.description}
+                                    </span>
+                                  )}
+                                </span>
+                              </label>
+                              <select
+                                className="rounded-lg border border-slate-800 bg-slate-900 px-3 py-1 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40 disabled:cursor-not-allowed disabled:opacity-60"
+                                value={String(levelValue)}
+                                onChange={(event) =>
+                                  handleEnchantmentLevelChange(enchantment, event.target.value)
+                                }
+                                disabled={!isSelected}
+                                aria-label={`Level für ${enchantment.label}`}
+                              >
+                                {Array.from({ length: enchantment.maxLevel }, (_, index) => index + 1).map(
+                                  (levelOption) => (
+                                    <option key={levelOption} value={levelOption}>
+                                      {levelOption}
+                                    </option>
+                                  )
+                                )}
+                              </select>
+                            </li>
+                          )
+                        })}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+                <div className="space-y-3" aria-live="polite">
+                  {selectedEnchantmentEntries.length === 0 ? (
+                    <p className="text-xs text-slate-500">Noch keine Verzauberungen ausgewählt.</p>
+                  ) : (
+                    selectedEnchantmentEntries.map(({ enchantment, level }) => (
+                      <div
+                        key={enchantment.id}
+                        className="flex items-center justify-between gap-3 rounded-xl border border-slate-800 bg-slate-900/60 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-200">
+                            {enchantment.label}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            Level {level} von {enchantment.maxLevel}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSelectedEnchantment(enchantment.id)}
+                          className="inline-flex items-center rounded-full border border-slate-700 px-2 py-1 text-xs text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                        >
+                          Entfernen
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+                {enchantmentError && (
+                  <p className="text-xs text-rose-400">{enchantmentError}</p>
+                )}
+              </div>
+
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
                 <button
                   type="button"
@@ -1277,13 +1778,15 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     </div>
   )
 }
-
 function ItemCard({ item }: { item: Item }) {
   const { label, badgeClass } = getRarityMeta(item.rarity ?? undefined)
   const typeLabel = typeLabelMap[item.type ?? ''] ?? 'Unbekannter Typ'
   const materialLabel = materialLabelMap[item.material ?? ''] ?? 'Unbekanntes Material'
-  const starLevel = typeof item.star_level === 'number' ? Math.max(0, Math.min(3, item.star_level)) : 0
-  const starStates = Array.from({ length: 3 }, (_, index) => index < starLevel)
+  const starLevel =
+    typeof item.star_level === 'number'
+      ? Math.max(0, Math.min(MAX_STAR_LEVEL, item.star_level))
+      : 0
+  const starStates = Array.from({ length: MAX_STAR_LEVEL }, (_, index) => index < starLevel)
 
   return (
     <article className="relative rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-2xl shadow-emerald-500/5">
@@ -1312,7 +1815,7 @@ function ItemCard({ item }: { item: Item }) {
                       {active ? '★' : '☆'}
                     </span>
                   ))}
-                  <span className="sr-only">{`Stern-Level ${starLevel} von 3`}</span>
+                  <span className="sr-only">{`Stern-Level ${starLevel} von ${MAX_STAR_LEVEL}`}</span>
                 </div>
               )}
             </div>
