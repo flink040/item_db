@@ -12,6 +12,7 @@ type Bindings = {
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
 const SUPPORTED_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const
+const MAX_STAR_RATING = 3
 
 const integerFromUnknown = (opts: { min?: number; max?: number; positive?: boolean; nonNegative?: boolean } = {}) =>
   z.preprocess((value) => {
@@ -65,8 +66,8 @@ const itemSchema = z
     rarity_id: integerFromUnknown({ positive: true }).optional(),
     item_type_id: integerFromUnknown({ positive: true }),
     material_id: integerFromUnknown({ positive: true }),
-    star_level: integerFromUnknown({ nonNegative: true, max: 5 }).optional(),
-    stars: integerFromUnknown({ nonNegative: true, max: 5 }).optional(),
+    star_level: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
+    stars: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
     image_url: z.string().trim().url().max(2048).optional(),
     lore_image_url: z.string().trim().url().max(2048).optional(),
     enchantments: z.array(enchantmentSchema).max(64).optional(),
@@ -118,6 +119,7 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
       : typeof payload.stars === 'number'
         ? payload.stars
         : 0
+  const normalizedStarLevel = Math.max(0, Math.min(starLevel, MAX_STAR_RATING))
 
   return {
     name,
@@ -126,7 +128,7 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
     rarity: payload.rarity ?? null,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
-    star_level: starLevel,
+    star_level: normalizedStarLevel,
     image_url: payload.image_url ?? null,
     lore_image_url: payload.lore_image_url ?? null,
     enchantments: payload.enchantments ?? [],
@@ -301,6 +303,7 @@ async function insertItemWithEnchantments(
   const starColumns: Array<'stars' | 'star_level'> = ['stars', 'star_level']
   let itemResult: Awaited<ReturnType<typeof executeInsert>> | null = null
   let lastError: unknown = null
+
   for (const starColumn of starColumns) {
     let result = await executeInsert(starColumn, false)
     if (!result.error && result.data) {
