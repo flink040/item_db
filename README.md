@@ -57,9 +57,19 @@ Im Cloudflare Dashboard oder via Wrangler (secrets):
 - Frontend spricht **nur** gegen `/api/*`, niemals direkt an Supabase Keys (Security!).
 
 ## Supabase Frontend Setup
-- Trage in `app/index.html` im `<meta name="supabase">` deine Projekt-URL und den Anon-Key ein.
+- Hinterlege Supabase-URL und Anon-Key in `app/public/env.js`. Die Datei setzt `window.__ENV` und wird früh im HTML eingebunden, sodass sowohl die statischen Assets (`app/public/assets/js/*`) als auch die Vite-App darauf zugreifen können.
 - Aktiviere Discord-OAuth in Supabase; nur eingeloggte Nutzer können Items speichern.
 - Ohne Login stehen ausschließlich Lesezugriffe (Filter, Suche) zur Verfügung.
+
+### Supabase-Key-Rotation & Deployment
+Damit Cloudflare Pages (statisches Frontend) und der Worker dieselben Zugangsdaten verwenden, führe beim Rotieren des Anon-Keys folgende Schritte aus:
+
+1. Generiere im Supabase-Dashboard einen neuen Anon-Key.
+2. Aktualisiere `app/public/env.js` mit URL und neuem Key und committe die Änderung.
+3. Aktualisiere die Worker-Variablen (`SUPABASE_URL`, `SUPABASE_ANON_KEY` und ggf. `SUPABASE_SERVICE_ROLE_KEY`) via Wrangler-CLI oder Cloudflare-Dashboard.
+4. Triggere ein Deployment der Cloudflare-Pages-Instanz (z. B. `npm run build` + Deploy oder `wrangler pages publish ./public`).
+5. Deploye den Worker erneut (`npx wrangler deploy`), damit beide Endpunkte synchron laufen.
+6. Prüfe anschließend `/auth/self-check` – hier werden `window.__ENV` sowie der Supabase-Client verifiziert.
 
 Viel Erfolg! ✨
 
