@@ -400,13 +400,14 @@ function renderItems(items) {
     const card = document.createElement('article')
     card.className = 'flex h-full flex-col gap-4 rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-sm shadow-slate-950/40'
 
+    const resolvedTitle = resolveItemTitle(item)
     const primaryImageUrl = resolvePrimaryImageUrl(item)
     if (primaryImageUrl) {
       const imageWrapper = document.createElement('div')
       imageWrapper.className = 'overflow-hidden rounded-xl border border-slate-800/60'
       const image = document.createElement('img')
       image.src = primaryImageUrl
-      image.alt = item?.title ? `Abbildung von ${item.title}` : 'Item-Bild'
+      image.alt = resolvedTitle ? `Abbildung von ${resolvedTitle}` : 'Item-Bild'
       image.loading = 'lazy'
       image.className = 'h-40 w-full object-cover'
       imageWrapper.appendChild(image)
@@ -418,7 +419,7 @@ function renderItems(items) {
 
     const title = document.createElement('h3')
     title.className = 'text-lg font-semibold text-slate-100'
-    title.textContent = item?.title ?? 'Unbenanntes Item'
+    title.textContent = resolvedTitle ?? 'Unbenanntes Item'
     header.appendChild(title)
     const normalizedStars = normalizeStarValue(item?.stars)
     const normalizedStarLevel = normalizeStarValue(item?.star_level)
@@ -450,7 +451,7 @@ function renderItems(items) {
 
     card.appendChild(meta)
 
-    const loreText = truncateText(item?.lore, 360)
+    const loreText = truncateText(resolveItemDescription(item), 360)
     const loreImageUrl = resolveLoreImageUrl(item)
 
     if (loreText) {
@@ -465,7 +466,7 @@ function renderItems(items) {
       loreImageWrapper.className = 'overflow-hidden rounded-xl border border-slate-800/60'
       const loreImage = document.createElement('img')
       loreImage.src = loreImageUrl
-      loreImage.alt = item?.title ? `Lore-Bild zu ${item.title}` : 'Lore-Bild'
+      loreImage.alt = resolvedTitle ? `Lore-Bild zu ${resolvedTitle}` : 'Lore-Bild'
       loreImage.loading = 'lazy'
       loreImage.className = 'h-48 w-full object-cover'
       loreImageWrapper.appendChild(loreImage)
@@ -479,17 +480,19 @@ function renderItems(items) {
       card.appendChild(fallback)
     }
 
-    if (item?.created_at) {
+    const createdAtDate = resolveItemCreatedAt(item)
+    if (createdAtDate) {
       const created = document.createElement('p')
       created.className = 'text-xs text-slate-500'
       try {
-        const formatted = new Date(item.created_at).toLocaleDateString('de-DE', {
+        const formatted = createdAtDate.toLocaleDateString('de-DE', {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
         })
         created.textContent = `Hinzugefügt am ${formatted}`
       } catch (error) {
+        console.warn('Konnte Datum nicht formatieren.', error)
         created.textContent = 'Hinzugefügt'
       }
       card.appendChild(created)
@@ -820,6 +823,66 @@ function resolveLoreImageUrl(item) {
     const trimmed = candidate.trim()
     if (trimmed) {
       return trimmed
+    }
+  }
+  return null
+}
+
+function resolveTextValue(item, keys) {
+  if (!item || typeof item !== 'object') {
+    return null
+  }
+  for (const key of keys) {
+    if (typeof key !== 'string' || !key) {
+      continue
+    }
+    const value = item[key]
+    if (typeof value !== 'string') {
+      continue
+    }
+    const trimmed = value.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+  return null
+}
+
+function resolveItemTitle(item) {
+  return resolveTextValue(item, ['title', 'name'])
+}
+
+function resolveItemDescription(item) {
+  return resolveTextValue(item, ['lore', 'description'])
+}
+
+function resolveItemCreatedAt(item) {
+  if (!item || typeof item !== 'object') {
+    return null
+  }
+  const candidates = [item.created_at, item.createdAt]
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue
+    }
+    if (candidate instanceof Date && !Number.isNaN(candidate.valueOf())) {
+      return candidate
+    }
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim()
+      if (!trimmed) {
+        continue
+      }
+      const parsed = new Date(trimmed)
+      if (!Number.isNaN(parsed.valueOf())) {
+        return parsed
+      }
+    }
+    if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+      const parsed = new Date(candidate)
+      if (!Number.isNaN(parsed.valueOf())) {
+        return parsed
+      }
     }
   }
   return null
@@ -3024,19 +3087,26 @@ async function loadItems() {
       ? state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
       : ''
 
-    const buildItemsQuery = (starColumn) => {
-      const selectColumns = [
+
+    const buildItemsQuery = (selectConfig) => {
+      const baseColumns = [
         'id',
-        'title',
-        'lore',
-        'star_level',
+        selectConfig.titleColumn,
+        selectConfig.descriptionColumn,
+        selectConfig.starColumn,
         'created_at',
         'image_url',
         'lore_image_url',
         'item_types:item_type_id(id,label)',
         'materials:material_id(id,label)',
         'rarities:rarity_id(id,label,sort)',
-      ].join(',')
+      ]
+      const selectColumns = Array.from(
+        new Set(
+          baseColumns.filter((column) => typeof column === 'string' && column.trim().length > 0)
+        )
+      ).join(',')
+
 
       let query = supabase
         .from('items')
@@ -3053,24 +3123,97 @@ async function loadItems() {
         query = query.eq('rarity_id', state.filters.rarityId)
       }
       if (sanitizedSearch) {
-        query = query.or(`title.ilike.%${sanitizedSearch}%,lore.ilike.%${sanitizedSearch}%`)
+        const searchColumns = [selectConfig.titleColumn, selectConfig.descriptionColumn].filter(
+          (column) => typeof column === 'string' && column.trim().length > 0
+        )
+        if (searchColumns.length) {
+          const searchExpression = searchColumns
+            .map((column) => `${column}.ilike.%${sanitizedSearch}%`)
+            .join(',')
+          query = query.or(searchExpression)
+        }
       }
 
       return query
     }
+    const starColumnOptions = ['stars', 'star_level', null]
+    const imageColumnOptions = ['image_url', 'image', null]
+    const loreImageColumnOptions = ['lore_image_url', 'lore_image', null]
+    const titleColumnOptions = ['title', 'name', null]
+    const descriptionColumnOptions = ['lore', 'description', null]
 
-    const { data, error } = await buildItemsQuery('stars')
-    if (error) {
-      if (error?.code === '42703') {
-        const { data: fallbackData, error: fallbackError } = await buildItemsQuery('stars:star_level')
-        if (fallbackError) {
-          throw fallbackError
-        }
-        const normalisedFallback = Array.isArray(fallbackData)
-          ? fallbackData.map(normaliseItemStarFields)
-          : []
-        renderItems(normalisedFallback)
-        return
+    let starColumnIndex = 0
+    let imageColumnIndex = 0
+    let loreImageColumnIndex = 0
+    let titleColumnIndex = 0
+    let descriptionColumnIndex = 0
+    let itemsResult = null
+
+    while (true) {
+      const queryResult = await buildItemsQuery({
+        starColumn: starColumnOptions[starColumnIndex],
+        imageColumn: imageColumnOptions[imageColumnIndex],
+        loreImageColumn: loreImageColumnOptions[loreImageColumnIndex],
+        titleColumn: titleColumnOptions[titleColumnIndex],
+        descriptionColumn: descriptionColumnOptions[descriptionColumnIndex],
+      })
+
+      if (!queryResult.error) {
+        itemsResult = queryResult
+        break
+      }
+
+      if (queryResult.error?.code !== '42703') {
+        throw queryResult.error
+      }
+
+      let handled = false
+      const currentTitleColumn = titleColumnOptions[titleColumnIndex]
+      if (
+        typeof currentTitleColumn === 'string' &&
+        errorMentionsColumn(queryResult.error, currentTitleColumn) &&
+        titleColumnIndex + 1 < titleColumnOptions.length
+      ) {
+        titleColumnIndex += 1
+        handled = true
+      }
+      const currentDescriptionColumn = descriptionColumnOptions[descriptionColumnIndex]
+      if (
+        !handled &&
+        typeof currentDescriptionColumn === 'string' &&
+        errorMentionsColumn(queryResult.error, currentDescriptionColumn) &&
+        descriptionColumnIndex + 1 < descriptionColumnOptions.length
+      ) {
+        descriptionColumnIndex += 1
+        handled = true
+      }
+      if (
+        !handled &&
+        errorMentionsColumn(queryResult.error, 'stars', 'star_level') &&
+        starColumnIndex + 1 < starColumnOptions.length
+      ) {
+        starColumnIndex += 1
+        handled = true
+      }
+      if (
+        !handled &&
+        errorMentionsColumn(queryResult.error, 'lore_image_url', 'lore_image') &&
+        loreImageColumnIndex + 1 < loreImageColumnOptions.length
+      ) {
+        loreImageColumnIndex += 1
+        handled = true
+      }
+      if (
+        !handled &&
+        errorMentionsColumn(queryResult.error, 'image_url', 'image') &&
+        imageColumnIndex + 1 < imageColumnOptions.length
+      ) {
+        imageColumnIndex += 1
+        handled = true
+      }
+
+      if (handled) {
+        continue
       }
       throw error
     }
