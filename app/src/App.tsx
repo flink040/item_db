@@ -32,7 +32,10 @@ type Item = {
   materialId?: number | null
   star_level?: number | null
   description?: string | null
+  item_image?: string | null
   image_url?: string | null
+  item_lore_image?: string | null
+  lore_image_url?: string | null
 }
 
 type Enchantment = {
@@ -2156,6 +2159,20 @@ function ItemCard({ item }: { item: Item }) {
         : null
   const { label, badgeClass } = getRarityMeta(item.rarity ?? undefined, rarityId)
 
+  const itemImageUrl = (() => {
+    const candidates = [item.item_image, item.image_url]
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') {
+        continue
+      }
+      const trimmed = candidate.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+    return null
+  })()
+
   const resolveFilterKey = (value: unknown, fallback?: unknown) => {
     if (typeof value === 'number' && Number.isFinite(value)) {
       return String(value)
@@ -2202,8 +2219,8 @@ function ItemCard({ item }: { item: Item }) {
       <div className="flex flex-col gap-4">
         <div className="flex items-start gap-4">
           <span className="relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-500/10 text-lg font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-500/30">
-            {item.image_url ? (
-              <img src={item.image_url} alt="" className="h-full w-full object-cover" />
+            {itemImageUrl ? (
+              <img src={itemImageUrl} alt="" className="h-full w-full object-cover" />
             ) : (
               <span>{item.name.charAt(0)}</span>
             )}
