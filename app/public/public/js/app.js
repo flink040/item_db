@@ -3213,7 +3213,6 @@ async function loadItems() {
       'material_id',
       'rarity_id',
       'owner',
-      'code',
       'image_url',
       'lore_image_url',
     ]
