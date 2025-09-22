@@ -5,8 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent
+  type FormEvent
 } from 'react'
 import type { SVGProps } from 'react'
 
@@ -32,7 +31,7 @@ type Enchantment = {
   maxLevel: number
 }
 
-const STAR_LEVEL_VALUES = [1, 2, 3] as const
+const STAR_LEVEL_VALUES = [0, 1, 2, 3] as const
 const MAX_STAR_LEVEL = STAR_LEVEL_VALUES[STAR_LEVEL_VALUES.length - 1]
 
 const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
@@ -1120,31 +1119,6 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     })
   }
 
-  const handleStarSelect = (value: number) => {
-    updateStarLevel(starLevelValue === value ? 0 : value)
-  }
-
-  const handleStarKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, value: number) => {
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-      event.preventDefault()
-      const previous = starLevelValue <= 0 ? 0 : starLevelValue - 1
-      updateStarLevel(previous)
-      return
-    }
-
-    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      const next = starLevelValue >= MAX_STAR_LEVEL ? MAX_STAR_LEVEL : starLevelValue + 1
-      updateStarLevel(next)
-      return
-    }
-
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      handleStarSelect(value)
-    }
-  }
-
   const handleEnchantmentSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     setEnchantmentsSearch(event.target.value)
   }
@@ -1535,33 +1509,75 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     Stern-Level
                   </span>
                   <div
-                    className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                    className="mt-2 flex flex-wrap gap-3"
                     role="radiogroup"
                     aria-labelledby="modal-item-star-level-label"
                     aria-describedby={errors.starLevel ? 'item-modal-starLevel-error' : undefined}
+                    aria-invalid={Boolean(errors.starLevel)}
                   >
                     {STAR_LEVEL_VALUES.map((value) => {
-                      const isActive = starLevelValue > 0 && value <= starLevelValue
+                      const optionId = `modal-item-star-level-${value}`
                       const isSelected = starLevelValue === value
+                      const starStates = Array.from(
+                        { length: MAX_STAR_LEVEL },
+                        (_, index) => index < value
+                      )
+                      const optionLabel =
+                        value === 0
+                          ? 'Kein Stern'
+                          : value === 1
+                          ? '1 Stern'
+                          : `${value} Sterne`
+
+                      const optionClassName = [
+                        'flex items-center gap-1 rounded-lg border px-3 py-2 transition',
+                        'peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-900',
+                        isSelected
+                          ? 'border-emerald-500/70 bg-emerald-500/10 ring-1 ring-emerald-500/40 ring-offset-2 ring-offset-slate-900'
+                          : 'border-slate-800/60 bg-slate-900/60 hover:border-emerald-500/60 hover:bg-slate-900/80'
+                      ]
+                        .filter(Boolean)
+                        .join(' ')
+
                       return (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => handleStarSelect(value)}
-                          onKeyDown={(event) => handleStarKeyDown(event, value)}
-                          className={`flex h-9 w-9 items-center justify-center rounded-full text-2xl transition focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 ${
-                            isActive ? 'text-amber-300' : 'text-slate-600'
-                          }`}
-                          role="radio"
-                          aria-label={`${value} von ${MAX_STAR_LEVEL} Sternen`}
-                          aria-checked={isSelected}
-                        >
-                          <span aria-hidden="true">{isActive ? '★' : '☆'}</span>
-                        </button>
+                        <label key={value} htmlFor={optionId} className="inline-flex cursor-pointer">
+                          <input
+                            id={optionId}
+                            type="radio"
+                            name="starLevel"
+                            value={value}
+                            checked={isSelected}
+                            onChange={() => updateStarLevel(value)}
+                            className="peer sr-only"
+                          />
+                          <span aria-hidden="true" className={optionClassName}>
+                            {starStates.map((filled, index) =>
+                              filled ? (
+                                <StarSolidIcon
+                                  key={index}
+                                  className="h-6 w-6 text-amber-300 transition-colors duration-150"
+                                />
+                              ) : (
+                                <StarOutlineIcon
+                                  key={index}
+                                  className="h-6 w-6 text-slate-600 transition-colors duration-150"
+                                />
+                              )
+                            )}
+                          </span>
+                          <span className="sr-only">{optionLabel}</span>
+                        </label>
                       )
                     })}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne.</p>
+                  <span className="sr-only" aria-live="polite">
+                    {starLevelValue === 0
+                      ? `Kein Stern ausgewählt.`
+                      : `${starLevelValue} von ${MAX_STAR_LEVEL} Sternen ausgewählt.`}
+                  </span>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne oder setze die Auswahl auf 0, um keine Sterne zu vergeben.
+                  </p>
                   {errors.starLevel && (
                     <p id="item-modal-starLevel-error" className="mt-2 text-sm text-rose-400">
                       {errors.starLevel}
@@ -1962,6 +1978,38 @@ function SpinnerIcon({ className, ...props }: SVGProps<SVGSVGElement>) {
       {...props}
     >
       <path d="M12 3a9 9 0 1 1-9 9" />
+    </svg>
+  )
+}
+
+function StarSolidIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M12 2.25 14.67 7.678l5.989.87-4.33 4.222 1.023 5.956L12 15.75l-5.352 2.976 1.023-5.956-4.33-4.222 5.99-.87L12 2.25z" />
+    </svg>
+  )
+}
+
+function StarOutlineIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.5}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <path d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.042 4.136 4.566.665a.562.562 0 0 1 .311.959l-3.3 3.22.78 4.543a.562.562 0 0 1-.815.592L12 15.347l-4.093 2.287a.562.562 0 0 1-.815-.592l.78-4.543-3.3-3.22a.562.562 0 0 1 .311-.959l4.565-.665 2.042-4.136z" />
     </svg>
   )
 }
