@@ -88,6 +88,7 @@ const starRatingControl = {
   initialised: false,
 }
 
+const MAX_STAR_RATING = 3
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
 const MAX_VISIBLE_ENCHANTMENTS = 5
 const STORAGE_BUCKET_ITEM_MEDIA = 'item-media'
@@ -305,9 +306,31 @@ function truncateText(value, max = 240) {
 }
 
 function renderStars(starCount) {
-  const value = Number.isFinite(starCount) ? Number(starCount) : 0
-  const normalized = Math.min(Math.max(value, 0), 5)
-  return Array.from({ length: 5 }, (_, index) => (index < normalized ? '★' : '☆')).join('')
+  const normalized = normalizeStarValue(starCount)
+  const resolved = typeof normalized === 'number' ? normalized : 0
+  return Array.from({ length: MAX_STAR_RATING }, (_, index) => (index < resolved ? '★' : '☆')).join('')
+}
+
+function normaliseItemStarFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const result = { ...entry }
+  const normalizedStars = normalizeStarValue(result.stars)
+  const normalizedStarLevel = normalizeStarValue(result.star_level)
+  const resolvedStars =
+    typeof normalizedStars === 'number'
+      ? normalizedStars
+      : typeof normalizedStarLevel === 'number'
+        ? normalizedStarLevel
+        : 0
+
+  result.stars = resolvedStars
+  result.star_level =
+    typeof normalizedStarLevel === 'number' ? normalizedStarLevel : resolvedStars
+
+  return result
 }
 
 function normaliseItemStarFields(entry) {
@@ -382,16 +405,18 @@ function renderItems(items) {
     title.className = 'text-lg font-semibold text-slate-100'
     title.textContent = item?.title ?? 'Unbenanntes Item'
     header.appendChild(title)
-
-    const starValue = Number.isFinite(Number(item?.stars))
-      ? Number(item?.stars)
-      : Number.isFinite(Number(item?.star_level))
-        ? Number(item?.star_level)
-        : 0
+    const normalizedStars = normalizeStarValue(item?.stars)
+    const normalizedStarLevel = normalizeStarValue(item?.star_level)
+    const starValue =
+      typeof normalizedStars === 'number'
+        ? normalizedStars
+        : typeof normalizedStarLevel === 'number'
+          ? normalizedStarLevel
+          : 0
 
     const stars = document.createElement('span')
     stars.className = 'text-sm font-medium text-amber-300'
-    stars.setAttribute('aria-label', `${starValue} von 5 Sternen`)
+    stars.setAttribute('aria-label', `${starValue} von ${MAX_STAR_RATING} Sternen`)
     stars.textContent = renderStars(starValue)
     header.appendChild(stars)
 
@@ -909,7 +934,10 @@ function normalizeStarValue(value) {
   }
 
   if (typeof value === 'number') {
-    return Number.isInteger(value) && value >= 0 && value <= 5 ? value : null
+    if (!Number.isInteger(value)) {
+      return null
+    }
+    return Math.max(0, Math.min(value, MAX_STAR_RATING))
   }
 
   if (typeof value === 'string') {
@@ -918,7 +946,10 @@ function normalizeStarValue(value) {
       return null
     }
     const numeric = Number(trimmed)
-    return Number.isInteger(numeric) && numeric >= 0 && numeric <= 5 ? numeric : null
+    if (!Number.isInteger(numeric)) {
+      return null
+    }
+    return Math.max(0, Math.min(numeric, MAX_STAR_RATING))
   }
 
   return null
@@ -2214,7 +2245,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
   let insertResult = null
   let lastError = null
   let lastStatus = null
-
   for (const starColumn of starColumns) {
     let result = await executeInsert(starColumn, false)
     if (!result.error && result.data) {
@@ -2372,12 +2402,12 @@ async function handleAddItemSubmit(event) {
     hasError = true
   }
   if (!starsValue) {
-    showFieldError('stars', 'Bitte Sterne auswählen (0 bis 5).')
+    showFieldError('stars', `Bitte Sterne auswählen (0 bis ${MAX_STAR_RATING}).`)
     hasError = true
   } else {
     const starsNumber = Number(starsValue)
-    if (!Number.isInteger(starsNumber) || starsNumber < 0 || starsNumber > 5) {
-      showFieldError('stars', 'Sterne müssen zwischen 0 und 5 liegen.')
+    if (!Number.isInteger(starsNumber) || starsNumber < 0 || starsNumber > MAX_STAR_RATING) {
+      showFieldError('stars', `Sterne müssen zwischen 0 und ${MAX_STAR_RATING} liegen.`)
       hasError = true
     }
   }
@@ -2468,8 +2498,8 @@ async function handleAddItemSubmit(event) {
       }
     }
 
-    const starsNumber = Number(starsValue)
-    const normalizedStars = Number.isFinite(starsNumber) ? starsNumber : 0
+    const sanitizedStars = normalizeStarValue(starsValue)
+    const normalizedStars = typeof sanitizedStars === 'number' ? sanitizedStars : 0
     const itemImageUrl =
       typeof itemImageUpload?.publicUrl === 'string' ? itemImageUpload.publicUrl.trim() : ''
     const loreImageUrlValue =
@@ -2755,21 +2785,19 @@ async function loadItems() {
       ? state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
       : ''
 
-    const buildItemsQuery = (selectConfig) => {
+    const buildItemsQuery = (starColumn) => {
       const selectColumns = [
         'id',
         'title',
         'lore',
-        selectConfig.starColumn,
+        'star_level',
         'created_at',
-        selectConfig.imageColumn,
-        selectConfig.loreImageColumn,
+        'image_url',
+        'lore_image_url',
         'item_types:item_type_id(id,label)',
         'materials:material_id(id,label)',
         'rarities:rarity_id(id,label,sort)',
-      ]
-        .filter(Boolean)
-        .join(',')
+      ].join(',')
 
       let query = supabase
         .from('items')
@@ -2792,65 +2820,23 @@ async function loadItems() {
       return query
     }
 
-    const starColumnOptions = ['stars', 'star_level', null]
-    const imageColumnOptions = ['image_url', 'image', null]
-    const loreImageColumnOptions = ['lore_image_url', 'lore_image', null]
-
-    let starColumnIndex = 0
-    let imageColumnIndex = 0
-    let loreImageColumnIndex = 0
-    let itemsResult = null
-
-    while (true) {
-      const queryResult = await buildItemsQuery({
-        starColumn: starColumnOptions[starColumnIndex],
-        imageColumn: imageColumnOptions[imageColumnIndex],
-        loreImageColumn: loreImageColumnOptions[loreImageColumnIndex],
-      })
-
-      if (!queryResult.error) {
-        itemsResult = queryResult
-        break
+    const { data, error } = await buildItemsQuery('stars')
+    if (error) {
+      if (error?.code === '42703') {
+        const { data: fallbackData, error: fallbackError } = await buildItemsQuery('stars:star_level')
+        if (fallbackError) {
+          throw fallbackError
+        }
+        const normalisedFallback = Array.isArray(fallbackData)
+          ? fallbackData.map(normaliseItemStarFields)
+          : []
+        renderItems(normalisedFallback)
+        return
       }
-
-      if (queryResult.error?.code !== '42703') {
-        throw queryResult.error
-      }
-
-      let handled = false
-      if (
-        errorMentionsColumn(queryResult.error, 'stars', 'star_level') &&
-        starColumnIndex + 1 < starColumnOptions.length
-      ) {
-        starColumnIndex += 1
-        handled = true
-      }
-      if (
-        !handled &&
-        errorMentionsColumn(queryResult.error, 'lore_image_url', 'lore_image') &&
-        loreImageColumnIndex + 1 < loreImageColumnOptions.length
-      ) {
-        loreImageColumnIndex += 1
-        handled = true
-      }
-      if (
-        !handled &&
-        errorMentionsColumn(queryResult.error, 'image_url', 'image') &&
-        imageColumnIndex + 1 < imageColumnOptions.length
-      ) {
-        imageColumnIndex += 1
-        handled = true
-      }
-
-      if (handled) {
-        continue
-      }
-
-      throw queryResult.error
+      throw error
     }
 
-    const data = Array.isArray(itemsResult?.data) ? itemsResult.data : []
-    const normalisedItems = data.map(normaliseItemStarFields)
+    const normalisedItems = Array.isArray(data) ? data.map(normaliseItemStarFields) : []
     renderItems(normalisedItems)
   } catch (error) {
     console.error(error)
