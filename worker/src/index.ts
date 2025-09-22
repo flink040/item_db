@@ -389,6 +389,24 @@ const sanitizeSearchValue = (value: string) =>
 
 const normalizeFilterValue = (value: string | undefined) => value?.trim() ?? ''
 
+const extractPositiveIntegerFilter = (
+  ...candidates: Array<string | undefined>
+): string | null => {
+  for (const candidate of candidates) {
+    const normalized = normalizeFilterValue(candidate)
+    if (!normalized) {
+      continue
+    }
+
+    const parsed = Number.parseInt(normalized, 10)
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return String(parsed)
+    }
+  }
+
+  return null
+}
+
 // Healthcheck
 app.get('/api/health', (c) => c.json({ ok: true }))
 
@@ -398,9 +416,19 @@ app.get('/api/items', async (c) => {
   const params = new URLSearchParams({ select: '*' })
 
   const search = sanitizeSearchValue(query.search ?? '')
-  const type = normalizeFilterValue(query.type)
-  const material = normalizeFilterValue(query.material)
   const rarity = normalizeFilterValue(query.rarity)
+  const itemTypeFilter = extractPositiveIntegerFilter(
+    query['item_type_id'],
+    query['type_id'],
+    query['typeId'],
+    query.type
+  )
+  const materialFilter = extractPositiveIntegerFilter(
+    query['material_id'],
+    query['materialId'],
+    query.material
+  )
+  const rarityIdFilter = extractPositiveIntegerFilter(query['rarity_id'], query['rarityId'])
 
   if (search.length > 0) {
     const pattern = `*${search}*`
@@ -410,15 +438,17 @@ app.get('/api/items', async (c) => {
     )
   }
 
-  if (type) {
-    params.append('type', `eq.${type}`)
+  if (itemTypeFilter) {
+    params.append('item_type_id', `eq.${itemTypeFilter}`)
   }
 
-  if (material) {
-    params.append('material', `eq.${material}`)
+  if (materialFilter) {
+    params.append('material_id', `eq.${materialFilter}`)
   }
 
-  if (rarity) {
+  if (rarityIdFilter) {
+    params.append('rarity_id', `eq.${rarityIdFilter}`)
+  } else if (rarity) {
     params.append('rarity', `eq.${rarity}`)
   }
 

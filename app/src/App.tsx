@@ -11,13 +11,25 @@ import type { SVGProps } from 'react'
 
 import logoUrl from './logo.svg'
 
+type FilterOption = {
+  value: string
+  label: string
+  supabaseValue?: string
+}
+
 type Item = {
   id: string
   slug: string
   name: string
   rarity?: string | null
+  rarity_id?: number | null
+  rarityId?: number | null
   type?: string | null
+  item_type_id?: number | null
+  itemTypeId?: number | null
   material?: string | null
+  material_id?: number | null
+  materialId?: number | null
   star_level?: number | null
   description?: string | null
   image_url?: string | null
@@ -78,7 +90,7 @@ const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
     .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
-const typeOptions = [
+const typeOptions: FilterOption[] = [
   { value: '', label: 'Alle Typen' },
   { value: 'helm', label: 'Helm' },
   { value: 'brustplatte', label: 'Brustplatte' },
@@ -101,7 +113,7 @@ const typeOptions = [
   { value: 'sonstiges', label: 'Sonstiges' }
 ]
 
-const materialOptions = [
+const materialOptions: FilterOption[] = [
   { value: '', label: 'Alle Materialien' },
   { value: 'netherite', label: 'Netherit' },
   { value: 'diamond', label: 'Diamant' },
@@ -113,7 +125,7 @@ const materialOptions = [
   { value: 'other', label: 'Sonstiges' }
 ]
 
-const rarityOptions = [
+const rarityOptions: FilterOption[] = [
   { value: '', label: 'Alle Seltenheiten' },
   { value: 'selten', label: 'Selten' },
   { value: 'episch', label: 'Episch' },
@@ -122,16 +134,30 @@ const rarityOptions = [
   { value: 'jackpot', label: 'Jackpot' },
   { value: 'mega_jackpot', label: 'Mega Jackpot' }
 ]
+const createFilterLabelMap = (options: FilterOption[]) =>
+  options.reduce<Record<string, string>>((acc, option) => {
+    const register = (value: unknown) => {
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        acc[String(value)] = option.label
+      } else if (typeof value === 'string') {
+        const normalized = value.trim()
+        if (normalized) {
+          acc[normalized] = option.label
+        }
+      }
+    }
 
-const typeLabelMap = typeOptions.reduce<Record<string, string>>((acc, option) => {
-  if (option.value) acc[option.value] = option.label
-  return acc
-}, {})
+    register(option.value)
+    register(option.supabaseValue)
 
-const materialLabelMap = materialOptions.reduce<Record<string, string>>((acc, option) => {
-  if (option.value) acc[option.value] = option.label
-  return acc
-}, {})
+    return acc
+  }, {})
+
+const typeLabelMap = createFilterLabelMap(typeOptions)
+
+const materialLabelMap = createFilterLabelMap(materialOptions)
+
+const rarityLabelMap = createFilterLabelMap(rarityOptions)
 
 const rarityBadgeClasses: Record<string, string> = {
   selten: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
@@ -203,21 +229,78 @@ const sanitizeSearchValue = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim()
 
-function getRarityMeta(value?: string | null) {
-  if (!value) {
-    return {
-      label: 'Unbekannt',
-      badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
+const resolveSupabaseFilterValue = (
+  value: string,
+  options: FilterOption[]
+): string | null => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  const selectedOption = options.find((option) => option.value === trimmed)
+  const candidateValues: string[] = []
+
+  if (selectedOption?.supabaseValue) {
+    const supabaseCandidate = selectedOption.supabaseValue.trim()
+    if (supabaseCandidate) {
+      candidateValues.push(supabaseCandidate)
     }
   }
 
-  const option = rarityOptions.find((entry) => entry.value === value)
+  candidateValues.push(trimmed)
 
-  return {
-    label: option?.label ?? value,
-    badgeClass:
-      rarityBadgeClasses[value] ?? 'border border-slate-800 bg-slate-900/60 text-slate-300'
+  for (const candidate of candidateValues) {
+    const parsed = Number.parseInt(candidate, 10)
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return String(parsed)
+    }
   }
+
+  return null
+}
+
+function getRarityMeta(value?: string | null, rarityId?: number | null) {
+  const fallback = {
+    label: 'Unbekannt',
+    badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
+  }
+
+  const normalizedValue = typeof value === 'string' ? value.trim() : ''
+
+  if (normalizedValue) {
+    const option = rarityOptions.find((entry) => entry.value === normalizedValue)
+    return {
+      label: option?.label ?? rarityLabelMap[normalizedValue] ?? normalizedValue,
+      badgeClass:
+        rarityBadgeClasses[option?.value ?? normalizedValue] ?? fallback.badgeClass,
+    }
+  }
+
+  if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
+    const rarityKey = String(rarityId)
+    const option = rarityOptions.find(
+      (entry) => entry.supabaseValue === rarityKey || entry.value === rarityKey
+    )
+
+    if (option) {
+      return {
+        label: option.label,
+        badgeClass: rarityBadgeClasses[option.value] ?? fallback.badgeClass,
+      }
+    }
+
+    if (rarityLabelMap[rarityKey]) {
+      return { label: rarityLabelMap[rarityKey], badgeClass: fallback.badgeClass }
+    }
+
+    return {
+      label: `Seltenheit #${rarityKey}`,
+      badgeClass: fallback.badgeClass,
+    }
+  }
+
+  return fallback
 }
 
 export default function App() {
@@ -279,16 +362,24 @@ export default function App() {
         params.set('search', sanitizedSearch)
       }
 
-      if (type) {
-        params.set('type', type)
+      const typeFilterValue = resolveSupabaseFilterValue(type, typeOptions)
+      if (typeFilterValue) {
+        params.set('item_type_id', typeFilterValue)
       }
 
-      if (material) {
-        params.set('material', material)
+      const materialFilterValue = resolveSupabaseFilterValue(material, materialOptions)
+      if (materialFilterValue) {
+        params.set('material_id', materialFilterValue)
       }
 
-      if (rarity) {
-        params.set('rarity', rarity)
+      const rarityFilterValue = resolveSupabaseFilterValue(rarity, rarityOptions)
+      if (rarityFilterValue) {
+        params.set('rarity_id', rarityFilterValue)
+      } else {
+        const normalizedRarity = rarity.trim()
+        if (normalizedRarity) {
+          params.set('rarity', normalizedRarity)
+        }
       }
 
       abortControllerRef.current?.abort()
@@ -1825,9 +1916,49 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   )
 }
 function ItemCard({ item }: { item: Item }) {
-  const { label, badgeClass } = getRarityMeta(item.rarity ?? undefined)
-  const typeLabel = typeLabelMap[item.type ?? ''] ?? 'Unbekannter Typ'
-  const materialLabel = materialLabelMap[item.material ?? ''] ?? 'Unbekanntes Material'
+  const rarityId =
+    typeof item.rarity_id === 'number'
+      ? item.rarity_id
+      : typeof item.rarityId === 'number'
+        ? item.rarityId
+        : null
+  const { label, badgeClass } = getRarityMeta(item.rarity ?? undefined, rarityId)
+
+  const resolveFilterKey = (value: unknown, fallback?: unknown) => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return String(value)
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.trim()
+      if (normalized) {
+        return normalized
+      }
+    }
+
+    if (typeof fallback === 'number' && Number.isFinite(fallback)) {
+      return String(fallback)
+    }
+
+    if (typeof fallback === 'string') {
+      const normalizedFallback = fallback.trim()
+      if (normalizedFallback) {
+        return normalizedFallback
+      }
+    }
+
+    return ''
+  }
+
+  const typeKey = resolveFilterKey(item.item_type_id, item.type ?? item.itemTypeId)
+  const materialKey = resolveFilterKey(item.material_id, item.material ?? item.materialId)
+
+  const typeLabel =
+    typeKey ? typeLabelMap[typeKey] ?? `Typ #${typeKey}` : 'Unbekannter Typ'
+  const materialLabel =
+    materialKey
+      ? materialLabelMap[materialKey] ?? `Material #${materialKey}`
+      : 'Unbekanntes Material'
   const starLevel =
     typeof item.star_level === 'number'
       ? Math.max(0, Math.min(MAX_STAR_LEVEL, item.star_level))
