@@ -333,6 +333,42 @@ function normaliseItemStarFields(entry) {
   return result
 }
 
+function normaliseItemStarFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const result = { ...entry }
+  const resolvedStars = Number.isFinite(Number(result.stars))
+    ? Number(result.stars)
+    : Number.isFinite(Number(result.star_level))
+      ? Number(result.star_level)
+      : 0
+
+  result.stars = resolvedStars
+  if (!Number.isFinite(Number(result.star_level))) {
+    result.star_level = resolvedStars
+  }
+
+  return result
+}
+
+function errorMentionsColumn(error, ...columns) {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : ''
+  if (!message) {
+    return false
+  }
+
+  return columns.some((column) => {
+    const normalized = column.toLowerCase()
+    return message.includes(`.${normalized}`) || message.includes(`"${normalized}"`)
+  })
+}
+
 function renderItems(items) {
   if (!elements.itemsList) return
   if (!Array.isArray(items) || items.length === 0) {
@@ -369,7 +405,6 @@ function renderItems(items) {
     title.className = 'text-lg font-semibold text-slate-100'
     title.textContent = item?.title ?? 'Unbenanntes Item'
     header.appendChild(title)
-
     const normalizedStars = normalizeStarValue(item?.stars)
     const normalizedStarLevel = normalizeStarValue(item?.star_level)
     const starValue =
@@ -2210,7 +2245,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
   let insertResult = null
   let lastError = null
   let lastStatus = null
-
   for (const starColumn of starColumns) {
     let result = await executeInsert(starColumn, false)
     if (!result.error && result.data) {
@@ -2228,7 +2262,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       message.includes('column "created_by"') ||
       message.includes('column "name"') ||
       message.includes('column "rarity"')
-
     if (legacyColumnIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {
@@ -2757,7 +2790,7 @@ async function loadItems() {
         'id',
         'title',
         'lore',
-        starColumn,
+        'star_level',
         'created_at',
         'image_url',
         'lore_image_url',

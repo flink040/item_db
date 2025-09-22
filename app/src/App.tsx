@@ -5,8 +5,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent,
-  type KeyboardEvent as ReactKeyboardEvent
+  type FormEvent
 } from 'react'
 import type { SVGProps } from 'react'
 
@@ -32,8 +31,11 @@ type Enchantment = {
   maxLevel: number
 }
 
-const STAR_LEVEL_VALUES = [0, 1, 2, 3] as const
-const MAX_STAR_LEVEL = STAR_LEVEL_VALUES[STAR_LEVEL_VALUES.length - 1]
+const MAX_STAR_LEVEL = 3 as const
+const STAR_LEVEL_VALUES = Array.from(
+  { length: MAX_STAR_LEVEL + 1 },
+  (_, index) => index
+) as ReadonlyArray<number>
 
 const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
   if (!Array.isArray(input)) {
@@ -1133,61 +1135,6 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     })
   }
 
-  const handleStarSelect = (value: number) => {
-    const nextValue = starLevelValue === value ? 0 : value
-
-    updateStarLevel(nextValue)
-    focusStarButton(nextValue <= 0 ? 1 : nextValue)
-  }
-
-  const handleStarKeyDown = (
-    event: ReactKeyboardEvent<HTMLButtonElement>,
-    value: number
-  ) => {
-    if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
-      event.preventDefault()
-      const nextValue = starLevelValue <= 0 ? 0 : starLevelValue - 1
-      updateStarLevel(nextValue)
-      focusStarButton(nextValue <= 0 ? 1 : nextValue)
-      return
-    }
-
-    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
-      event.preventDefault()
-      const nextValue =
-        starLevelValue <= 0 ? 1 : Math.min(MAX_STAR_LEVEL, starLevelValue + 1)
-      updateStarLevel(nextValue)
-      focusStarButton(nextValue)
-      return
-    }
-
-    if (event.key === 'Home') {
-      event.preventDefault()
-      updateStarLevel(1)
-      focusStarButton(1)
-      return
-    }
-
-    if (event.key === 'End') {
-      event.preventDefault()
-      updateStarLevel(MAX_STAR_LEVEL)
-      focusStarButton(MAX_STAR_LEVEL)
-      return
-    }
-
-    if (event.key === 'Backspace' || event.key === 'Delete' || event.key === 'Escape') {
-      event.preventDefault()
-      updateStarLevel(0)
-      focusStarButton(1)
-      return
-    }
-
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      handleStarSelect(value)
-    }
-  }
-
   const handleEnchantmentSearchChange = (event: ChangeEvent<HTMLInputElement>) => {
     setEnchantmentsSearch(event.target.value)
   }
@@ -1578,50 +1525,64 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     Stern-Level
                   </span>
                   <div
-                    className="mt-2 flex items-center gap-3 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                    className="mt-2 flex flex-wrap gap-3"
                     role="radiogroup"
                     aria-labelledby="modal-item-star-level-label"
                     aria-describedby={errors.starLevel ? 'item-modal-starLevel-error' : undefined}
-                    onMouseLeave={() => setStarPreviewValue(null)}
+                    aria-invalid={Boolean(errors.starLevel)}
                   >
-                    {STAR_LEVEL_VALUES.slice(1).map((value, index) => {
+                    {STAR_LEVEL_VALUES.map((value) => {
+                      const optionId = `modal-item-star-level-${value}`
                       const isSelected = starLevelValue === value
-                      const isActive = activeStarLevel >= value
-                      const starLabel = value === 1 ? '1 Stern' : `${value} Sterne`
-                      const focusable = starLevelValue === 0 ? index === 0 : isSelected
-                      const buttonClassName = [
-                        'group relative inline-flex h-10 w-10 items-center justify-center rounded-md transition focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60',
-                        isActive ? 'text-amber-300' : 'text-slate-600 hover:text-amber-200',
-                        isSelected ? 'ring-2 ring-emerald-500/50 ring-offset-2 ring-offset-slate-900' : ''
+                      const starStates = Array.from(
+                        { length: MAX_STAR_LEVEL },
+                        (_, index) => index < value
+                      )
+                      const optionLabel =
+                        value === 0
+                          ? 'Kein Stern'
+                          : value === 1
+                          ? '1 Stern'
+                          : `${value} Sterne`
+
+                      const optionClassName = [
+                        'flex items-center gap-1 rounded-lg border px-3 py-2 transition',
+                        'peer-focus-visible:ring-2 peer-focus-visible:ring-emerald-500/50 peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-slate-900',
+                        isSelected
+                          ? 'border-emerald-500/70 bg-emerald-500/10 ring-1 ring-emerald-500/40 ring-offset-2 ring-offset-slate-900'
+                          : 'border-slate-800/60 bg-slate-900/60 hover:border-emerald-500/60 hover:bg-slate-900/80'
                       ]
                         .filter(Boolean)
                         .join(' ')
+
                       return (
-                        <button
-                          key={value}
-                          type="button"
-                          ref={(element) => {
-                            starButtonRefs.current[index] = element
-                          }}
-                          className={buttonClassName}
-                          role="radio"
-                          aria-checked={isSelected}
-                          aria-label={
-                            isSelected
-                              ? `${starLabel} ausgewählt. Erneut aktivieren, um die Auswahl zu entfernen.`
-                              : `${starLabel} auswählen`
-                          }
-                          tabIndex={focusable ? 0 : -1}
-                          onClick={() => handleStarSelect(value)}
-                          onMouseEnter={() => setStarPreviewValue(value)}
-                          onKeyDown={(event) => handleStarKeyDown(event, value)}
-                        >
-                          {isActive ? (
-                            <StarSolidIcon className="h-6 w-6 transition-transform duration-150 ease-out group-active:scale-95" />
-                          ) : (
-                            <StarOutlineIcon className="h-6 w-6 transition-transform duration-150 ease-out group-active:scale-95" />
-                          )}
-                        </button>
+                        <label key={value} htmlFor={optionId} className="inline-flex cursor-pointer">
+                          <input
+                            id={optionId}
+                            type="radio"
+                            name="starLevel"
+                            value={value}
+                            checked={isSelected}
+                            onChange={() => updateStarLevel(value)}
+                            className="peer sr-only"
+                          />
+                          <span aria-hidden="true" className={optionClassName}>
+                            {starStates.map((filled, index) =>
+                              filled ? (
+                                <StarSolidIcon
+                                  key={index}
+                                  className="h-6 w-6 text-amber-300 transition-colors duration-150"
+                                />
+                              ) : (
+                                <StarOutlineIcon
+                                  key={index}
+                                  className="h-6 w-6 text-slate-600 transition-colors duration-150"
+                                />
+                              )
+                            )}
+                          </span>
+                          <span className="sr-only">{optionLabel}</span>
+                        </label>
                       )
                     })}
                     <span className="sr-only" aria-live="polite">
@@ -1630,8 +1591,13 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                         : `${starLevelValue} von ${MAX_STAR_LEVEL} Sternen ausgewählt.`}
                     </span>
                   </div>
+                  <span className="sr-only" aria-live="polite">
+                    {starLevelValue === 0
+                      ? `Kein Stern ausgewählt.`
+                      : `${starLevelValue} von ${MAX_STAR_LEVEL} Sternen ausgewählt.`}
+                  </span>
                   <p className="mt-2 text-xs text-slate-500">
-                    Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne. Klicke einen ausgewählten Stern erneut, um die Auswahl zu entfernen.
+                    Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne oder setze die Auswahl auf 0, um keine Sterne zu vergeben.
                   </p>
                   {errors.starLevel && (
                     <p id="item-modal-starLevel-error" className="mt-2 text-sm text-rose-400">
