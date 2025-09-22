@@ -348,6 +348,80 @@ function normaliseItemStarFields(entry) {
   return result
 }
 
+function toLookupKey(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value)
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  return null
+}
+
+function createLookupMap(entries) {
+  const map = new Map()
+
+  if (!Array.isArray(entries)) {
+    return map
+  }
+
+  entries.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return
+    }
+
+    const key = toLookupKey(entry.id ?? entry.value ?? null)
+    if (key) {
+      map.set(key, entry)
+    }
+  })
+
+  return map
+}
+
+function attachItemLookups(items) {
+  if (!Array.isArray(items)) {
+    return []
+  }
+
+  const typeMap = createLookupMap(state.itemTypes)
+  const materialMap = createLookupMap(state.materials)
+  const rarityMap = createLookupMap(state.rarities)
+
+  return items.map((item) => {
+    if (!item || typeof item !== 'object') {
+      return item
+    }
+
+    const enriched = { ...item }
+
+    const typeKey = toLookupKey(item.item_type_id ?? item.itemTypeId ?? null)
+    if (typeKey && !enriched.item_types && typeMap.has(typeKey)) {
+      enriched.item_types = typeMap.get(typeKey)
+    }
+
+    const materialKey = toLookupKey(item.material_id ?? item.materialId ?? null)
+    if (materialKey && !enriched.materials && materialMap.has(materialKey)) {
+      enriched.materials = materialMap.get(materialKey)
+    }
+
+    const rarityKey = toLookupKey(item.rarity_id ?? item.rarityId ?? null)
+    if (rarityKey && !enriched.rarities && rarityMap.has(rarityKey)) {
+      enriched.rarities = rarityMap.get(rarityKey)
+    } else if (!enriched.rarities && typeof enriched.rarity === 'string') {
+      const rarityLabel = enriched.rarity.trim()
+      if (rarityLabel.length > 0) {
+        enriched.rarities = { label: rarityLabel }
+      }
+    }
+
+    return enriched
+  })
+}
+
 function errorMentionsColumn(error, ...columns) {
   if (!error || typeof error !== 'object') {
     return false
@@ -2077,21 +2151,48 @@ async function loadProfile() {
     return
   }
   try {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('username, avatar_url, role')
-      .eq('id', state.user.id)
-      .maybeSingle()
+    const columnVariants = [
+      ['username', 'avatar_url', 'role'],
+      ['username', 'role'],
+      ['username'],
+    ]
 
-    if (!error && data) {
-      state.profile = {
-        username: data.username ?? null,
-        avatar_url: data.avatar_url ?? null,
-        role: data.role ?? null,
+    let profileData = null
+    let lastError = null
+
+    for (const columns of columnVariants) {
+      const selection = columns.join(',')
+      const result = await supabase
+        .from('profiles')
+        .select(selection)
+        .eq('id', state.user.id)
+        .maybeSingle()
+
+      if (!result.error) {
+        profileData = result.data ?? null
+        lastError = null
+        break
       }
-      const normalizedRole = normaliseRole(data.role)
+
+      lastError = result.error
+
+      if (result.error.code !== '42703') {
+        break
+      }
+    }
+
+    if (profileData) {
+      state.profile = {
+        username: profileData.username ?? null,
+        avatar_url: profileData.avatar_url ?? null,
+        role: profileData.role ?? null,
+      }
+      const normalizedRole = normaliseRole(profileData.role)
       state.profileRole = normalizedRole || null
     } else {
+      if (lastError) {
+        console.warn('[auth] Profil konnte nicht mit allen Spalten geladen werden.', lastError)
+      }
       state.profile = {
         username: state.user?.user_metadata?.full_name ?? null,
         avatar_url: state.user?.user_metadata?.avatar_url ?? null,
@@ -3074,12 +3175,13 @@ async function loadItems() {
         selectConfig.titleColumn,
         selectConfig.descriptionColumn,
         selectConfig.starColumn,
+        selectConfig.imageColumn,
+        selectConfig.loreImageColumn,
         'created_at',
-        'image_url',
-        'lore_image_url',
-        'item_types:item_type_id(id,label)',
-        'materials:material_id(id,label)',
-        'rarities:rarity_id(id,label,sort)',
+        'item_type_id',
+        'material_id',
+        'rarity_id',
+        'rarity',
       ]
       const selectColumns = Array.from(
         new Set(
@@ -3198,7 +3300,13 @@ async function loadItems() {
       throw error
     }
 
-    const normalisedItems = Array.isArray(data) ? data.map(normaliseItemStarFields) : []
+    if (!itemsResult) {
+      throw new Error('Items konnten nicht geladen werden.')
+    }
+
+    const rawItems = Array.isArray(itemsResult.data) ? itemsResult.data : []
+    const enrichedItems = attachItemLookups(rawItems)
+    const normalisedItems = enrichedItems.map(normaliseItemStarFields)
     renderItems(normalisedItems)
   } catch (error) {
     console.error(error)
