@@ -422,7 +422,7 @@ app.get('/api/items', async (c) => {
     params.append('rarity', `eq.${rarity}`)
   }
 
-  params.append('order', 'name.asc')
+  params.set('order', 'created_at.desc.nullslast')
 
   const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`
   const res = await fetch(url, {
