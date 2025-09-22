@@ -49,6 +49,218 @@ const STAR_LEVEL_VALUES = Array.from(
   (_, index) => index
 ) as ReadonlyArray<number>
 
+const SUPABASE_AUTH_COOKIE_HINTS = [
+  'sb-access-token',
+  'sb:token',
+  'sb-token',
+  'supabase-access-token',
+  'supabase-auth-token',
+]
+
+const decodeCookieValue = (value: string) => {
+  try {
+    return decodeURIComponent(value)
+  } catch (error) {
+    void error
+    return value
+  }
+}
+
+const cleanupCookieToken = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+  const withoutQuotes = trimmed.replace(/^"|"$/g, '')
+  return withoutQuotes.trim()
+}
+
+const isLikelySupabaseCookieName = (name: string) => {
+  const normalized = name.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+  if (SUPABASE_AUTH_COOKIE_HINTS.includes(normalized)) {
+    return true
+  }
+  if (normalized.endsWith('-access-token')) {
+    return true
+  }
+  return normalized.includes('supabase') && normalized.includes('access') && normalized.includes('token')
+}
+
+const extractSupabaseAccessTokenFromCookies = (cookieString: string | undefined) => {
+  if (!cookieString || typeof cookieString !== 'string') {
+    return null
+  }
+
+  const segments = cookieString.split(';')
+  for (const segment of segments) {
+    const separatorIndex = segment.indexOf('=')
+    if (separatorIndex === -1) {
+      continue
+    }
+    const name = segment.slice(0, separatorIndex)
+    if (!isLikelySupabaseCookieName(name)) {
+      continue
+    }
+
+    const rawValue = segment.slice(separatorIndex + 1)
+    const decoded = decodeCookieValue(rawValue)
+    const cleaned = cleanupCookieToken(decoded)
+    if (cleaned) {
+      return cleaned
+    }
+  }
+
+  return null
+}
+
+const isLikelyJwt = (value: string) => {
+  const parts = value.split('.')
+  return parts.length === 3 && parts.every((part) => part.trim().length > 0)
+}
+
+const findAccessTokenInObject = (input: unknown, seen = new Set<unknown>()) => {
+  if (!input || typeof input !== 'object') {
+    return null
+  }
+
+  const stack: unknown[] = [input]
+  while (stack.length > 0) {
+    const current = stack.pop()
+    if (!current || typeof current !== 'object') {
+      continue
+    }
+    if (seen.has(current)) {
+      continue
+    }
+    seen.add(current)
+
+    if (Array.isArray(current)) {
+      for (const value of current) {
+        stack.push(value)
+      }
+      continue
+    }
+
+    for (const [key, value] of Object.entries(current)) {
+      if (typeof key === 'string') {
+        const normalizedKey = key.toLowerCase()
+        if (normalizedKey === 'access_token' && typeof value === 'string' && value.trim()) {
+          return value.trim()
+        }
+        if (normalizedKey.includes('access') && normalizedKey.includes('token') && typeof value === 'string' && value.trim()) {
+          return value.trim()
+        }
+      }
+
+      if (value && typeof value === 'object') {
+        stack.push(value)
+      }
+    }
+  }
+
+  return null
+}
+
+const extractSupabaseTokenFromStorageValue = (value: string | null) => {
+  if (!value) {
+    return null
+  }
+
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+
+  if (isLikelyJwt(trimmed)) {
+    return trimmed
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown
+    if (typeof parsed === 'string') {
+      return parsed.trim() || null
+    }
+    return findAccessTokenInObject(parsed)
+  } catch (error) {
+    void error
+  }
+
+  return null
+}
+
+const getSupabaseAccessTokenFromLocalStorage = () => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  let storage: Storage | null = null
+  try {
+    storage = window.localStorage
+  } catch (error) {
+    void error
+  }
+
+  if (!storage) {
+    return null
+  }
+
+  const candidateKeys: string[] = []
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index)
+    if (!key) {
+      continue
+    }
+    const normalizedKey = key.toLowerCase()
+    if (
+      normalizedKey.startsWith('sb-') ||
+      normalizedKey.includes('supabase') ||
+      normalizedKey.includes('auth') ||
+      normalizedKey.includes('token')
+    ) {
+      candidateKeys.push(key)
+    }
+  }
+
+  if (!candidateKeys.length) {
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (key) {
+        candidateKeys.push(key)
+      }
+    }
+  }
+
+  for (const key of candidateKeys) {
+    let rawValue: string | null = null
+    try {
+      rawValue = storage.getItem(key)
+    } catch (error) {
+      void error
+    }
+
+    const token = extractSupabaseTokenFromStorageValue(rawValue)
+    if (token) {
+      return token
+    }
+  }
+
+  return null
+}
+
+const getSupabaseAccessToken = () => {
+  if (typeof document !== 'undefined') {
+    const cookieToken = extractSupabaseAccessTokenFromCookies(document.cookie)
+    if (cookieToken) {
+      return cookieToken
+    }
+  }
+
+  return getSupabaseAccessTokenFromLocalStorage()
+}
+
 const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
   if (!Array.isArray(input)) {
     return []
@@ -392,9 +604,19 @@ export default function App() {
       const queryString = params.toString()
 
       try {
-        const response = await fetch(`/api/items${queryString ? `?${queryString}` : ''}`, {
-          signal: controller.signal
-        })
+        const sessionToken = getSupabaseAccessToken()
+        const requestInit: RequestInit = {
+          signal: controller.signal,
+          credentials: 'include',
+        }
+
+        if (sessionToken) {
+          requestInit.headers = {
+            Authorization: `Bearer ${sessionToken}`,
+          }
+        }
+
+        const response = await fetch(`/api/items${queryString ? `?${queryString}` : ''}`, requestInit)
 
         if (!response.ok) {
           throw new Error('API Fehler')
@@ -1443,10 +1665,20 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
         formData.append('enchantments', JSON.stringify(selections))
       }
 
-      const response = await fetch('/api/items', {
+      const sessionToken = getSupabaseAccessToken()
+      const requestInit: RequestInit = {
         method: 'POST',
-        body: formData
-      })
+        body: formData,
+        credentials: 'include',
+      }
+
+      if (sessionToken) {
+        requestInit.headers = {
+          Authorization: `Bearer ${sessionToken}`,
+        }
+      }
+
+      const response = await fetch('/api/items', requestInit)
 
       if (!response.ok) {
         throw new Error('Request failed')

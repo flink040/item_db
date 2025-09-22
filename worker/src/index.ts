@@ -14,6 +14,127 @@ type SupabaseClient = ReturnType<typeof createClient<any, any>>
 const SUPPORTED_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const
 const MAX_STAR_RATING = 3
 
+type RequestLike = {
+  header(name: string): string | undefined
+}
+
+const SUPABASE_AUTH_COOKIE_NAMES = new Set([
+  'sb-access-token',
+  'sb:token',
+  'sb-token',
+  'supabase-access-token',
+  'supabase-auth-token',
+])
+
+const BEARER_PREFIX = /^bearer\s+/i
+
+const readHeader = (req: RequestLike, name: string) =>
+  req.header(name) ?? req.header(name.toLowerCase()) ?? req.header(name.toUpperCase())
+
+const decodeCookieValue = (value: string) => {
+  try {
+    return decodeURIComponent(value)
+  } catch (error) {
+    void error
+    return value
+  }
+}
+
+const cleanupCookieToken = (value: string) => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return ''
+  }
+  const unquoted = trimmed.replace(/^"|"$/g, '')
+  return unquoted.trim()
+}
+
+const isSupabaseAccessTokenCookie = (name: string) => {
+  const normalized = name.trim().toLowerCase()
+  if (!normalized) {
+    return false
+  }
+  if (SUPABASE_AUTH_COOKIE_NAMES.has(normalized)) {
+    return true
+  }
+  if (normalized.endsWith('-access-token')) {
+    return true
+  }
+  return normalized.includes('supabase') && normalized.includes('access') && normalized.includes('token')
+}
+
+const extractSupabaseTokenFromCookieHeader = (cookieHeader: string | undefined) => {
+  if (!cookieHeader || typeof cookieHeader !== 'string') {
+    return null
+  }
+
+  const segments = cookieHeader.split(';')
+  for (const segment of segments) {
+    const separatorIndex = segment.indexOf('=')
+    if (separatorIndex === -1) {
+      continue
+    }
+    const name = segment.slice(0, separatorIndex).trim()
+    if (!isSupabaseAccessTokenCookie(name)) {
+      continue
+    }
+
+    const rawValue = segment.slice(separatorIndex + 1)
+    const decoded = decodeCookieValue(rawValue)
+    const cleaned = cleanupCookieToken(decoded)
+    if (cleaned) {
+      return cleaned
+    }
+  }
+
+  return null
+}
+
+const normalizeAuthorizationHeaderValue = (value: string | undefined) => {
+  if (!value) {
+    return null
+  }
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return null
+  }
+  return BEARER_PREFIX.test(trimmed) ? trimmed : `Bearer ${trimmed}`
+}
+
+const resolveSupabaseBearerToken = (req: RequestLike) => {
+  const headerValue = readHeader(req, 'authorization')
+  if (typeof headerValue === 'string' && headerValue.trim()) {
+    const match = headerValue.match(BEARER_PREFIX)
+    if (match) {
+      const tokenPart = headerValue.slice(match[0].length).trim()
+      if (tokenPart) {
+        return tokenPart
+      }
+    } else {
+      return headerValue.trim()
+    }
+  }
+
+  const cookieHeader = readHeader(req, 'cookie')
+  const cookieToken = extractSupabaseTokenFromCookieHeader(cookieHeader)
+  return cookieToken
+}
+
+const resolveSupabaseAuthorizationHeader = (req: RequestLike) => {
+  const headerValue = normalizeAuthorizationHeaderValue(readHeader(req, 'authorization'))
+  if (headerValue) {
+    return headerValue
+  }
+
+  const cookieHeader = readHeader(req, 'cookie')
+  const cookieToken = extractSupabaseTokenFromCookieHeader(cookieHeader)
+  if (cookieToken) {
+    return normalizeAuthorizationHeaderValue(`Bearer ${cookieToken}`)
+  }
+
+  return null
+}
+
 const integerFromUnknown = (opts: { min?: number; max?: number; positive?: boolean; nonNegative?: boolean } = {}) =>
   z.preprocess((value) => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -455,8 +576,13 @@ app.get('/api/items', async (c) => {
   params.append('order', 'name.asc')
 
   const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`
+  const supabaseHeaders: Record<string, string> = { apikey: c.env.SUPABASE_ANON_KEY }
+  const forwardedAuthHeader = resolveSupabaseAuthorizationHeader(c.req)
+  if (forwardedAuthHeader) {
+    supabaseHeaders.Authorization = forwardedAuthHeader
+  }
   const res = await fetch(url, {
-    headers: { apikey: c.env.SUPABASE_ANON_KEY }
+    headers: supabaseHeaders,
   })
 
   if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any)
@@ -468,9 +594,7 @@ app.get('/api/items', async (c) => {
 
 // POST /api/items (validiert + Service-Role)
 app.post('/api/items', async (c) => {
-  const authHeader = c.req.header('authorization') ?? c.req.header('Authorization') ?? ''
-  const bearerMatch = authHeader.match(/bearer\s+(.+)/i)
-  const token = bearerMatch ? bearerMatch[1].trim() : authHeader.trim()
+  const token = resolveSupabaseBearerToken(c.req)
 
   if (!token) {
     return c.json({ error: 'auth_required', message: 'Bitte mit einem gültigen Supabase-Token anfragen.' }, 401)
