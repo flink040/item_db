@@ -348,26 +348,6 @@ function normaliseItemStarFields(entry) {
   return result
 }
 
-function normaliseItemStarFields(entry) {
-  if (!entry || typeof entry !== 'object') {
-    return entry
-  }
-
-  const result = { ...entry }
-  const resolvedStars = Number.isFinite(Number(result.stars))
-    ? Number(result.stars)
-    : Number.isFinite(Number(result.star_level))
-      ? Number(result.star_level)
-      : 0
-
-  result.stars = resolvedStars
-  if (!Number.isFinite(Number(result.star_level))) {
-    result.star_level = resolvedStars
-  }
-
-  return result
-}
-
 function errorMentionsColumn(error, ...columns) {
   if (!error || typeof error !== 'object') {
     return false
