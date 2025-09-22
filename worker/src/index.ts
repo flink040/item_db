@@ -184,9 +184,6 @@ const itemSchema = z
     description: z.string().trim().max(4000).optional(),
     lore: z.string().trim().max(4000).optional(),
     rarity: z.enum(SUPPORTED_RARITIES).optional(),
-    rarity_id: integerFromUnknown({ positive: true }).optional(),
-    item_type_id: integerFromUnknown({ positive: true }),
-    material_id: integerFromUnknown({ positive: true }),
     star_level: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
     stars: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
     image_url: z.string().trim().url().max(2048).optional(),
@@ -204,7 +201,7 @@ const itemSchema = z
       })
     }
 
-    if (!data.rarity && typeof data.rarity_id !== 'number') {
+    if (!data.rarity) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['rarity'],
@@ -245,11 +242,9 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
   return {
     name,
     description: (payload.description ?? payload.lore ?? '').trim() || null,
-    rarity_id: typeof payload.rarity_id === 'number' ? payload.rarity_id : null,
     rarity: payload.rarity ?? null,
-    item_type_id: payload.item_type_id,
-    material_id: payload.material_id,
     star_level: normalizedStarLevel,
+    stars: normalizedStarLevel,
     image_url: payload.image_url ?? null,
     lore_image_url: payload.lore_image_url ?? null,
     enchantments: payload.enchantments ?? [],
@@ -343,12 +338,8 @@ async function validateEnchantments(
 async function insertItemWithEnchantments(
   client: SupabaseClient,
   item: {
-    title?: string
     name?: string
     description?: string | null
-    item_type_id: number
-    material_id: number
-    rarity_id: number | null
     rarity?: string | null
     stars?: number
     star_level?: number
@@ -370,8 +361,6 @@ async function insertItemWithEnchantments(
   const buildPayloadVariant = (starColumn: 'stars' | 'star_level', useLegacyFallback: boolean) => {
     const payload: Record<string, unknown> = {
       is_published: item.is_published,
-      item_type_id: item.item_type_id,
-      material_id: item.material_id,
     }
 
     if (starColumn === 'star_level') {
@@ -380,20 +369,12 @@ async function insertItemWithEnchantments(
       payload.stars = resolvedStars
     }
 
-    if (item.title) {
-      payload.title = item.title
-    }
-
     if (item.image_url !== undefined) {
       payload.image_url = item.image_url
     }
 
     if (item.lore_image_url !== undefined) {
       payload.lore_image_url = item.lore_image_url
-    }
-
-    if (item.rarity_id !== null) {
-      payload.rarity_id = item.rarity_id
     }
 
     if (item.description !== undefined) {
@@ -510,24 +491,6 @@ const sanitizeSearchValue = (value: string) =>
 
 const normalizeFilterValue = (value: string | undefined) => value?.trim() ?? ''
 
-const extractPositiveIntegerFilter = (
-  ...candidates: Array<string | undefined>
-): string | null => {
-  for (const candidate of candidates) {
-    const normalized = normalizeFilterValue(candidate)
-    if (!normalized) {
-      continue
-    }
-
-    const parsed = Number.parseInt(normalized, 10)
-    if (Number.isInteger(parsed) && parsed > 0) {
-      return String(parsed)
-    }
-  }
-
-  return null
-}
-
 // Healthcheck
 app.get('/api/health', (c) => c.json({ ok: true }))
 
@@ -537,19 +500,8 @@ app.get('/api/items', async (c) => {
   const params = new URLSearchParams({ select: '*' })
 
   const search = sanitizeSearchValue(query.search ?? '')
-  const rarity = normalizeFilterValue(query.rarity)
-  const itemTypeFilter = extractPositiveIntegerFilter(
-    query['item_type_id'],
-    query['type_id'],
-    query['typeId'],
-    query.type
-  )
-  const materialFilter = extractPositiveIntegerFilter(
-    query['material_id'],
-    query['materialId'],
-    query.material
-  )
-  const rarityIdFilter = extractPositiveIntegerFilter(query['rarity_id'], query['rarityId'])
+  const rarityValue = normalizeFilterValue(query.rarity)
+  const rarity = rarityValue ? rarityValue.toLowerCase() : ''
 
   if (search.length > 0) {
     const pattern = `*${search}*`
@@ -559,17 +511,7 @@ app.get('/api/items', async (c) => {
     )
   }
 
-  if (itemTypeFilter) {
-    params.append('item_type_id', `eq.${itemTypeFilter}`)
-  }
-
-  if (materialFilter) {
-    params.append('material_id', `eq.${materialFilter}`)
-  }
-
-  if (rarityIdFilter) {
-    params.append('rarity_id', `eq.${rarityIdFilter}`)
-  } else if (rarity) {
+  if (rarity) {
     params.append('rarity', `eq.${rarity}`)
   }
 
@@ -619,7 +561,7 @@ app.post('/api/items', async (c) => {
 
   const normalized = normaliseItemPayload(parsed.data)
 
-  if (!normalized.rarity_id && !normalized.rarity) {
+  if (!normalized.rarity) {
     return c.json({
       error: 'validation',
       issues: [
@@ -636,12 +578,8 @@ app.post('/api/items', async (c) => {
   const dryRun = ['1', 'true', 'yes'].includes((c.req.query('dryRun') || '').toLowerCase())
 
   const baseItem = {
-    title: normalized.name,
     name: normalized.name,
     description: normalized.description,
-    item_type_id: normalized.item_type_id,
-    material_id: normalized.material_id,
-    rarity_id: normalized.rarity_id ?? null,
     rarity: normalized.rarity ?? null,
     stars: normalized.star_level,
     star_level: normalized.star_level,
