@@ -1596,7 +1596,6 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                       ]
                         .filter(Boolean)
                         .join(' ')
-
                       return (
                         <button
                           key={value}
