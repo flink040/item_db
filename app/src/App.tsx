@@ -1645,16 +1645,21 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                           type="search"
                           autoComplete="off"
                           className="w-full rounded-lg border border-slate-800 bg-slate-950 py-2 pl-9 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                          placeholder="Verzauberungen durchsuchen…"
+                          placeholder="Suchen..."
                           value={enchantmentsSearch}
                           onChange={handleEnchantmentSearchChange}
+                          data-enchantment-search
                         />
                       </div>
                     </label>
                   </div>
-                  <div className="max-h-52 overflow-y-auto p-2 text-sm" aria-live="polite">
+                  <div
+                    className="max-h-48 overflow-y-auto p-2 text-sm"
+                    data-enchantment-list
+                    aria-live="polite"
+                  >
                     {enchantmentsLoading ? (
-                      <p className="px-2 py-4 text-xs text-slate-500">Verzauberungen werden geladen…</p>
+                      <p className="px-2 py-4 text-xs text-slate-500">Verzauberungen werden geladen ...</p>
                     ) : enchantmentsError ? (
                       <p className="px-2 py-4 text-xs text-slate-500">{enchantmentsError}</p>
                     ) : filteredEnchantments.length === 0 ? (
@@ -1721,7 +1726,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     )}
                   </div>
                 </div>
-                <div className="space-y-3" aria-live="polite">
+                <div className="space-y-3" data-selected-enchantments aria-live="polite">
                   {selectedEnchantmentEntries.length === 0 ? (
                     <p className="text-xs text-slate-500">Noch keine Verzauberungen ausgewählt.</p>
                   ) : (
@@ -1749,9 +1754,13 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     ))
                   )}
                 </div>
-                {enchantmentError && (
-                  <p className="text-xs text-rose-400">{enchantmentError}</p>
-                )}
+                <p
+                  id="item-enchantments-error"
+                  className={`text-xs text-rose-400${enchantmentError ? '' : ' hidden'}`}
+                  data-error-for="enchantments"
+                >
+                  {enchantmentError ?? ''}
+                </p>
               </div>
 
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
