@@ -1600,7 +1600,7 @@ async function fetchProfileStats() {
     const { count, error } = await supabase
       .from('items')
       .select('*', { count: 'exact', head: true })
-      .eq('created_by', state.user.id)
+      .eq('owner', state.user.id)
     if (error) {
       throw error
     }
@@ -1615,7 +1615,7 @@ async function fetchProfileStats() {
       const { data, error } = await supabase
         .from('items')
         .select('id')
-        .eq('created_by', state.user.id)
+        .eq('owner', state.user.id)
       if (error) {
         throw error
       }
@@ -2179,42 +2179,12 @@ async function loadProfile() {
       'profile_image_url',
       'profileImageUrl',
     ])
-    return {
-      username: usernameFallback ?? null,
-      avatar_url: avatarFallback ?? null,
-    }
-  }
-  try {
-    const metadataFallback = resolveMetadataFallback()
-
-    const usernameColumnCandidates = [
-      'username',
-      'display_name',
-      'displayName',
-      'name',
-      'full_name',
-      'fullName',
-      'user_name',
-      'userName',
-      'profile_name',
-      'profileName',
-    ]
-    const avatarColumnCandidates = [
-      'avatar_url',
-      'avatarUrl',
-      'avatar',
-      'profile_image_url',
-      'profileImageUrl',
-      'image_url',
-      'imageUrl',
-      'profile_avatar_url',
-      'profileAvatarUrl',
-      'picture',
-    ]
-    const roleColumnCandidates = [
+    const roleFallback = resolveTextValue(metadata, [
       'role',
       'user_role',
+      'userRole',
       'profile_role',
+      'profileRole',
       'role_name',
       'roleName',
       'role_slug',
@@ -2225,144 +2195,68 @@ async function loadProfile() {
       'roleLabel',
       'role_id',
       'roleId',
-    ]
+    ])
+    return {
+      username: usernameFallback ?? null,
+      avatar_url: avatarFallback ?? null,
+      role: roleFallback ?? null,
+    }
+  }
+  const metadataFallback = resolveMetadataFallback()
+  const metadataFallbackRoleNormalized =
+    typeof metadataFallback.role === 'string' ? normaliseRole(metadataFallback.role) : ''
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('username,avatar_url,bio,roles:role_id(slug,label)')
+      .eq('id', state.user.id)
+      .maybeSingle()
 
-    const extendWithNull = (values) => [...values, null]
-    const selectionVariants = []
-    const seenSelections = new Set()
-
-    const appendColumn = (parts, alias, column) => {
-      if (typeof column !== 'string') {
-        return
-      }
-      const trimmed = column.trim()
-      if (!trimmed) {
-        return
-      }
-      if (trimmed === alias) {
-        parts.push(alias)
-      } else {
-        parts.push(`${alias}:${trimmed}`)
-      }
+    if (error) {
+      throw error
     }
 
-    for (const usernameColumn of extendWithNull(usernameColumnCandidates)) {
-      for (const avatarColumn of extendWithNull(avatarColumnCandidates)) {
-        for (const roleColumn of extendWithNull(roleColumnCandidates)) {
-          const parts = []
-          appendColumn(parts, 'username', usernameColumn)
-          appendColumn(parts, 'avatar_url', avatarColumn)
-          appendColumn(parts, 'role', roleColumn)
-          if (!parts.length) {
-            continue
-          }
-          const selection = parts.join(',')
-          if (seenSelections.has(selection)) {
-            continue
-          }
-          seenSelections.add(selection)
-          selectionVariants.push(selection)
-        }
-      }
-    }
+    if (data) {
+      const usernameFromDb =
+        typeof data.username === 'string' ? data.username.trim() : ''
+      const avatarFromDb =
+        typeof data.avatar_url === 'string' ? data.avatar_url.trim() : ''
+      const bioFromDb = typeof data.bio === 'string' ? data.bio.trim() : ''
+      const roleFromRelation = resolveTextValue(data.roles, ['slug', 'label'])
 
-    if (!seenSelections.has('*')) {
-      selectionVariants.push('*')
-    }
-
-    let profileData = null
-    let lastError = null
-
-    for (const selection of selectionVariants) {
-      const result = await supabase
-        .from('profiles')
-        .select(selection)
-        .eq('id', state.user.id)
-        .maybeSingle()
-
-      if (!result.error) {
-        profileData = result.data ?? null
-        lastError = null
-        break
-      }
-
-      lastError = result.error
-
-      if (result.error.code !== '42703') {
-        break
-      }
-    }
-
-    if (profileData) {
-      const usernameValue =
-        resolveTextValue(profileData, [
-          'username',
-          'display_name',
-          'displayName',
-          'name',
-          'full_name',
-          'fullName',
-          'user_name',
-          'userName',
-          'profile_name',
-          'profileName',
-        ]) || metadataFallback.username
-
-      const avatarValue =
-        resolveTextValue(profileData, [
-          'avatar_url',
-          'avatarUrl',
-          'avatar',
-          'profile_image_url',
-          'profileImageUrl',
-          'image_url',
-          'imageUrl',
-          'profile_avatar_url',
-          'profileAvatarUrl',
-          'picture',
-        ]) || metadataFallback.avatar_url
-
-      const rawRole = resolveTextValue(profileData, [
-        'role',
-        'user_role',
-        'profile_role',
-        'role_name',
-        'roleName',
-        'role_slug',
-        'roleSlug',
-        'role_key',
-        'roleKey',
-        'role_label',
-        'roleLabel',
-      ])
+      const usernameValue = usernameFromDb || metadataFallback.username || null
+      const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
+      const bioValue = bioFromDb || null
+      const roleValue = roleFromRelation || metadataFallback.role || null
 
       state.profile = {
-        username: usernameValue ?? null,
-        avatar_url: avatarValue ?? null,
-        role: rawRole ?? null,
+        username: usernameValue,
+        avatar_url: avatarValue,
+        bio: bioValue,
+        role: roleValue,
       }
-      const normalizedRole = typeof rawRole === 'string' ? normaliseRole(rawRole) : ''
-      state.profileRole = normalizedRole || null
+
+      const normalizedRole =
+        typeof roleFromRelation === 'string' ? normaliseRole(roleFromRelation) : ''
+      state.profileRole = normalizedRole || metadataFallbackRoleNormalized || null
     } else {
-      if (lastError) {
-        console.warn('[auth] Profil konnte nicht mit allen Spalten geladen werden.', lastError)
-      }
       state.profile = {
         username: metadataFallback.username ?? null,
         avatar_url: metadataFallback.avatar_url ?? null,
-        role: null,
+        bio: null,
+        role: metadataFallback.role ?? null,
       }
-      state.profileRole = null
+      state.profileRole = metadataFallbackRoleNormalized || null
     }
   } catch (error) {
     console.error(error)
-    const metadataFallback = resolveMetadataFallback()
     state.profile = {
       username: metadataFallback.username ?? null,
       avatar_url: metadataFallback.avatar_url ?? null,
-      role: null,
+      bio: null,
+      role: metadataFallback.role ?? null,
     }
-    state.profileRole = null
+    state.profileRole = metadataFallbackRoleNormalized || null
   } finally {
     updateProfileModalUserInfo()
   }
