@@ -2150,18 +2150,130 @@ async function loadProfile() {
     updateProfileModalUserInfo()
     return
   }
+  const resolveMetadataFallback = () => {
+    const metadata =
+      state.user?.user_metadata && typeof state.user.user_metadata === 'object'
+        ? state.user.user_metadata
+        : {}
+    const emailFallback =
+      typeof state.user?.email === 'string' && state.user.email.trim().length > 0
+        ? state.user.email.trim()
+        : null
+    const usernameFallback =
+      resolveTextValue(metadata, [
+        'full_name',
+        'fullName',
+        'name',
+        'user_name',
+        'userName',
+        'preferred_username',
+        'preferredUsername',
+      ]) || emailFallback
+    const avatarFallback = resolveTextValue(metadata, [
+      'avatar_url',
+      'avatarUrl',
+      'picture',
+      'image_url',
+      'imageUrl',
+      'avatar',
+      'profile_image_url',
+      'profileImageUrl',
+    ])
+    return {
+      username: usernameFallback ?? null,
+      avatar_url: avatarFallback ?? null,
+    }
+  }
   try {
-    const columnVariants = [
-      ['username', 'avatar_url', 'role'],
-      ['username', 'role'],
-      ['username'],
+    const metadataFallback = resolveMetadataFallback()
+
+    const usernameColumnCandidates = [
+      'username',
+      'display_name',
+      'displayName',
+      'name',
+      'full_name',
+      'fullName',
+      'user_name',
+      'userName',
+      'profile_name',
+      'profileName',
     ]
+    const avatarColumnCandidates = [
+      'avatar_url',
+      'avatarUrl',
+      'avatar',
+      'profile_image_url',
+      'profileImageUrl',
+      'image_url',
+      'imageUrl',
+      'profile_avatar_url',
+      'profileAvatarUrl',
+      'picture',
+    ]
+    const roleColumnCandidates = [
+      'role',
+      'user_role',
+      'profile_role',
+      'role_name',
+      'roleName',
+      'role_slug',
+      'roleSlug',
+      'role_key',
+      'roleKey',
+      'role_label',
+      'roleLabel',
+      'role_id',
+      'roleId',
+    ]
+
+    const extendWithNull = (values) => [...values, null]
+    const selectionVariants = []
+    const seenSelections = new Set()
+
+    const appendColumn = (parts, alias, column) => {
+      if (typeof column !== 'string') {
+        return
+      }
+      const trimmed = column.trim()
+      if (!trimmed) {
+        return
+      }
+      if (trimmed === alias) {
+        parts.push(alias)
+      } else {
+        parts.push(`${alias}:${trimmed}`)
+      }
+    }
+
+    for (const usernameColumn of extendWithNull(usernameColumnCandidates)) {
+      for (const avatarColumn of extendWithNull(avatarColumnCandidates)) {
+        for (const roleColumn of extendWithNull(roleColumnCandidates)) {
+          const parts = []
+          appendColumn(parts, 'username', usernameColumn)
+          appendColumn(parts, 'avatar_url', avatarColumn)
+          appendColumn(parts, 'role', roleColumn)
+          if (!parts.length) {
+            continue
+          }
+          const selection = parts.join(',')
+          if (seenSelections.has(selection)) {
+            continue
+          }
+          seenSelections.add(selection)
+          selectionVariants.push(selection)
+        }
+      }
+    }
+
+    if (!seenSelections.has('*')) {
+      selectionVariants.push('*')
+    }
 
     let profileData = null
     let lastError = null
 
-    for (const columns of columnVariants) {
-      const selection = columns.join(',')
+    for (const selection of selectionVariants) {
       const result = await supabase
         .from('profiles')
         .select(selection)
@@ -2182,29 +2294,72 @@ async function loadProfile() {
     }
 
     if (profileData) {
+      const usernameValue =
+        resolveTextValue(profileData, [
+          'username',
+          'display_name',
+          'displayName',
+          'name',
+          'full_name',
+          'fullName',
+          'user_name',
+          'userName',
+          'profile_name',
+          'profileName',
+        ]) || metadataFallback.username
+
+      const avatarValue =
+        resolveTextValue(profileData, [
+          'avatar_url',
+          'avatarUrl',
+          'avatar',
+          'profile_image_url',
+          'profileImageUrl',
+          'image_url',
+          'imageUrl',
+          'profile_avatar_url',
+          'profileAvatarUrl',
+          'picture',
+        ]) || metadataFallback.avatar_url
+
+      const rawRole = resolveTextValue(profileData, [
+        'role',
+        'user_role',
+        'profile_role',
+        'role_name',
+        'roleName',
+        'role_slug',
+        'roleSlug',
+        'role_key',
+        'roleKey',
+        'role_label',
+        'roleLabel',
+      ])
+
       state.profile = {
-        username: profileData.username ?? null,
-        avatar_url: profileData.avatar_url ?? null,
-        role: profileData.role ?? null,
+        username: usernameValue ?? null,
+        avatar_url: avatarValue ?? null,
+        role: rawRole ?? null,
       }
-      const normalizedRole = normaliseRole(profileData.role)
+      const normalizedRole = typeof rawRole === 'string' ? normaliseRole(rawRole) : ''
       state.profileRole = normalizedRole || null
     } else {
       if (lastError) {
         console.warn('[auth] Profil konnte nicht mit allen Spalten geladen werden.', lastError)
       }
       state.profile = {
-        username: state.user?.user_metadata?.full_name ?? null,
-        avatar_url: state.user?.user_metadata?.avatar_url ?? null,
+        username: metadataFallback.username ?? null,
+        avatar_url: metadataFallback.avatar_url ?? null,
         role: null,
       }
       state.profileRole = null
     }
   } catch (error) {
     console.error(error)
+    const metadataFallback = resolveMetadataFallback()
     state.profile = {
-      username: state.user?.user_metadata?.full_name ?? null,
-      avatar_url: state.user?.user_metadata?.avatar_url ?? null,
+      username: metadataFallback.username ?? null,
+      avatar_url: metadataFallback.avatar_url ?? null,
       role: null,
     }
     state.profileRole = null
@@ -3169,45 +3324,81 @@ async function loadItems() {
       : ''
 
 
+    const formatSelectColumn = (option) => {
+      if (!option || typeof option.column !== 'string') {
+        return null
+      }
+      const column = option.column.trim()
+      if (!column) {
+        return null
+      }
+      const aliasName =
+        typeof option.alias === 'string' && option.alias.trim() && option.alias.trim() !== column
+          ? option.alias.trim()
+          : null
+      return aliasName ? `${aliasName}:${column}` : column
+    }
+
+    const columnMentionsError = (error, option, ...additionalColumns) => {
+      const names = []
+      if (option && typeof option.column === 'string' && option.column.trim()) {
+        names.push(option.column.trim())
+      }
+      if (option && typeof option.alias === 'string' && option.alias.trim()) {
+        names.push(option.alias.trim())
+      }
+      additionalColumns.forEach((column) => {
+        if (typeof column === 'string' && column.trim()) {
+          names.push(column.trim())
+        }
+      })
+      if (!names.length) {
+        return false
+      }
+      return errorMentionsColumn(error, ...names)
+    }
+
     const buildItemsQuery = (selectConfig) => {
       const baseColumns = [
         'id',
-        selectConfig.titleColumn,
-        selectConfig.descriptionColumn,
-        selectConfig.starColumn,
-        selectConfig.imageColumn,
-        selectConfig.loreImageColumn,
-        'created_at',
-        'item_type_id',
-        'material_id',
-        'rarity_id',
-        'rarity',
-      ]
-      const selectColumns = Array.from(
-        new Set(
-          baseColumns.filter((column) => typeof column === 'string' && column.trim().length > 0)
-        )
-      ).join(',')
+        formatSelectColumn(selectConfig.titleColumn),
+        formatSelectColumn(selectConfig.descriptionColumn),
+        formatSelectColumn(selectConfig.starColumn),
+        formatSelectColumn(selectConfig.imageColumn),
+        formatSelectColumn(selectConfig.loreImageColumn),
+        formatSelectColumn(selectConfig.createdAtColumn),
+        formatSelectColumn(selectConfig.itemTypeColumn),
+        formatSelectColumn(selectConfig.materialColumn),
+        formatSelectColumn(selectConfig.rarityIdColumn),
+      ].filter((column) => typeof column === 'string' && column.length > 0)
 
-
-      let query = supabase
-        .from('items')
-        .select(selectColumns)
-        .order('created_at', { ascending: false })
-
-      if (state.filters.typeId) {
-        query = query.eq('item_type_id', state.filters.typeId)
+      const raritySelect = formatSelectColumn(selectConfig.rarityColumn)
+      if (raritySelect) {
+        baseColumns.push(raritySelect)
       }
-      if (state.filters.materialId) {
-        query = query.eq('material_id', state.filters.materialId)
+
+      const selectColumns = Array.from(new Set(baseColumns)).join(',')
+
+      let query = supabase.from('items').select(selectColumns)
+
+      if (selectConfig.createdAtColumn?.column) {
+        query = query.order(selectConfig.createdAtColumn.column, { ascending: false })
       }
-      if (state.filters.rarityId) {
-        query = query.eq('rarity_id', state.filters.rarityId)
+
+      if (state.filters.typeId && selectConfig.itemTypeColumn?.column) {
+        query = query.eq(selectConfig.itemTypeColumn.column, state.filters.typeId)
+      }
+      if (state.filters.materialId && selectConfig.materialColumn?.column) {
+        query = query.eq(selectConfig.materialColumn.column, state.filters.materialId)
+      }
+      if (state.filters.rarityId && selectConfig.rarityIdColumn?.column) {
+        query = query.eq(selectConfig.rarityIdColumn.column, state.filters.rarityId)
       }
       if (sanitizedSearch) {
-        const searchColumns = [selectConfig.titleColumn, selectConfig.descriptionColumn].filter(
-          (column) => typeof column === 'string' && column.trim().length > 0
-        )
+        const searchColumns = [
+          selectConfig.titleColumn?.column,
+          selectConfig.descriptionColumn?.column,
+        ].filter((column) => typeof column === 'string' && column.trim().length > 0)
         if (searchColumns.length) {
           const searchExpression = searchColumns
             .map((column) => `${column}.ilike.%${sanitizedSearch}%`)
@@ -3218,26 +3409,101 @@ async function loadItems() {
 
       return query
     }
-    const starColumnOptions = ['stars', 'star_level', null]
-    const imageColumnOptions = ['image_url', 'image', null]
-    const loreImageColumnOptions = ['lore_image_url', 'lore_image', null]
-    const titleColumnOptions = ['title', 'name', null]
-    const descriptionColumnOptions = ['lore', 'description', null]
 
+    const titleColumnOptions = [
+      { column: 'title', alias: 'title' },
+      { column: 'name', alias: 'name' },
+      { column: 'item_name', alias: 'title' },
+      { column: 'itemName', alias: 'title' },
+      { column: null, alias: null },
+    ]
+    const descriptionColumnOptions = [
+      { column: 'lore', alias: 'lore' },
+      { column: 'description', alias: 'description' },
+      { column: 'item_description', alias: 'description' },
+      { column: 'itemDescription', alias: 'description' },
+      { column: null, alias: null },
+    ]
+    const starColumnOptions = [
+      { column: 'stars', alias: 'stars' },
+      { column: 'star_level', alias: 'star_level' },
+      { column: 'starLevel', alias: 'stars' },
+      { column: null, alias: null },
+    ]
+    const imageColumnOptions = [
+      { column: 'image_url', alias: 'image_url' },
+      { column: 'imageUrl', alias: 'image_url' },
+      { column: 'primary_image_url', alias: 'image_url' },
+      { column: 'image', alias: 'image' },
+      { column: null, alias: null },
+    ]
+    const loreImageColumnOptions = [
+      { column: 'lore_image_url', alias: 'lore_image_url' },
+      { column: 'loreImageUrl', alias: 'lore_image_url' },
+      { column: 'lore_image', alias: 'lore_image' },
+      { column: 'loreImage', alias: 'lore_image' },
+      { column: null, alias: null },
+    ]
+    const createdAtColumnOptions = [
+      { column: 'created_at', alias: 'created_at' },
+      { column: 'createdAt', alias: 'created_at' },
+      { column: 'created_on', alias: 'created_at' },
+      { column: 'createdOn', alias: 'created_at' },
+      { column: 'created', alias: 'created_at' },
+      { column: null, alias: null },
+    ]
+    const itemTypeColumnOptions = [
+      { column: 'item_type_id', alias: 'item_type_id' },
+      { column: 'itemTypeId', alias: 'item_type_id' },
+      { column: 'type_id', alias: 'item_type_id' },
+      { column: 'typeId', alias: 'item_type_id' },
+      { column: null, alias: null },
+    ]
+    const materialColumnOptions = [
+      { column: 'material_id', alias: 'material_id' },
+      { column: 'materialId', alias: 'material_id' },
+      { column: 'material_id_fk', alias: 'material_id' },
+      { column: null, alias: null },
+    ]
+    const rarityIdColumnOptions = [
+      { column: 'rarity_id', alias: 'rarity_id' },
+      { column: 'rarityId', alias: 'rarity_id' },
+      { column: 'rarity_id_fk', alias: 'rarity_id' },
+      { column: null, alias: null },
+    ]
+    const rarityColumnOptions = [
+      { column: 'rarity', alias: 'rarity' },
+      { column: 'rarity_label', alias: 'rarity' },
+      { column: 'rarityLabel', alias: 'rarity' },
+      { column: 'rarity_name', alias: 'rarity' },
+      { column: 'rarityName', alias: 'rarity' },
+      { column: null, alias: null },
+    ]
+
+    let titleColumnIndex = 0
+    let descriptionColumnIndex = 0
     let starColumnIndex = 0
     let imageColumnIndex = 0
     let loreImageColumnIndex = 0
-    let titleColumnIndex = 0
-    let descriptionColumnIndex = 0
+    let createdAtColumnIndex = 0
+    let itemTypeColumnIndex = 0
+    let materialColumnIndex = 0
+    let rarityIdColumnIndex = 0
+    let rarityColumnIndex = 0
     let itemsResult = null
 
     while (true) {
       const queryResult = await buildItemsQuery({
+        titleColumn: titleColumnOptions[titleColumnIndex],
+        descriptionColumn: descriptionColumnOptions[descriptionColumnIndex],
         starColumn: starColumnOptions[starColumnIndex],
         imageColumn: imageColumnOptions[imageColumnIndex],
         loreImageColumn: loreImageColumnOptions[loreImageColumnIndex],
-        titleColumn: titleColumnOptions[titleColumnIndex],
-        descriptionColumn: descriptionColumnOptions[descriptionColumnIndex],
+        createdAtColumn: createdAtColumnOptions[createdAtColumnIndex],
+        itemTypeColumn: itemTypeColumnOptions[itemTypeColumnIndex],
+        materialColumn: materialColumnOptions[materialColumnIndex],
+        rarityIdColumn: rarityIdColumnOptions[rarityIdColumnIndex],
+        rarityColumn: rarityColumnOptions[rarityColumnIndex],
       })
 
       if (!queryResult.error) {
@@ -3250,54 +3516,110 @@ async function loadItems() {
       }
 
       let handled = false
+
       const currentTitleColumn = titleColumnOptions[titleColumnIndex]
       if (
-        typeof currentTitleColumn === 'string' &&
-        errorMentionsColumn(queryResult.error, currentTitleColumn) &&
+        columnMentionsError(queryResult.error, currentTitleColumn) &&
         titleColumnIndex + 1 < titleColumnOptions.length
       ) {
         titleColumnIndex += 1
         handled = true
       }
+
       const currentDescriptionColumn = descriptionColumnOptions[descriptionColumnIndex]
       if (
         !handled &&
-        typeof currentDescriptionColumn === 'string' &&
-        errorMentionsColumn(queryResult.error, currentDescriptionColumn) &&
+        columnMentionsError(queryResult.error, currentDescriptionColumn) &&
         descriptionColumnIndex + 1 < descriptionColumnOptions.length
       ) {
         descriptionColumnIndex += 1
         handled = true
       }
+
+      const currentStarColumn = starColumnOptions[starColumnIndex]
       if (
         !handled &&
-        errorMentionsColumn(queryResult.error, 'stars', 'star_level') &&
+        columnMentionsError(queryResult.error, currentStarColumn, 'stars', 'star_level') &&
         starColumnIndex + 1 < starColumnOptions.length
       ) {
         starColumnIndex += 1
         handled = true
       }
+
+      const currentLoreImageColumn = loreImageColumnOptions[loreImageColumnIndex]
       if (
         !handled &&
-        errorMentionsColumn(queryResult.error, 'lore_image_url', 'lore_image') &&
+        columnMentionsError(queryResult.error, currentLoreImageColumn, 'lore_image_url', 'lore_image') &&
         loreImageColumnIndex + 1 < loreImageColumnOptions.length
       ) {
         loreImageColumnIndex += 1
         handled = true
       }
+
+      const currentImageColumn = imageColumnOptions[imageColumnIndex]
       if (
         !handled &&
-        errorMentionsColumn(queryResult.error, 'image_url', 'image') &&
+        columnMentionsError(queryResult.error, currentImageColumn, 'image_url', 'image') &&
         imageColumnIndex + 1 < imageColumnOptions.length
       ) {
         imageColumnIndex += 1
         handled = true
       }
 
+      const currentCreatedAtColumn = createdAtColumnOptions[createdAtColumnIndex]
+      if (
+        !handled &&
+        columnMentionsError(queryResult.error, currentCreatedAtColumn, 'created_at') &&
+        createdAtColumnIndex + 1 < createdAtColumnOptions.length
+      ) {
+        createdAtColumnIndex += 1
+        handled = true
+      }
+
+      const currentItemTypeColumn = itemTypeColumnOptions[itemTypeColumnIndex]
+      if (
+        !handled &&
+        columnMentionsError(queryResult.error, currentItemTypeColumn, 'item_type_id') &&
+        itemTypeColumnIndex + 1 < itemTypeColumnOptions.length
+      ) {
+        itemTypeColumnIndex += 1
+        handled = true
+      }
+
+      const currentMaterialColumn = materialColumnOptions[materialColumnIndex]
+      if (
+        !handled &&
+        columnMentionsError(queryResult.error, currentMaterialColumn, 'material_id') &&
+        materialColumnIndex + 1 < materialColumnOptions.length
+      ) {
+        materialColumnIndex += 1
+        handled = true
+      }
+
+      const currentRarityIdColumn = rarityIdColumnOptions[rarityIdColumnIndex]
+      if (
+        !handled &&
+        columnMentionsError(queryResult.error, currentRarityIdColumn, 'rarity_id') &&
+        rarityIdColumnIndex + 1 < rarityIdColumnOptions.length
+      ) {
+        rarityIdColumnIndex += 1
+        handled = true
+      }
+
+      const currentRarityColumn = rarityColumnOptions[rarityColumnIndex]
+      if (
+        !handled &&
+        columnMentionsError(queryResult.error, currentRarityColumn, 'rarity') &&
+        rarityColumnIndex + 1 < rarityColumnOptions.length
+      ) {
+        rarityColumnIndex += 1
+        handled = true
+      }
+
       if (handled) {
         continue
       }
-      throw error
+      throw queryResult.error
     }
 
     if (!itemsResult) {
