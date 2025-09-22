@@ -38,6 +38,8 @@ const elements = {
   addItemButton: document.getElementById('btn-add-item'),
   addItemModal: document.getElementById('addItemModal'),
   addItemForm: document.getElementById('addItemForm'),
+  starRating: document.querySelector('[data-star-rating]'),
+  starRatingInput: document.querySelector('[data-star-rating-input]'),
   enchantmentsSearchInput: document.getElementById('enchantmentsSearch'),
   enchantmentsList: document.getElementById('enchantmentsList'),
   formError: document.getElementById('addItemFormError'),
@@ -92,7 +94,16 @@ let menuMediaQuery = null
 let menuMediaHandler = null
 let ignoreNextMenuClick = false
 const customFileInputs = new Map()
+const starRatingControl = {
+  container: null,
+  input: null,
+  buttons: [],
+  value: null,
+  hoverValue: null,
+  initialised: false,
+}
 
+const MAX_STAR_RATING = 3
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
 const MAX_VISIBLE_ENCHANTMENTS = 5
 const STORAGE_BUCKET_ITEM_MEDIA = 'item-media'
@@ -310,9 +321,31 @@ function truncateText(value, max = 240) {
 }
 
 function renderStars(starCount) {
-  const value = Number.isFinite(starCount) ? Number(starCount) : 0
-  const normalized = Math.min(Math.max(value, 0), 5)
-  return Array.from({ length: 5 }, (_, index) => (index < normalized ? '★' : '☆')).join('')
+  const normalized = normalizeStarValue(starCount)
+  const resolved = typeof normalized === 'number' ? normalized : 0
+  return Array.from({ length: MAX_STAR_RATING }, (_, index) => (index < resolved ? '★' : '☆')).join('')
+}
+
+function normaliseItemStarFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const result = { ...entry }
+  const normalizedStars = normalizeStarValue(result.stars)
+  const normalizedStarLevel = normalizeStarValue(result.star_level)
+  const resolvedStars =
+    typeof normalizedStars === 'number'
+      ? normalizedStars
+      : typeof normalizedStarLevel === 'number'
+        ? normalizedStarLevel
+        : 0
+
+  result.stars = resolvedStars
+  result.star_level =
+    typeof normalizedStarLevel === 'number' ? normalizedStarLevel : resolvedStars
+
+  return result
 }
 
 function normaliseItemStarFields(entry) {
@@ -333,6 +366,22 @@ function normaliseItemStarFields(entry) {
   }
 
   return result
+}
+
+function errorMentionsColumn(error, ...columns) {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : ''
+  if (!message) {
+    return false
+  }
+
+  return columns.some((column) => {
+    const normalized = column.toLowerCase()
+    return message.includes(`.${normalized}`) || message.includes(`"${normalized}"`)
+  })
 }
 
 function renderItems(items) {
@@ -371,16 +420,18 @@ function renderItems(items) {
     title.className = 'text-lg font-semibold text-slate-100'
     title.textContent = item?.title ?? 'Unbenanntes Item'
     header.appendChild(title)
-
-    const starValue = Number.isFinite(Number(item?.stars))
-      ? Number(item?.stars)
-      : Number.isFinite(Number(item?.star_level))
-        ? Number(item?.star_level)
-        : 0
+    const normalizedStars = normalizeStarValue(item?.stars)
+    const normalizedStarLevel = normalizeStarValue(item?.star_level)
+    const starValue =
+      typeof normalizedStars === 'number'
+        ? normalizedStars
+        : typeof normalizedStarLevel === 'number'
+          ? normalizedStarLevel
+          : 0
 
     const stars = document.createElement('span')
     stars.className = 'text-sm font-medium text-amber-300'
-    stars.setAttribute('aria-label', `${starValue} von 5 Sternen`)
+    stars.setAttribute('aria-label', `${starValue} von ${MAX_STAR_RATING} Sternen`)
     stars.textContent = renderStars(starValue)
     header.appendChild(stars)
 
@@ -566,6 +617,7 @@ function bindModalEvents() {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
     elements.addItemForm.addEventListener('reset', handleAddItemFormReset)
     initializeCustomFileInputs()
+    initializeStarRatingControl()
   }
 
   document.addEventListener('keydown', (event) => {
@@ -613,6 +665,7 @@ function resetAddItemForm() {
   }
   renderEnchantmentsList()
   resetCustomFileInputs()
+  resetStarRatingControl()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -777,13 +830,18 @@ function clearFormErrors() {
     element.classList.add('hidden')
     element.textContent = ''
   })
+  setStarRatingErrorState(false)
 }
 
 function clearFieldError(field) {
   const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
-  if (!target) return
-  target.textContent = ''
-  target.classList.add('hidden')
+  if (target) {
+    target.textContent = ''
+    target.classList.add('hidden')
+  }
+  if (field === 'stars') {
+    setStarRatingErrorState(false)
+  }
 }
 
 function showFieldError(field, message) {
@@ -791,6 +849,9 @@ function showFieldError(field, message) {
   if (!target) return
   target.textContent = message
   target.classList.remove('hidden')
+  if (field === 'stars') {
+    setStarRatingErrorState(true)
+  }
 }
 
 function updateCustomFileInput(entry) {
@@ -882,9 +943,306 @@ function resetCustomFileInputs() {
   })
 }
 
+function normalizeStarValue(value) {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value)) {
+      return null
+    }
+    return Math.max(0, Math.min(value, MAX_STAR_RATING))
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+    const numeric = Number(trimmed)
+    if (!Number.isInteger(numeric)) {
+      return null
+    }
+    return Math.max(0, Math.min(numeric, MAX_STAR_RATING))
+  }
+
+  return null
+}
+
+function updateStarRatingDisplay() {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const previewValue =
+    typeof starRatingControl.hoverValue === 'number'
+      ? starRatingControl.hoverValue
+      : starRatingControl.value
+
+  let focusAssigned = false
+
+  starRatingControl.buttons.forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return
+    }
+
+    const buttonValue = normalizeStarValue(button.dataset.starValue)
+    if (buttonValue === null) {
+      button.tabIndex = -1
+      button.dataset.starSelected = 'false'
+      return
+    }
+
+    const icon = button.querySelector('[data-star-icon]')
+    const isZero = buttonValue === 0
+    const isSelected = starRatingControl.value !== null && buttonValue === starRatingControl.value
+    const isPreviewed =
+      previewValue !== null && typeof previewValue === 'number' && buttonValue > 0 && buttonValue <= previewValue
+    const highlight = isPreviewed || (isSelected && buttonValue > 0 && previewValue === starRatingControl.value)
+
+    if (icon instanceof HTMLElement) {
+      icon.textContent = highlight ? '★' : '☆'
+    }
+
+    button.setAttribute('aria-checked', isSelected ? 'true' : 'false')
+    button.dataset.starSelected = isSelected ? 'true' : 'false'
+
+    if (isZero) {
+      button.classList.toggle('border-emerald-400', isSelected)
+      button.classList.toggle('text-emerald-200', isSelected)
+      button.classList.toggle('bg-emerald-500/10', isSelected)
+      button.classList.toggle('text-slate-400', !isSelected)
+      button.classList.toggle('border-slate-800/70', !isSelected)
+    } else {
+      button.classList.toggle('text-amber-300', highlight || isSelected)
+      button.classList.toggle('text-slate-600', !(highlight || isSelected))
+    }
+
+    if (isSelected && !focusAssigned) {
+      button.tabIndex = 0
+      focusAssigned = true
+    } else {
+      button.tabIndex = -1
+    }
+  })
+
+  if (!focusAssigned && starRatingControl.buttons.length) {
+    const fallback =
+      starRatingControl.buttons.find((button) => normalizeStarValue(button.dataset.starValue) === 0) ??
+      starRatingControl.buttons[0]
+    if (fallback instanceof HTMLButtonElement) {
+      fallback.tabIndex = 0
+    }
+  }
+
+  if (starRatingControl.input instanceof HTMLInputElement) {
+    const currentValue = starRatingControl.value === null ? '' : String(starRatingControl.value)
+    starRatingControl.input.dataset.starRatingValue = currentValue
+  }
+}
+
+function setStarRatingValue(value) {
+  const normalized = normalizeStarValue(value)
+
+  const input =
+    starRatingControl.input instanceof HTMLInputElement
+      ? starRatingControl.input
+      : elements.starRatingInput instanceof HTMLInputElement
+        ? elements.starRatingInput
+        : null
+
+  if (input) {
+    input.value = normalized === null ? '' : String(normalized)
+  }
+
+  if (!starRatingControl.initialised) {
+    starRatingControl.value = normalized
+    return
+  }
+
+  starRatingControl.value = normalized
+  starRatingControl.hoverValue = null
+  updateStarRatingDisplay()
+  clearFieldError('stars')
+}
+
+function setStarRatingHover(value) {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const normalized = normalizeStarValue(value)
+  starRatingControl.hoverValue = normalized
+  updateStarRatingDisplay()
+}
+
+function setStarRatingErrorState(hasError) {
+  const container =
+    starRatingControl.container instanceof HTMLElement
+      ? starRatingControl.container
+      : elements.starRating instanceof HTMLElement
+        ? elements.starRating
+        : null
+
+  const input =
+    starRatingControl.input instanceof HTMLInputElement
+      ? starRatingControl.input
+      : elements.starRatingInput instanceof HTMLInputElement
+        ? elements.starRatingInput
+        : null
+
+  if (container) {
+    if (hasError) {
+      container.classList.remove('border-slate-800/60')
+      container.classList.add('border-rose-500/60', 'ring-rose-500/40')
+      container.setAttribute('aria-invalid', 'true')
+    } else {
+      container.classList.remove('border-rose-500/60', 'ring-rose-500/40')
+      container.classList.add('border-slate-800/60')
+      container.removeAttribute('aria-invalid')
+    }
+  }
+
+  if (input) {
+    if (hasError) {
+      input.setAttribute('aria-invalid', 'true')
+    } else {
+      input.removeAttribute('aria-invalid')
+    }
+  }
+}
+
+function handleStarRatingKeydown(event) {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const { key } = event
+  const actionableKeys = ['ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'Home', 'End', ' ', 'Enter']
+  if (!actionableKeys.includes(key)) {
+    return
+  }
+
+  const activeElement = document.activeElement
+  const index = starRatingControl.buttons.findIndex((button) => button === activeElement)
+  if (index === -1) {
+    return
+  }
+
+  if (key === ' ' || key === 'Enter') {
+    event.preventDefault()
+    const buttonValue = normalizeStarValue(starRatingControl.buttons[index]?.dataset.starValue)
+    setStarRatingValue(buttonValue)
+    return
+  }
+
+  event.preventDefault()
+
+  let nextIndex = index
+  if (key === 'ArrowRight' || key === 'ArrowUp') {
+    nextIndex = Math.min(starRatingControl.buttons.length - 1, index + 1)
+  } else if (key === 'ArrowLeft' || key === 'ArrowDown') {
+    nextIndex = Math.max(0, index - 1)
+  } else if (key === 'Home') {
+    nextIndex = 0
+  } else if (key === 'End') {
+    nextIndex = starRatingControl.buttons.length - 1
+  }
+
+  const nextButton = starRatingControl.buttons[nextIndex]
+  if (nextButton instanceof HTMLButtonElement) {
+    nextButton.focus()
+    const buttonValue = normalizeStarValue(nextButton.dataset.starValue)
+    setStarRatingValue(buttonValue)
+    if (buttonValue !== null) {
+      setStarRatingHover(buttonValue)
+    }
+  }
+}
+
+function initializeStarRatingControl() {
+  if (starRatingControl.initialised) {
+    return
+  }
+
+  const container = elements.starRating
+  const input = elements.starRatingInput
+  if (!(container instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
+    return
+  }
+
+  const buttons = Array.from(container.querySelectorAll('[data-star-value]')).filter(
+    (node) => node instanceof HTMLButtonElement,
+  )
+
+  if (!buttons.length) {
+    return
+  }
+
+  starRatingControl.container = container
+  starRatingControl.input = input
+  starRatingControl.buttons = buttons
+  starRatingControl.initialised = true
+  starRatingControl.value = normalizeStarValue(input.value)
+  if (starRatingControl.value === null) {
+    input.value = ''
+  }
+  starRatingControl.hoverValue = null
+
+  buttons.forEach((button) => {
+    const buttonValue = normalizeStarValue(button.dataset.starValue)
+    button.dataset.starSelected = 'false'
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      setStarRatingValue(buttonValue)
+    })
+
+    button.addEventListener('mouseenter', () => {
+      if (buttonValue !== null) {
+        setStarRatingHover(buttonValue)
+      }
+    })
+
+    button.addEventListener('mouseleave', () => {
+      setStarRatingHover(null)
+    })
+
+    button.addEventListener('focus', () => {
+      if (buttonValue !== null) {
+        setStarRatingHover(buttonValue)
+      }
+    })
+
+    button.addEventListener('blur', () => {
+      setStarRatingHover(null)
+    })
+  })
+
+  container.addEventListener('mouseleave', () => {
+    setStarRatingHover(null)
+  })
+
+  container.addEventListener('keydown', handleStarRatingKeydown)
+
+  updateStarRatingDisplay()
+  setStarRatingErrorState(false)
+}
+
+function resetStarRatingControl() {
+  setStarRatingValue(null)
+  if (starRatingControl.initialised) {
+    starRatingControl.hoverValue = null
+    updateStarRatingDisplay()
+  }
+  setStarRatingErrorState(false)
+}
+
 function handleAddItemFormReset() {
   window.setTimeout(() => {
     resetCustomFileInputs()
+    resetStarRatingControl()
   }, 0)
 }
 
@@ -2112,25 +2470,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       delete variant.name
       delete variant.rarity
       variant.owner = user.id
-
-      if (Object.prototype.hasOwnProperty.call(variant, 'image_url')) {
-        const value = variant.image_url
-        delete variant.image_url
-        if (value !== undefined) {
-          variant.image = value
-        }
-      }
-
-      if (Object.prototype.hasOwnProperty.call(variant, 'lore_image_url')) {
-        const value = variant.lore_image_url
-        delete variant.lore_image_url
-        if (value !== undefined) {
-          variant.lore_image = value
-        }
-      }
-    } else {
-      delete variant.image
-      delete variant.lore_image
     }
 
     return variant
@@ -2145,7 +2484,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
   let insertResult = null
   let lastError = null
   let lastStatus = null
-
   for (const starColumn of starColumns) {
     let result = await executeInsert(starColumn, false)
     if (!result.error && result.data) {
@@ -2159,11 +2497,10 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumns = ['created_by', 'name', 'rarity', 'description', 'image_url', 'lore_image_url']
-    const legacyColumnIssue = legacyColumns.some((column) =>
-      message.includes(`column "${column}`) || message.includes(`column items.${column}`)
-    )
-
+    const legacyColumnIssue =
+      message.includes('column "created_by"') ||
+      message.includes('column "name"') ||
+      message.includes('column "rarity"')
     if (legacyColumnIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {
@@ -2304,12 +2641,12 @@ async function handleAddItemSubmit(event) {
     hasError = true
   }
   if (!starsValue) {
-    showFieldError('stars', 'Bitte Sterne auswählen (0 bis 5).')
+    showFieldError('stars', `Bitte Sterne auswählen (0 bis ${MAX_STAR_RATING}).`)
     hasError = true
   } else {
     const starsNumber = Number(starsValue)
-    if (!Number.isInteger(starsNumber) || starsNumber < 0 || starsNumber > 5) {
-      showFieldError('stars', 'Sterne müssen zwischen 0 und 5 liegen.')
+    if (!Number.isInteger(starsNumber) || starsNumber < 0 || starsNumber > MAX_STAR_RATING) {
+      showFieldError('stars', `Sterne müssen zwischen 0 und ${MAX_STAR_RATING} liegen.`)
       hasError = true
     }
   }
@@ -2400,8 +2737,8 @@ async function handleAddItemSubmit(event) {
       }
     }
 
-    const starsNumber = Number(starsValue)
-    const normalizedStars = Number.isFinite(starsNumber) ? starsNumber : 0
+    const sanitizedStars = normalizeStarValue(starsValue)
+    const normalizedStars = typeof sanitizedStars === 'number' ? sanitizedStars : 0
     const itemImageUrl =
       typeof itemImageUpload?.publicUrl === 'string' ? itemImageUpload.publicUrl.trim() : ''
     const loreImageUrlValue =
@@ -2692,7 +3029,7 @@ async function loadItems() {
         'id',
         'title',
         'lore',
-        starColumn,
+        'star_level',
         'created_at',
         'image_url',
         'lore_image_url',
