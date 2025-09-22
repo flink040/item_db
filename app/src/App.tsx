@@ -32,7 +32,7 @@ type Enchantment = {
   maxLevel: number
 }
 
-const STAR_LEVEL_VALUES = [1, 2, 3] as const
+const STAR_LEVEL_VALUES = [0, 1, 2, 3] as const
 const MAX_STAR_LEVEL = STAR_LEVEL_VALUES[STAR_LEVEL_VALUES.length - 1]
 
 const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
@@ -1121,7 +1121,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   }
 
   const handleStarSelect = (value: number) => {
-    updateStarLevel(starLevelValue === value ? 0 : value)
+    updateStarLevel(value)
   }
 
   const handleStarKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, value: number) => {
@@ -1535,28 +1535,42 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     Stern-Level
                   </span>
                   <div
-                    className="mt-2 inline-flex items-center gap-1 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                    className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
                     role="radiogroup"
                     aria-labelledby="modal-item-star-level-label"
                     aria-describedby={errors.starLevel ? 'item-modal-starLevel-error' : undefined}
                   >
                     {STAR_LEVEL_VALUES.map((value) => {
-                      const isActive = starLevelValue > 0 && value <= starLevelValue
                       const isSelected = starLevelValue === value
+                      const isZero = value === 0
+                      const starText = '★'.repeat(value).padEnd(MAX_STAR_LEVEL, '☆')
+                      const optionClassName = [
+                        'inline-flex items-center rounded-md border px-3 py-1 text-xl font-semibold leading-none transition focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60',
+                        isSelected
+                          ? isZero
+                            ? 'border-slate-700 bg-slate-800 text-slate-200'
+                            : 'border-amber-400/70 bg-amber-500/10 text-amber-200'
+                          : 'border-transparent text-slate-500 hover:border-slate-700 hover:text-amber-200'
+                      ].join(' ')
+
                       return (
                         <button
                           key={value}
                           type="button"
                           onClick={() => handleStarSelect(value)}
                           onKeyDown={(event) => handleStarKeyDown(event, value)}
-                          className={`flex h-9 w-9 items-center justify-center rounded-full text-2xl transition focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 ${
-                            isActive ? 'text-amber-300' : 'text-slate-600'
-                          }`}
+                          className={optionClassName}
                           role="radio"
-                          aria-label={`${value} von ${MAX_STAR_LEVEL} Sternen`}
+                          aria-label={
+                            value === 0
+                              ? `Kein Stern ausgewählt (0 von ${MAX_STAR_LEVEL} Sternen)`
+                              : `${value} von ${MAX_STAR_LEVEL} Sternen`
+                          }
                           aria-checked={isSelected}
                         >
-                          <span aria-hidden="true">{isActive ? '★' : '☆'}</span>
+                          <span aria-hidden="true" className="font-mono">
+                            {starText}
+                          </span>
                         </button>
                       )
                     })}
