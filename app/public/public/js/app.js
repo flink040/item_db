@@ -17,6 +17,7 @@ const state = {
   selectedEnchantments: new Map(),
   user: null,
   profile: null,
+  profileRole: null,
   profileStats: null,
   itemsLoading: false,
   reloadRequested: false,
@@ -70,6 +71,20 @@ const profileModalState = {
   lastFocusedElement: null,
   activeFetchToken: 0,
 }
+
+const MODERATION_ROLES = new Set(['moderator', 'admin'])
+
+const moderationElements = (() => {
+  const modal = document.querySelector('[data-moderation-modal]')
+  return {
+    modal,
+    overlay: modal?.querySelector('[data-moderation-overlay]') ?? null,
+    closeButtons: modal ? Array.from(modal.querySelectorAll('[data-moderation-close]')) : [],
+  }
+})()
+
+let moderationIsOpen = false
+let moderationLastTrigger = null
 
 let searchDebounceId = 0
 let authSubscription = null
@@ -1312,6 +1327,214 @@ function handleDocumentClick(event) {
 
 document.addEventListener('click', handleDocumentClick)
 
+function normaliseRole(value) {
+  if (typeof value !== 'string') {
+    return ''
+  }
+  return value.trim().toLowerCase()
+}
+
+function getModerationFocusableElements(container) {
+  if (!(container instanceof HTMLElement)) {
+    return []
+  }
+
+  const selectors = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ]
+
+  return Array.from(container.querySelectorAll(selectors.join(','))).filter((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false
+    }
+
+    if (element.hasAttribute('disabled')) {
+      return false
+    }
+
+    if (element.getAttribute('aria-hidden') === 'true') {
+      return false
+    }
+
+    if (element.hidden || element.closest('[hidden]')) {
+      return false
+    }
+
+    if (element.closest('[aria-hidden="true"]')) {
+      return false
+    }
+
+    return true
+  })
+}
+
+function focusModerationElement(element) {
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+
+  try {
+    element.focus({ preventScroll: true })
+  } catch (error) {
+    element.focus()
+  }
+}
+
+function handleModerationKeydown(event) {
+  if (!moderationIsOpen || !(moderationElements.modal instanceof HTMLElement)) {
+    return
+  }
+
+  if (event.key === 'Escape' || event.key === 'Esc') {
+    event.preventDefault()
+    closeModerationModal()
+    return
+  }
+
+  if (event.key !== 'Tab') {
+    return
+  }
+
+  const focusable = getModerationFocusableElements(moderationElements.modal)
+
+  if (focusable.length === 0) {
+    event.preventDefault()
+    focusModerationElement(moderationElements.modal)
+    return
+  }
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+  if (event.shiftKey) {
+    if (!active || active === first || !moderationElements.modal.contains(active)) {
+      event.preventDefault()
+      focusModerationElement(last)
+    }
+  } else if (!active || active === last || !moderationElements.modal.contains(active)) {
+    event.preventDefault()
+    focusModerationElement(first)
+  }
+}
+
+function openModerationModal(trigger) {
+  if (!(moderationElements.modal instanceof HTMLElement)) {
+    window.location.href = '/moderation'
+    return
+  }
+
+  moderationLastTrigger = trigger instanceof HTMLElement ? trigger : null
+
+  if (moderationIsOpen) {
+    return
+  }
+
+  moderationIsOpen = true
+  moderationElements.modal.classList.remove('hidden')
+  moderationElements.modal.setAttribute('aria-hidden', 'false')
+
+  const [firstFocusable] = getModerationFocusableElements(moderationElements.modal)
+  if (firstFocusable) {
+    focusModerationElement(firstFocusable)
+  } else {
+    focusModerationElement(moderationElements.modal)
+  }
+
+  document.addEventListener('keydown', handleModerationKeydown, true)
+}
+
+function closeModerationModal() {
+  if (!(moderationElements.modal instanceof HTMLElement)) {
+    return
+  }
+
+  if (!moderationIsOpen) {
+    return
+  }
+
+  moderationIsOpen = false
+  moderationElements.modal.classList.add('hidden')
+  moderationElements.modal.setAttribute('aria-hidden', 'true')
+  document.removeEventListener('keydown', handleModerationKeydown, true)
+
+  if (moderationLastTrigger) {
+    focusModerationElement(moderationLastTrigger)
+  }
+
+  moderationLastTrigger = null
+}
+
+if (moderationElements.overlay instanceof HTMLElement) {
+  moderationElements.overlay.addEventListener('click', (event) => {
+    if (event.target === moderationElements.overlay) {
+      closeModerationModal()
+    }
+  })
+}
+
+moderationElements.closeButtons.forEach((button) => {
+  if (button instanceof HTMLElement) {
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      closeModerationModal()
+    })
+  }
+})
+
+if (typeof window !== 'undefined') {
+  window.ModerationModal = {
+    open: openModerationModal,
+    close: closeModerationModal,
+  }
+}
+
+function showModerationLink(menu, role) {
+  if (!(menu instanceof HTMLElement)) {
+    return null
+  }
+
+  const normalizedRole = normaliseRole(role)
+  const existing = menu.querySelector('[data-menu-item="moderation"]')
+
+  if (!MODERATION_ROLES.has(normalizedRole)) {
+    if (existing instanceof HTMLElement) {
+      existing.remove()
+    }
+    return null
+  }
+
+  if (existing instanceof HTMLButtonElement) {
+    return existing
+  }
+
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.dataset.menuItem = 'moderation'
+  button.className =
+    'block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-slate-900/80 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60'
+  button.textContent = 'Moderation'
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    closeAuthMenu()
+    openModerationModal(button)
+  })
+
+  const logoutButton = menu.querySelector('[data-menu-item="logout"]')
+  if (logoutButton instanceof HTMLElement) {
+    menu.insertBefore(button, logoutButton)
+  } else {
+    menu.appendChild(button)
+  }
+
+  return button
+}
+
 function renderAuthState() {
   const container = elements.profileContainer
   if (!container) return
@@ -1319,6 +1542,7 @@ function renderAuthState() {
 
   if (!state.user) {
     state.profileStats = null
+    state.profileRole = null
     updateProfileModalUserInfo()
     closeProfileModal()
     const loginButton = document.createElement('button')
@@ -1382,6 +1606,7 @@ function renderAuthState() {
 
   const profileButton = document.createElement('button')
   profileButton.type = 'button'
+  profileButton.dataset.menuItem = 'profile'
   profileButton.className = 'block w-full rounded-xl px-3 py-2 text-left text-sm text-slate-200 transition hover:bg-slate-900/80 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60'
   profileButton.textContent = 'Profil'
   profileButton.addEventListener('click', () => {
@@ -1391,6 +1616,7 @@ function renderAuthState() {
 
   const logoutButton = document.createElement('button')
   logoutButton.type = 'button'
+  logoutButton.dataset.menuItem = 'logout'
   logoutButton.className = 'block w-full rounded-xl px-3 py-2 text-left text-sm text-rose-300 transition hover:bg-rose-500/10 focus:outline-none focus-visible:ring focus-visible:ring-rose-500/40'
   logoutButton.textContent = 'Abmelden'
   logoutButton.addEventListener('click', () => {
@@ -1399,6 +1625,8 @@ function renderAuthState() {
   })
 
   menu.append(profileButton, logoutButton)
+  const role = state.profileRole ?? state.profile?.role ?? null
+  showModerationLink(menu, role)
   wrapper.append(trigger, menu)
   container.appendChild(wrapper)
 
@@ -1443,30 +1671,41 @@ async function handleLogout() {
 async function loadProfile() {
   if (!supabase || !state.user?.id) {
     state.profile = null
+    state.profileRole = null
     updateProfileModalUserInfo()
     return
   }
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('username, avatar_url')
+      .select('username, avatar_url, role')
       .eq('id', state.user.id)
       .maybeSingle()
 
     if (!error && data) {
-      state.profile = data
+      state.profile = {
+        username: data.username ?? null,
+        avatar_url: data.avatar_url ?? null,
+        role: data.role ?? null,
+      }
+      const normalizedRole = normaliseRole(data.role)
+      state.profileRole = normalizedRole || null
     } else {
       state.profile = {
         username: state.user?.user_metadata?.full_name ?? null,
         avatar_url: state.user?.user_metadata?.avatar_url ?? null,
+        role: null,
       }
+      state.profileRole = null
     }
   } catch (error) {
     console.error(error)
     state.profile = {
       username: state.user?.user_metadata?.full_name ?? null,
       avatar_url: state.user?.user_metadata?.avatar_url ?? null,
+      role: null,
     }
+    state.profileRole = null
   } finally {
     updateProfileModalUserInfo()
   }
@@ -2519,6 +2758,7 @@ async function initialiseAuth() {
   if (!supabase) {
     state.user = null
     state.profile = null
+    state.profileRole = null
     state.profileStats = null
     updateProfileModalUserInfo()
     renderAuthState()
@@ -2529,9 +2769,11 @@ async function initialiseAuth() {
     state.user = data?.user ?? null
     if (state.user) {
       state.profileStats = null
+      state.profileRole = null
       await loadProfile()
     } else {
       state.profile = null
+      state.profileRole = null
       state.profileStats = null
       updateProfileModalUserInfo()
     }
@@ -2539,6 +2781,7 @@ async function initialiseAuth() {
     console.error(error)
     state.user = null
     state.profile = null
+    state.profileRole = null
     state.profileStats = null
     updateProfileModalUserInfo()
   }
@@ -2549,9 +2792,11 @@ async function initialiseAuth() {
     state.user = session?.user ?? null
     if (state.user) {
       state.profileStats = null
+      state.profileRole = null
       await loadProfile()
     } else {
       state.profile = null
+      state.profileRole = null
       state.profileStats = null
       updateProfileModalUserInfo()
     }
