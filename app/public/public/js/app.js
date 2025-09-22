@@ -330,6 +330,22 @@ function normaliseItemStarFields(entry) {
   return result
 }
 
+function errorMentionsColumn(error, ...columns) {
+  if (!error || typeof error !== 'object') {
+    return false
+  }
+
+  const message = typeof error.message === 'string' ? error.message.toLowerCase() : ''
+  if (!message) {
+    return false
+  }
+
+  return columns.some((column) => {
+    const normalized = column.toLowerCase()
+    return message.includes(`.${normalized}`) || message.includes(`"${normalized}"`)
+  })
+}
+
 function renderItems(items) {
   if (!elements.itemsList) return
   if (!Array.isArray(items) || items.length === 0) {
@@ -2739,19 +2755,21 @@ async function loadItems() {
       ? state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
       : ''
 
-    const buildItemsQuery = (starColumn) => {
+    const buildItemsQuery = (selectConfig) => {
       const selectColumns = [
         'id',
         'title',
         'lore',
-        starColumn,
+        selectConfig.starColumn,
         'created_at',
-        'image_url',
-        'lore_image_url',
+        selectConfig.imageColumn,
+        selectConfig.loreImageColumn,
         'item_types:item_type_id(id,label)',
         'materials:material_id(id,label)',
         'rarities:rarity_id(id,label,sort)',
-      ].join(',')
+      ]
+        .filter(Boolean)
+        .join(',')
 
       let query = supabase
         .from('items')
@@ -2774,23 +2792,65 @@ async function loadItems() {
       return query
     }
 
-    const { data, error } = await buildItemsQuery('stars')
-    if (error) {
-      if (error?.code === '42703') {
-        const { data: fallbackData, error: fallbackError } = await buildItemsQuery('stars:star_level')
-        if (fallbackError) {
-          throw fallbackError
-        }
-        const normalisedFallback = Array.isArray(fallbackData)
-          ? fallbackData.map(normaliseItemStarFields)
-          : []
-        renderItems(normalisedFallback)
-        return
+    const starColumnOptions = ['stars', 'star_level', null]
+    const imageColumnOptions = ['image_url', 'image', null]
+    const loreImageColumnOptions = ['lore_image_url', 'lore_image', null]
+
+    let starColumnIndex = 0
+    let imageColumnIndex = 0
+    let loreImageColumnIndex = 0
+    let itemsResult = null
+
+    while (true) {
+      const queryResult = await buildItemsQuery({
+        starColumn: starColumnOptions[starColumnIndex],
+        imageColumn: imageColumnOptions[imageColumnIndex],
+        loreImageColumn: loreImageColumnOptions[loreImageColumnIndex],
+      })
+
+      if (!queryResult.error) {
+        itemsResult = queryResult
+        break
       }
-      throw error
+
+      if (queryResult.error?.code !== '42703') {
+        throw queryResult.error
+      }
+
+      let handled = false
+      if (
+        errorMentionsColumn(queryResult.error, 'stars', 'star_level') &&
+        starColumnIndex + 1 < starColumnOptions.length
+      ) {
+        starColumnIndex += 1
+        handled = true
+      }
+      if (
+        !handled &&
+        errorMentionsColumn(queryResult.error, 'lore_image_url', 'lore_image') &&
+        loreImageColumnIndex + 1 < loreImageColumnOptions.length
+      ) {
+        loreImageColumnIndex += 1
+        handled = true
+      }
+      if (
+        !handled &&
+        errorMentionsColumn(queryResult.error, 'image_url', 'image') &&
+        imageColumnIndex + 1 < imageColumnOptions.length
+      ) {
+        imageColumnIndex += 1
+        handled = true
+      }
+
+      if (handled) {
+        continue
+      }
+
+      throw queryResult.error
     }
 
-    const normalisedItems = Array.isArray(data) ? data.map(normaliseItemStarFields) : []
+    const data = Array.isArray(itemsResult?.data) ? itemsResult.data : []
+    const normalisedItems = data.map(normaliseItemStarFields)
     renderItems(normalisedItems)
   } catch (error) {
     console.error(error)
