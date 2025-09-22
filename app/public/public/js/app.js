@@ -422,22 +422,6 @@ function attachItemLookups(items) {
   })
 }
 
-function errorMentionsColumn(error, ...columns) {
-  if (!error || typeof error !== 'object') {
-    return false
-  }
-
-  const message = typeof error.message === 'string' ? error.message.toLowerCase() : ''
-  if (!message) {
-    return false
-  }
-
-  return columns.some((column) => {
-    const normalized = column.toLowerCase()
-    return message.includes(`.${normalized}`) || message.includes(`"${normalized}"`)
-  })
-}
-
 function renderItems(items) {
   if (!elements.itemsList) return
   if (!Array.isArray(items) || items.length === 0) {
@@ -3218,306 +3202,47 @@ async function loadItems() {
       : ''
 
 
-    const formatSelectColumn = (option) => {
-      if (!option || typeof option.column !== 'string') {
-        return null
-      }
-      const column = option.column.trim()
-      if (!column) {
-        return null
-      }
-      const aliasName =
-        typeof option.alias === 'string' && option.alias.trim() && option.alias.trim() !== column
-          ? option.alias.trim()
-          : null
-      return aliasName ? `${aliasName}:${column}` : column
+    const selectColumns = [
+      'id',
+      'title',
+      'lore',
+      'stars',
+      'created_at',
+      'updated_at',
+      'item_type_id',
+      'material_id',
+      'rarity_id',
+      'owner',
+      'code',
+      'image_url',
+      'lore_image_url',
+    ]
+
+    let query = supabase
+      .from('items')
+      .select(selectColumns.join(','))
+      .order('created_at', { ascending: false })
+
+    if (state.filters.typeId) {
+      query = query.eq('item_type_id', state.filters.typeId)
+    }
+    if (state.filters.materialId) {
+      query = query.eq('material_id', state.filters.materialId)
+    }
+    if (state.filters.rarityId) {
+      query = query.eq('rarity_id', state.filters.rarityId)
+    }
+    if (sanitizedSearch) {
+      const searchExpression = ['title', 'lore']
+        .map((column) => `${column}.ilike.%${sanitizedSearch}%`)
+        .join(',')
+      query = query.or(searchExpression)
     }
 
-    const columnMentionsError = (error, option, ...additionalColumns) => {
-      const names = []
-      if (option && typeof option.column === 'string' && option.column.trim()) {
-        names.push(option.column.trim())
-      }
-      if (option && typeof option.alias === 'string' && option.alias.trim()) {
-        names.push(option.alias.trim())
-      }
-      additionalColumns.forEach((column) => {
-        if (typeof column === 'string' && column.trim()) {
-          names.push(column.trim())
-        }
-      })
-      if (!names.length) {
-        return false
-      }
-      return errorMentionsColumn(error, ...names)
-    }
+    const itemsResult = await query
 
-    const buildItemsQuery = (selectConfig) => {
-      const baseColumns = [
-        'id',
-        formatSelectColumn(selectConfig.titleColumn),
-        formatSelectColumn(selectConfig.descriptionColumn),
-        formatSelectColumn(selectConfig.starColumn),
-        formatSelectColumn(selectConfig.imageColumn),
-        formatSelectColumn(selectConfig.loreImageColumn),
-        formatSelectColumn(selectConfig.createdAtColumn),
-        formatSelectColumn(selectConfig.itemTypeColumn),
-        formatSelectColumn(selectConfig.materialColumn),
-        formatSelectColumn(selectConfig.rarityIdColumn),
-      ].filter((column) => typeof column === 'string' && column.length > 0)
-
-      const raritySelect = formatSelectColumn(selectConfig.rarityColumn)
-      if (raritySelect) {
-        baseColumns.push(raritySelect)
-      }
-
-      const selectColumns = Array.from(new Set(baseColumns)).join(',')
-
-      let query = supabase.from('items').select(selectColumns)
-
-      if (selectConfig.createdAtColumn?.column) {
-        query = query.order(selectConfig.createdAtColumn.column, { ascending: false })
-      }
-
-      if (state.filters.typeId && selectConfig.itemTypeColumn?.column) {
-        query = query.eq(selectConfig.itemTypeColumn.column, state.filters.typeId)
-      }
-      if (state.filters.materialId && selectConfig.materialColumn?.column) {
-        query = query.eq(selectConfig.materialColumn.column, state.filters.materialId)
-      }
-      if (state.filters.rarityId && selectConfig.rarityIdColumn?.column) {
-        query = query.eq(selectConfig.rarityIdColumn.column, state.filters.rarityId)
-      }
-      if (sanitizedSearch) {
-        const searchColumns = [
-          selectConfig.titleColumn?.column,
-          selectConfig.descriptionColumn?.column,
-        ].filter((column) => typeof column === 'string' && column.trim().length > 0)
-        if (searchColumns.length) {
-          const searchExpression = searchColumns
-            .map((column) => `${column}.ilike.%${sanitizedSearch}%`)
-            .join(',')
-          query = query.or(searchExpression)
-        }
-      }
-
-      return query
-    }
-
-    const titleColumnOptions = [
-      { column: 'title', alias: 'title' },
-      { column: 'name', alias: 'name' },
-      { column: 'item_name', alias: 'title' },
-      { column: 'itemName', alias: 'title' },
-      { column: null, alias: null },
-    ]
-    const descriptionColumnOptions = [
-      { column: 'lore', alias: 'lore' },
-      { column: 'description', alias: 'description' },
-      { column: 'item_description', alias: 'description' },
-      { column: 'itemDescription', alias: 'description' },
-      { column: null, alias: null },
-    ]
-    const starColumnOptions = [
-      { column: 'stars', alias: 'stars' },
-      { column: 'star_level', alias: 'star_level' },
-      { column: 'starLevel', alias: 'stars' },
-      { column: null, alias: null },
-    ]
-    const imageColumnOptions = [
-      { column: 'image_url', alias: 'image_url' },
-      { column: 'imageUrl', alias: 'image_url' },
-      { column: 'primary_image_url', alias: 'image_url' },
-      { column: 'image', alias: 'image' },
-      { column: null, alias: null },
-    ]
-    const loreImageColumnOptions = [
-      { column: 'lore_image_url', alias: 'lore_image_url' },
-      { column: 'loreImageUrl', alias: 'lore_image_url' },
-      { column: 'lore_image', alias: 'lore_image' },
-      { column: 'loreImage', alias: 'lore_image' },
-      { column: null, alias: null },
-    ]
-    const createdAtColumnOptions = [
-      { column: 'created_at', alias: 'created_at' },
-      { column: 'createdAt', alias: 'created_at' },
-      { column: 'created_on', alias: 'created_at' },
-      { column: 'createdOn', alias: 'created_at' },
-      { column: 'created', alias: 'created_at' },
-      { column: null, alias: null },
-    ]
-    const itemTypeColumnOptions = [
-      { column: 'item_type_id', alias: 'item_type_id' },
-      { column: 'itemTypeId', alias: 'item_type_id' },
-      { column: 'type_id', alias: 'item_type_id' },
-      { column: 'typeId', alias: 'item_type_id' },
-      { column: null, alias: null },
-    ]
-    const materialColumnOptions = [
-      { column: 'material_id', alias: 'material_id' },
-      { column: 'materialId', alias: 'material_id' },
-      { column: 'material_id_fk', alias: 'material_id' },
-      { column: null, alias: null },
-    ]
-    const rarityIdColumnOptions = [
-      { column: 'rarity_id', alias: 'rarity_id' },
-      { column: 'rarityId', alias: 'rarity_id' },
-      { column: 'rarity_id_fk', alias: 'rarity_id' },
-      { column: null, alias: null },
-    ]
-    const rarityColumnOptions = [
-      { column: 'rarity', alias: 'rarity' },
-      { column: 'rarity_label', alias: 'rarity' },
-      { column: 'rarityLabel', alias: 'rarity' },
-      { column: 'rarity_name', alias: 'rarity' },
-      { column: 'rarityName', alias: 'rarity' },
-      { column: null, alias: null },
-    ]
-
-    let titleColumnIndex = 0
-    let descriptionColumnIndex = 0
-    let starColumnIndex = 0
-    let imageColumnIndex = 0
-    let loreImageColumnIndex = 0
-    let createdAtColumnIndex = 0
-    let itemTypeColumnIndex = 0
-    let materialColumnIndex = 0
-    let rarityIdColumnIndex = 0
-    let rarityColumnIndex = 0
-    let itemsResult = null
-
-    while (true) {
-      const queryResult = await buildItemsQuery({
-        titleColumn: titleColumnOptions[titleColumnIndex],
-        descriptionColumn: descriptionColumnOptions[descriptionColumnIndex],
-        starColumn: starColumnOptions[starColumnIndex],
-        imageColumn: imageColumnOptions[imageColumnIndex],
-        loreImageColumn: loreImageColumnOptions[loreImageColumnIndex],
-        createdAtColumn: createdAtColumnOptions[createdAtColumnIndex],
-        itemTypeColumn: itemTypeColumnOptions[itemTypeColumnIndex],
-        materialColumn: materialColumnOptions[materialColumnIndex],
-        rarityIdColumn: rarityIdColumnOptions[rarityIdColumnIndex],
-        rarityColumn: rarityColumnOptions[rarityColumnIndex],
-      })
-
-      if (!queryResult.error) {
-        itemsResult = queryResult
-        break
-      }
-
-      if (queryResult.error?.code !== '42703') {
-        throw queryResult.error
-      }
-
-      let handled = false
-
-      const currentTitleColumn = titleColumnOptions[titleColumnIndex]
-      if (
-        columnMentionsError(queryResult.error, currentTitleColumn) &&
-        titleColumnIndex + 1 < titleColumnOptions.length
-      ) {
-        titleColumnIndex += 1
-        handled = true
-      }
-
-      const currentDescriptionColumn = descriptionColumnOptions[descriptionColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentDescriptionColumn) &&
-        descriptionColumnIndex + 1 < descriptionColumnOptions.length
-      ) {
-        descriptionColumnIndex += 1
-        handled = true
-      }
-
-      const currentStarColumn = starColumnOptions[starColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentStarColumn, 'stars', 'star_level') &&
-        starColumnIndex + 1 < starColumnOptions.length
-      ) {
-        starColumnIndex += 1
-        handled = true
-      }
-
-      const currentLoreImageColumn = loreImageColumnOptions[loreImageColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentLoreImageColumn, 'lore_image_url', 'lore_image') &&
-        loreImageColumnIndex + 1 < loreImageColumnOptions.length
-      ) {
-        loreImageColumnIndex += 1
-        handled = true
-      }
-
-      const currentImageColumn = imageColumnOptions[imageColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentImageColumn, 'image_url', 'image') &&
-        imageColumnIndex + 1 < imageColumnOptions.length
-      ) {
-        imageColumnIndex += 1
-        handled = true
-      }
-
-      const currentCreatedAtColumn = createdAtColumnOptions[createdAtColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentCreatedAtColumn, 'created_at') &&
-        createdAtColumnIndex + 1 < createdAtColumnOptions.length
-      ) {
-        createdAtColumnIndex += 1
-        handled = true
-      }
-
-      const currentItemTypeColumn = itemTypeColumnOptions[itemTypeColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentItemTypeColumn, 'item_type_id') &&
-        itemTypeColumnIndex + 1 < itemTypeColumnOptions.length
-      ) {
-        itemTypeColumnIndex += 1
-        handled = true
-      }
-
-      const currentMaterialColumn = materialColumnOptions[materialColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentMaterialColumn, 'material_id') &&
-        materialColumnIndex + 1 < materialColumnOptions.length
-      ) {
-        materialColumnIndex += 1
-        handled = true
-      }
-
-      const currentRarityIdColumn = rarityIdColumnOptions[rarityIdColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentRarityIdColumn, 'rarity_id') &&
-        rarityIdColumnIndex + 1 < rarityIdColumnOptions.length
-      ) {
-        rarityIdColumnIndex += 1
-        handled = true
-      }
-
-      const currentRarityColumn = rarityColumnOptions[rarityColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentRarityColumn, 'rarity') &&
-        rarityColumnIndex + 1 < rarityColumnOptions.length
-      ) {
-        rarityColumnIndex += 1
-        handled = true
-      }
-
-      if (handled) {
-        continue
-      }
-      throw queryResult.error
-    }
-
-    if (!itemsResult) {
-      throw new Error('Items konnten nicht geladen werden.')
+    if (itemsResult.error) {
+      throw itemsResult.error
     }
 
     const rawItems = Array.isArray(itemsResult.data) ? itemsResult.data : []
