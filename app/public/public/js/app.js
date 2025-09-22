@@ -836,7 +836,7 @@ function resolvePrimaryImageUrl(item) {
   if (!item || typeof item !== 'object') {
     return null
   }
-  const candidates = [item.image_url, item.imageUrl, item.image]
+  const candidates = [item.item_image, item.image_url, item.imageUrl, item.image]
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') {
       continue
@@ -853,7 +853,13 @@ function resolveLoreImageUrl(item) {
   if (!item || typeof item !== 'object') {
     return null
   }
-  const candidates = [item.lore_image_url, item.loreImageUrl, item.lore_image, item.loreImage]
+  const candidates = [
+    item.item_lore_image,
+    item.lore_image_url,
+    item.loreImageUrl,
+    item.lore_image,
+    item.loreImage,
+  ]
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') {
       continue
@@ -2453,6 +2459,8 @@ function sanitizeInsertPayloadForLog(payload) {
     'rarity',
     'star_level',
     'stars',
+    'item_image',
+    'item_lore_image',
     'image_url',
     'lore_image_url',
     'is_published',
@@ -2616,6 +2624,22 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       ? Number(payload.stars)
       : 0
 
+  const pickUrl = (...candidates) => {
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') {
+        continue
+      }
+      const trimmed = candidate.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+    return null
+  }
+
+  const resolvedItemImage = pickUrl(payload.item_image, payload.image_url)
+  const resolvedLoreImage = pickUrl(payload.item_lore_image, payload.lore_image_url)
+
   const basePayload = {
     title: payload.name ?? payload.title ?? '',
     name: payload.name ?? payload.title ?? '',
@@ -2626,8 +2650,8 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     stars: resolvedStars,
     star_level: resolvedStars,
     created_by: user.id,
-    image_url: payload.image_url ?? null,
-    lore_image_url: payload.lore_image_url ?? null,
+    item_image: resolvedItemImage,
+    item_lore_image: resolvedLoreImage,
     is_published: payload.is_published === true,
   }
 
@@ -2933,10 +2957,10 @@ async function handleAddItemSubmit(event) {
     }
 
     if (itemImageUrl) {
-      basePayload.image_url = itemImageUrl
+      basePayload.item_image = itemImageUrl
     }
     if (loreImageUrlValue) {
-      basePayload.lore_image_url = loreImageUrlValue
+      basePayload.item_lore_image = loreImageUrlValue
     }
 
     const enchantmentPayload = selections.map((entry) => ({
@@ -2946,8 +2970,8 @@ async function handleAddItemSubmit(event) {
 
     const bffPayload = {
       ...basePayload,
-      image_url: basePayload.image_url ?? undefined,
-      lore_image_url: basePayload.lore_image_url ?? undefined,
+      item_image: basePayload.item_image ?? undefined,
+      item_lore_image: basePayload.item_lore_image ?? undefined,
       enchantments: enchantmentPayload,
     }
 
@@ -3213,8 +3237,8 @@ async function loadItems() {
       'material_id',
       'rarity_id',
       'owner',
-      'image_url',
-      'lore_image_url',
+      'item_image',
+      'item_lore_image',
     ]
 
     let query = supabase

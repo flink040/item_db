@@ -191,6 +191,8 @@ const itemSchema = z
     stars: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
     image_url: z.string().trim().url().max(2048).optional(),
     lore_image_url: z.string().trim().url().max(2048).optional(),
+    item_image: z.string().trim().url().max(2048).optional(),
+    item_lore_image: z.string().trim().url().max(2048).optional(),
     enchantments: z.array(enchantmentSchema).max(64).optional(),
     is_published: z.boolean().optional(),
   })
@@ -242,6 +244,9 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
         : 0
   const normalizedStarLevel = Math.max(0, Math.min(starLevel, MAX_STAR_RATING))
 
+  const itemImage = payload.item_image ?? payload.image_url ?? null
+  const itemLoreImage = payload.item_lore_image ?? payload.lore_image_url ?? null
+
   return {
     name,
     description: (payload.description ?? payload.lore ?? '').trim() || null,
@@ -250,8 +255,8 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
     star_level: normalizedStarLevel,
-    image_url: payload.image_url ?? null,
-    lore_image_url: payload.lore_image_url ?? null,
+    item_image: itemImage,
+    item_lore_image: itemLoreImage,
     enchantments: payload.enchantments ?? [],
     is_published: payload.is_published === true,
   }
@@ -353,8 +358,8 @@ async function insertItemWithEnchantments(
     stars?: number
     star_level?: number
     created_by: string
-    image_url?: string | null
-    lore_image_url?: string | null
+    item_image?: string | null
+    item_lore_image?: string | null
     is_published: boolean
   },
   enchantments: Array<{ enchantment_id: number; level: number }>
@@ -384,12 +389,12 @@ async function insertItemWithEnchantments(
       payload.title = item.title
     }
 
-    if (item.image_url !== undefined) {
-      payload.image_url = item.image_url
+    if (item.item_image !== undefined) {
+      payload.item_image = item.item_image
     }
 
-    if (item.lore_image_url !== undefined) {
-      payload.lore_image_url = item.lore_image_url
+    if (item.item_lore_image !== undefined) {
+      payload.item_lore_image = item.item_lore_image
     }
 
     if (item.rarity_id !== null) {
@@ -646,8 +651,8 @@ app.post('/api/items', async (c) => {
     stars: normalized.star_level,
     star_level: normalized.star_level,
     created_by: user.id,
-    image_url: normalized.image_url ?? undefined,
-    lore_image_url: normalized.lore_image_url ?? undefined,
+    item_image: normalized.item_image ?? undefined,
+    item_lore_image: normalized.item_lore_image ?? undefined,
     is_published: normalized.is_published,
   }
 

@@ -421,6 +421,9 @@ function resolveItemImage(item) {
   }
 
   const candidates = [
+    item.item_image,
+    item.itemImage,
+    item.itemImageUrl,
     item.image,
     item.imageUrl,
     item.imageURL,
