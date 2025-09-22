@@ -1873,6 +1873,25 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       delete variant.name
       delete variant.rarity
       variant.owner = user.id
+
+      if (Object.prototype.hasOwnProperty.call(variant, 'image_url')) {
+        const value = variant.image_url
+        delete variant.image_url
+        if (value !== undefined) {
+          variant.image = value
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(variant, 'lore_image_url')) {
+        const value = variant.lore_image_url
+        delete variant.lore_image_url
+        if (value !== undefined) {
+          variant.lore_image = value
+        }
+      }
+    } else {
+      delete variant.image
+      delete variant.lore_image
     }
 
     return variant
@@ -1901,10 +1920,10 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumnIssue =
-      message.includes('column "created_by"') ||
-      message.includes('column "name"') ||
-      message.includes('column "rarity"')
+    const legacyColumns = ['created_by', 'name', 'rarity', 'description', 'image_url', 'lore_image_url']
+    const legacyColumnIssue = legacyColumns.some((column) =>
+      message.includes(`column "${column}`) || message.includes(`column items.${column}`)
+    )
 
     if (legacyColumnIssue) {
       result = await executeInsert(starColumn, true)
