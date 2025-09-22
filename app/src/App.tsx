@@ -973,6 +973,18 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     0,
     Math.min(MAX_STAR_LEVEL, Number(formValues.starLevel) || 0)
   )
+  const [starPreviewValue, setStarPreviewValue] = useState<number | null>(null)
+  const starButtonRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const focusStarButton = useCallback((value: number) => {
+    if (starButtonRefs.current.length === 0) {
+      return
+    }
+
+    const normalized = value <= 1 ? 1 : Math.min(value, MAX_STAR_LEVEL)
+    const targetIndex = normalized - 1
+    starButtonRefs.current[targetIndex]?.focus()
+  }, [])
+  const activeStarLevel = starPreviewValue ?? starLevelValue
 
   useEffect(() => {
     nameInputRef.current?.focus()
@@ -1104,6 +1116,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   const updateStarLevel = (nextValue: number) => {
     const normalized = Math.max(0, Math.min(MAX_STAR_LEVEL, Math.round(nextValue) || 0))
 
+    setStarPreviewValue(null)
     setFormValues((prev) => ({
       ...prev,
       starLevel: String(normalized)
@@ -1569,6 +1582,11 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                         </label>
                       )
                     })}
+                    <span className="sr-only" aria-live="polite">
+                      {starLevelValue === 0
+                        ? `Kein Stern ausgewählt.`
+                        : `${starLevelValue} von ${MAX_STAR_LEVEL} Sternen ausgewählt.`}
+                    </span>
                   </div>
                   <span className="sr-only" aria-live="polite">
                     {starLevelValue === 0
@@ -1577,6 +1595,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   </span>
                   <p className="mt-2 text-xs text-slate-500">
                     Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne oder setze die Auswahl auf 0, um keine Sterne zu vergeben.
+
                   </p>
                   {errors.starLevel && (
                     <p id="item-modal-starLevel-error" className="mt-2 text-sm text-rose-400">

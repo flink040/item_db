@@ -93,6 +93,17 @@ const IMAGE_MIME_EXTENSION_MAP = {
   'image/gif': '.gif',
 };
 
+const API_BASE = '/api'
+
+const insertDiagnostics = {
+  lastMethod: null,
+  lastStatus: null,
+  lastPayload: null,
+  lastError: null,
+  lastResponse: null,
+  lastUserId: null,
+}
+
 function formatFileSize(bytes) {
   const size = Number(bytes)
   if (!Number.isFinite(size) || size < 0) {
@@ -289,6 +300,26 @@ function renderStars(starCount) {
   return Array.from({ length: 5 }, (_, index) => (index < normalized ? '★' : '☆')).join('')
 }
 
+function normaliseItemStarFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const result = { ...entry }
+  const resolvedStars = Number.isFinite(Number(result.stars))
+    ? Number(result.stars)
+    : Number.isFinite(Number(result.star_level))
+      ? Number(result.star_level)
+      : 0
+
+  result.stars = resolvedStars
+  if (!Number.isFinite(Number(result.star_level))) {
+    result.star_level = resolvedStars
+  }
+
+  return result
+}
+
 function renderItems(items) {
   if (!elements.itemsList) return
   if (!Array.isArray(items) || items.length === 0) {
@@ -326,10 +357,16 @@ function renderItems(items) {
     title.textContent = item?.title ?? 'Unbenanntes Item'
     header.appendChild(title)
 
+    const starValue = Number.isFinite(Number(item?.stars))
+      ? Number(item?.stars)
+      : Number.isFinite(Number(item?.star_level))
+        ? Number(item?.star_level)
+        : 0
+
     const stars = document.createElement('span')
     stars.className = 'text-sm font-medium text-amber-300'
-    stars.setAttribute('aria-label', `${Number(item?.stars ?? 0)} von 5 Sternen`)
-    stars.textContent = renderStars(item?.stars ?? 0)
+    stars.setAttribute('aria-label', `${starValue} von 5 Sternen`)
+    stars.textContent = renderStars(starValue)
     header.appendChild(stars)
 
     card.appendChild(header)
@@ -1628,6 +1665,366 @@ function collectSelectedEnchantments() {
   return { selections, error: validationError }
 }
 
+function sanitizeInsertPayloadForLog(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+
+  const allowedKeys = [
+    'name',
+    'title',
+    'item_type_id',
+    'material_id',
+    'rarity_id',
+    'rarity',
+    'star_level',
+    'stars',
+    'image_url',
+    'lore_image_url',
+    'is_published',
+  ]
+
+  const result = {}
+  allowedKeys.forEach((key) => {
+    if (key in payload) {
+      result[key] = payload[key]
+    }
+  })
+
+  if (Array.isArray(payload.enchantments)) {
+    result.enchantments = payload.enchantments.map((entry) => ({
+      id: entry.id,
+      level: entry.level,
+    }))
+  }
+
+  return result
+}
+
+function logInsertAttempt(method, { payload, status, error, response, userId, note } = {}) {
+  insertDiagnostics.lastMethod = method ?? null
+  insertDiagnostics.lastStatus = typeof status === 'number' ? status : null
+  insertDiagnostics.lastPayload = sanitizeInsertPayloadForLog(payload)
+  insertDiagnostics.lastError =
+    error instanceof Error ? error.message : error ? String(error) : null
+  insertDiagnostics.lastResponse = response ?? null
+  insertDiagnostics.lastUserId = userId ?? null
+
+  if (typeof console !== 'undefined' && typeof console.info === 'function') {
+    const logData = {
+      method,
+      status: insertDiagnostics.lastStatus,
+      userId: insertDiagnostics.lastUserId,
+      note: note ?? null,
+      payload: insertDiagnostics.lastPayload,
+    }
+    if (insertDiagnostics.lastError) {
+      logData.error = insertDiagnostics.lastError
+    }
+    console.info('[item-insert]', logData)
+  }
+}
+
+async function attemptBffInsert({ payload, token, userId }) {
+  if (!token) {
+    logInsertAttempt('bff', {
+      payload,
+      userId,
+      note: 'missing_token',
+      error: 'missing_token',
+    })
+    return { ok: false, reason: 'missing_token', fatal: true }
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/items`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(payload),
+    })
+
+    const isJson = response.headers.get('content-type')?.includes('application/json')
+    const data = isJson ? await response.json().catch(() => null) : null
+
+    if (response.ok) {
+      logInsertAttempt('bff', {
+        payload,
+        status: response.status,
+        response: data,
+        userId,
+        note: 'success',
+      })
+      return {
+        ok: true,
+        status: response.status,
+        item: data?.item ?? data ?? null,
+        enchantments: data?.enchantments ?? [],
+        response: data,
+      }
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      logInsertAttempt('bff', {
+        payload,
+        status: response.status,
+        response: data,
+        userId,
+        note: 'unauthorized',
+      })
+      return {
+        ok: false,
+        reason: 'unauthorized',
+        fatal: true,
+        status: response.status,
+        message: data?.message ?? 'Nicht autorisiert.',
+        response: data,
+      }
+    }
+
+    if (response.status === 400) {
+      logInsertAttempt('bff', {
+        payload,
+        status: response.status,
+        response: data,
+        userId,
+        note: 'validation',
+      })
+      return {
+        ok: false,
+        reason: 'validation',
+        fatal: true,
+        status: response.status,
+        message: data?.message ?? 'Validierung fehlgeschlagen.',
+        issues: Array.isArray(data?.issues) ? data.issues : null,
+        response: data,
+      }
+    }
+
+    if (response.status === 404 || response.status === 405) {
+      logInsertAttempt('bff', {
+        payload,
+        status: response.status,
+        response: data,
+        userId,
+        note: 'unavailable',
+      })
+      return { ok: false, reason: 'unavailable', status: response.status, response: data }
+    }
+
+    logInsertAttempt('bff', {
+      payload,
+      status: response.status,
+      response: data,
+      userId,
+      note: 'error',
+      error: data?.error ?? data?.message ?? `status_${response.status}`,
+    })
+    return {
+      ok: false,
+      reason: 'error',
+      status: response.status,
+      message: data?.message ?? 'Unbekannter Fehler.',
+      response: data,
+    }
+  } catch (error) {
+    logInsertAttempt('bff', { payload, error, userId, note: 'network' })
+    return { ok: false, reason: 'network', error }
+  }
+}
+
+async function attemptDirectInsert({ user, payload, enchantments }) {
+  const resolvedStars = Number.isFinite(Number(payload.star_level))
+    ? Number(payload.star_level)
+    : Number.isFinite(Number(payload.stars))
+      ? Number(payload.stars)
+      : 0
+
+  const basePayload = {
+    title: payload.name ?? payload.title ?? '',
+    name: payload.name ?? payload.title ?? '',
+    item_type_id: payload.item_type_id,
+    material_id: payload.material_id,
+    rarity_id: payload.rarity_id ?? null,
+    rarity: payload.rarity ?? null,
+    stars: resolvedStars,
+    star_level: resolvedStars,
+    created_by: user.id,
+    image_url: payload.image_url ?? null,
+    lore_image_url: payload.lore_image_url ?? null,
+    is_published: payload.is_published === true,
+  }
+
+  const buildPayloadVariant = (starColumn, useLegacyFallback) => {
+    const variant = { ...basePayload }
+    delete variant.stars
+    delete variant.star_level
+
+    if (starColumn === 'star_level') {
+      variant.star_level = resolvedStars
+    } else {
+      variant.stars = resolvedStars
+    }
+
+    if (useLegacyFallback) {
+      delete variant.created_by
+      delete variant.name
+      delete variant.rarity
+      variant.owner = user.id
+
+      if (Object.prototype.hasOwnProperty.call(variant, 'image_url')) {
+        const value = variant.image_url
+        delete variant.image_url
+        if (value !== undefined) {
+          variant.image = value
+        }
+      }
+
+      if (Object.prototype.hasOwnProperty.call(variant, 'lore_image_url')) {
+        const value = variant.lore_image_url
+        delete variant.lore_image_url
+        if (value !== undefined) {
+          variant.lore_image = value
+        }
+      }
+    } else {
+      delete variant.image
+      delete variant.lore_image
+    }
+
+    return variant
+  }
+
+  const logPayload = { ...payload, enchantments }
+
+  const executeInsert = async (starColumn, useLegacyFallback) =>
+    supabase.from('items').insert([buildPayloadVariant(starColumn, useLegacyFallback)]).select().single()
+
+  const starColumns = ['stars', 'star_level']
+  let insertResult = null
+  let lastError = null
+  let lastStatus = null
+
+  for (const starColumn of starColumns) {
+    let result = await executeInsert(starColumn, false)
+    if (!result.error && result.data) {
+      insertResult = result
+      break
+    }
+
+    lastError = result.error ?? null
+    lastStatus = result.status ?? null
+
+    const message = String(result.error?.message ?? '').toLowerCase()
+    const missingStarColumn =
+      message.includes('column "stars"') || message.includes('column items.stars')
+    const legacyColumns = ['created_by', 'name', 'rarity', 'description', 'image_url', 'lore_image_url']
+    const legacyColumnIssue = legacyColumns.some((column) =>
+      message.includes(`column "${column}`) || message.includes(`column items.${column}`)
+    )
+
+    if (legacyColumnIssue) {
+      result = await executeInsert(starColumn, true)
+      if (!result.error && result.data) {
+        insertResult = result
+        break
+      }
+      lastError = result.error ?? null
+      lastStatus = result.status ?? null
+    }
+
+    if (starColumn === 'stars' && !missingStarColumn) {
+      break
+    }
+  }
+
+  if (!insertResult || insertResult.error || !insertResult.data) {
+    logInsertAttempt('supabase', {
+      payload: logPayload,
+      status: insertResult?.status ?? lastStatus ?? null,
+      error: insertResult?.error ?? lastError ?? 'insert_failed',
+      userId: user.id,
+    })
+    throw insertResult?.error || lastError || new Error('Item konnte nicht gespeichert werden.')
+  }
+
+  const createdItem = normaliseItemStarFields(insertResult.data)
+
+  if (enchantments.length) {
+    const enchantRows = enchantments.map((entry) => ({
+      item_id: createdItem.id,
+      enchantment_id: entry.id,
+      level: entry.level,
+    }))
+    const { error: enchantError, data: enchantData, status } = await supabase
+      .from('item_enchantments')
+      .insert(enchantRows)
+      .select()
+
+    if (enchantError) {
+      logInsertAttempt('supabase', {
+        payload: logPayload,
+        status: status ?? null,
+        error: enchantError,
+        userId: user.id,
+        note: 'enchant_failed',
+      })
+      throw enchantError
+    }
+  }
+
+  logInsertAttempt('supabase', {
+    payload: logPayload,
+    status: 201,
+    userId: user.id,
+    note: 'success',
+  })
+
+  return { item: createdItem }
+}
+
+function showFormLevelError(message) {
+  if (!elements.formError) {
+    return
+  }
+  elements.formError.textContent = message ?? ''
+  elements.formError.classList.remove('hidden')
+}
+
+function handleValidationIssues(issues, fallbackMessage) {
+  let derivedMessage =
+    typeof fallbackMessage === 'string' && fallbackMessage.trim().length > 0
+      ? fallbackMessage.trim()
+      : ''
+
+  if (Array.isArray(issues)) {
+    issues.forEach((issue) => {
+      if (!issue || typeof issue !== 'object') {
+        return
+      }
+
+      const path = Array.isArray(issue.path) ? issue.path : []
+      const field = path.length > 0 ? path[0] : null
+
+      if (typeof field === 'string' && typeof issue.message === 'string' && issue.message.trim()) {
+        showFieldError(field, issue.message)
+        if (!derivedMessage) {
+          derivedMessage = issue.message
+        }
+      }
+    })
+  }
+
+  if (!derivedMessage) {
+    derivedMessage = 'Validierung fehlgeschlagen.'
+  }
+
+  showFormLevelError(derivedMessage)
+  showToast(derivedMessage, 'error')
+}
+
 async function handleAddItemSubmit(event) {
   event.preventDefault()
   if (!supabase) {
@@ -1717,12 +2114,24 @@ async function handleAddItemSubmit(event) {
   let loreImageUpload = null
 
   try {
-    const { data: userData, error: userError } = await supabase.auth.getUser()
-    if (userError) throw userError
-    const user = userData?.user ?? null
-    if (!user) {
+    const [userResult, sessionResult] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.auth.getSession(),
+    ])
+
+    if (userResult.error) {
+      throw userResult.error
+    }
+    if (sessionResult.error) {
+      throw sessionResult.error
+    }
+
+    const user = userResult.data?.user ?? null
+    const session = sessionResult.data?.session ?? null
+    const accessToken = session?.access_token ?? null
+
+    if (!user || !accessToken) {
       showToast('Bitte anmelden, um Items zu speichern.', 'warning')
-      toggleSubmitLoading(false)
       return
     }
 
@@ -1752,50 +2161,78 @@ async function handleAddItemSubmit(event) {
       }
     }
 
-    const payload = {
+    const starsNumber = Number(starsValue)
+    const normalizedStars = Number.isFinite(starsNumber) ? starsNumber : 0
+    const itemImageUrl =
+      typeof itemImageUpload?.publicUrl === 'string' ? itemImageUpload.publicUrl.trim() : ''
+    const loreImageUrlValue =
+      typeof loreImageUpload?.publicUrl === 'string' ? loreImageUpload.publicUrl.trim() : ''
+
+    const basePayload = {
+      name: title,
       title,
-      owner: user.id,
       item_type_id: Number(typeId),
       material_id: Number(materialId),
       rarity_id: Number(rarityId),
-      stars: Number(starsValue),
+      star_level: normalizedStars,
+      stars: normalizedStars,
+      is_published: false,
     }
 
-    const itemImageUrl =
-      typeof itemImageUpload?.publicUrl === 'string' ? itemImageUpload.publicUrl.trim() : ''
     if (itemImageUrl) {
-      payload.image_url = itemImageUrl
+      basePayload.image_url = itemImageUrl
     }
-    const loreImageUrlValue =
-      typeof loreImageUpload?.publicUrl === 'string' ? loreImageUpload.publicUrl.trim() : ''
     if (loreImageUrlValue) {
-      payload.lore_image_url = loreImageUrlValue
+      basePayload.lore_image_url = loreImageUrlValue
     }
 
-    const { data: item, error: insertError } = await supabase
-      .from('items')
-      .insert([payload])
-      .select()
-      .single()
+    const enchantmentPayload = selections.map((entry) => ({
+      id: entry.id,
+      level: entry.level,
+    }))
 
-    if (insertError) {
-      throw insertError
+    const bffPayload = {
+      ...basePayload,
+      image_url: basePayload.image_url ?? undefined,
+      lore_image_url: basePayload.lore_image_url ?? undefined,
+      enchantments: enchantmentPayload,
     }
 
-    createdItem = item
+    const bffResult = await attemptBffInsert({
+      payload: bffPayload,
+      token: accessToken,
+      userId: user.id,
+    })
 
-    if (selections.length) {
-      const enchantRows = selections.map((entry) => ({
-        item_id: item.id,
-        enchantment_id: entry.id,
-        level: entry.level,
-      }))
-      const { error: enchantInsertError } = await supabase.from('item_enchantments').insert(enchantRows)
-      if (enchantInsertError) {
-        throw enchantInsertError
-      }
+    if (bffResult.ok) {
+      createdItem = bffResult.item
+      showToast('Erfolgreich gespeichert.', 'success')
+      closeAddItemModal()
+      await loadItems()
+      return
     }
 
+    if (bffResult.reason === 'unauthorized' || bffResult.reason === 'missing_token') {
+      showToast('Bitte anmelden, um Items zu speichern.', 'warning')
+      return
+    }
+
+    if (bffResult.reason === 'validation') {
+      handleValidationIssues(bffResult.issues, bffResult.message)
+      return
+    }
+
+    if (bffResult.reason === 'unavailable' || bffResult.reason === 'network' || bffResult.reason === 'error') {
+      showToast('API nicht erreichbar – versuche direkten Speicherweg…', 'info')
+    }
+
+    const directResult = await attemptDirectInsert({
+      user,
+      payload: basePayload,
+      enchantments: enchantmentPayload,
+    })
+
+    createdItem = directResult.item
     showToast('Erfolgreich gespeichert.', 'success')
     closeAddItemModal()
     await loadItems()
@@ -1813,24 +2250,125 @@ async function handleAddItemSubmit(event) {
       showToast('Bitte anmelden, um Items zu speichern.', 'warning')
     } else if (uploadFailed) {
       const message = 'Upload der Bilder ist fehlgeschlagen. Bitte versuche es erneut.'
-      if (elements.formError) {
-        elements.formError.textContent = message
-        elements.formError.classList.remove('hidden')
-      }
+      showFormLevelError(message)
       showToast(message, 'error')
+    } else if (typeof error?.message === 'string' && error.message.trim()) {
+      showFormLevelError(error.message)
+      showToast('Speichern fehlgeschlagen.', 'error')
     } else {
-      const message =
-        typeof error?.message === 'string'
-          ? error.message
-          : 'Item konnte nicht gespeichert werden.'
-      if (elements.formError) {
-        elements.formError.textContent = message
-        elements.formError.classList.remove('hidden')
-      }
+      showFormLevelError('Item konnte nicht gespeichert werden.')
       showToast('Speichern fehlgeschlagen.', 'error')
     }
   } finally {
     toggleSubmitLoading(false)
+  }
+}
+
+function registerItemInsertSelfTest() {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.__itemInsertDiagnostics = insertDiagnostics
+
+  window.__itemInsertSelfTest = async function itemInsertSelfTest() {
+    const summary = {
+      user: null,
+      dryRun: null,
+      write: null,
+      diagnostics: insertDiagnostics,
+    }
+
+    if (!supabase) {
+      console.warn('[item-selftest] Supabase Client nicht verfügbar.')
+      return summary
+    }
+
+    const [userResult, sessionResult] = await Promise.all([
+      supabase.auth.getUser(),
+      supabase.auth.getSession(),
+    ])
+
+    if (userResult.error) {
+      console.error('[item-selftest] getUser fehlgeschlagen', userResult.error)
+      return summary
+    }
+
+    summary.user = userResult.data?.user ?? null
+
+    if (sessionResult.error) {
+      console.error('[item-selftest] getSession fehlgeschlagen', sessionResult.error)
+      return summary
+    }
+
+    const token = sessionResult.data?.session?.access_token ?? null
+
+    if (!summary.user || !token) {
+      console.warn('[item-selftest] Kein angemeldeter Nutzer oder Token verfügbar.')
+      return summary
+    }
+
+    const testPayload = {
+      name: `SelfTest Item ${Date.now()}`,
+      item_type_id: 1,
+      material_id: 1,
+      rarity_id: 1,
+      star_level: 0,
+      enchantments: [],
+      is_published: false,
+    }
+
+    try {
+      const response = await fetch(`${API_BASE}/items?dryRun=1`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(testPayload),
+      })
+      const body = await response.json().catch(() => null)
+      summary.dryRun = { status: response.status, body }
+      console.info('[item-selftest] Dry-Run', summary.dryRun)
+    } catch (error) {
+      console.error('[item-selftest] Dry-Run fehlgeschlagen', error)
+      summary.dryRun = {
+        error: error instanceof Error ? error.message : String(error),
+      }
+    }
+
+    if (window.__ALLOW_WRITE_TEST === true) {
+      try {
+        const writePayload = { ...testPayload, name: `${testPayload.name}-write` }
+        const response = await fetch(`${API_BASE}/items`, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(writePayload),
+        })
+        const body = await response.json().catch(() => null)
+        summary.write = { status: response.status, body }
+        console.info('[item-selftest] Write', summary.write)
+        const createdId = body?.item?.id ?? null
+        if (createdId) {
+          try {
+            await supabase.from('items').delete().eq('id', createdId)
+            console.info('[item-selftest] Testeintrag entfernt.')
+          } catch (cleanupError) {
+            console.warn('[item-selftest] Entfernen des Testeintrags fehlgeschlagen.', cleanupError)
+          }
+        }
+      } catch (error) {
+        console.error('[item-selftest] Schreiben fehlgeschlagen', error)
+        summary.write = {
+          error: error instanceof Error ? error.message : String(error),
+        }
+      }
+    }
+
+    return summary
   }
 }
 
@@ -1906,36 +2444,63 @@ async function loadItems() {
   setAriaBusy(true)
   renderSkeleton(3)
   try {
-    let query = supabase
-      .from('items')
-      .select(
-        `id,title,lore,stars,created_at,image_url,lore_image_url,
-        item_types:item_type_id(id,label),
-        materials:material_id(id,label),
-        rarities:rarity_id(id,label,sort)`
-      )
-      .order('created_at', { ascending: false })
+    const sanitizedSearch = state.filters.search
+      ? state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      : ''
 
-    if (state.filters.typeId) {
-      query = query.eq('item_type_id', state.filters.typeId)
-    }
-    if (state.filters.materialId) {
-      query = query.eq('material_id', state.filters.materialId)
-    }
-    if (state.filters.rarityId) {
-      query = query.eq('rarity_id', state.filters.rarityId)
-    }
-    if (state.filters.search) {
-      const sanitized = state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
-      query = query.or(`title.ilike.%${sanitized}%,lore.ilike.%${sanitized}%`)
+    const buildItemsQuery = (starColumn) => {
+      const selectColumns = [
+        'id',
+        'title',
+        'lore',
+        starColumn,
+        'created_at',
+        'image_url',
+        'lore_image_url',
+        'item_types:item_type_id(id,label)',
+        'materials:material_id(id,label)',
+        'rarities:rarity_id(id,label,sort)',
+      ].join(',')
+
+      let query = supabase
+        .from('items')
+        .select(selectColumns)
+        .order('created_at', { ascending: false })
+
+      if (state.filters.typeId) {
+        query = query.eq('item_type_id', state.filters.typeId)
+      }
+      if (state.filters.materialId) {
+        query = query.eq('material_id', state.filters.materialId)
+      }
+      if (state.filters.rarityId) {
+        query = query.eq('rarity_id', state.filters.rarityId)
+      }
+      if (sanitizedSearch) {
+        query = query.or(`title.ilike.%${sanitizedSearch}%,lore.ilike.%${sanitizedSearch}%`)
+      }
+
+      return query
     }
 
-    const { data, error } = await query
+    const { data, error } = await buildItemsQuery('stars')
     if (error) {
+      if (error?.code === '42703') {
+        const { data: fallbackData, error: fallbackError } = await buildItemsQuery('stars:star_level')
+        if (fallbackError) {
+          throw fallbackError
+        }
+        const normalisedFallback = Array.isArray(fallbackData)
+          ? fallbackData.map(normaliseItemStarFields)
+          : []
+        renderItems(normalisedFallback)
+        return
+      }
       throw error
     }
 
-    renderItems(data ?? [])
+    const normalisedItems = Array.isArray(data) ? data.map(normaliseItemStarFields) : []
+    renderItems(normalisedItems)
   } catch (error) {
     console.error(error)
     renderItemsError('Items konnten nicht geladen werden.')
@@ -2003,6 +2568,8 @@ function init() {
   initialiseAuth()
   loadFiltersAndLists()
 }
+
+registerItemInsertSelfTest()
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init)
