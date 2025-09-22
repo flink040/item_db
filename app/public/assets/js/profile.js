@@ -13,6 +13,254 @@
     return;
   }
 
+  const MODERATION_DROPDOWN_SELECTOR = '[data-profile-dropdown]';
+  const MODERATION_ITEM_SELECTOR = '[data-menu-item="moderation"]';
+  const MODERATION_CLASSES =
+    'block w-full rounded-lg px-4 py-2 text-left text-sm text-slate-200 hover:bg-slate-900/60 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/40';
+  const MODERATION_ROLES = new Set(['moderator', 'admin']);
+
+  const moderationModal = doc.getElementById('moderation-modal');
+  const moderationOverlay =
+    moderationModal &&
+    (moderationModal.querySelector('[data-moderation-overlay]') || moderationModal);
+  const moderationCloseButtons =
+    moderationModal instanceof HTMLElement
+      ? Array.from(moderationModal.querySelectorAll('[data-moderation-close]'))
+      : [];
+
+  let moderationLastTrigger = null;
+  let moderationIsOpen = false;
+
+  function normalizeRole(role) {
+    if (typeof role !== 'string') {
+      return '';
+    }
+    return role.trim().toLowerCase();
+  }
+
+  function getFocusableElements(container) {
+    if (!(container instanceof HTMLElement)) {
+      return [];
+    }
+
+    const selectors = [
+      'a[href]',
+      'button:not([disabled])',
+      'input:not([disabled])',
+      'select:not([disabled])',
+      'textarea:not([disabled])',
+      '[tabindex]:not([tabindex="-1"])',
+    ];
+
+    return Array.from(container.querySelectorAll(selectors.join(','))).filter((element) => {
+      if (!(element instanceof HTMLElement)) {
+        return false;
+      }
+
+      if (element.hasAttribute('disabled')) {
+        return false;
+      }
+
+      if (element.getAttribute('aria-hidden') === 'true') {
+        return false;
+      }
+
+      if (element.hidden || element.closest('[hidden]')) {
+        return false;
+      }
+
+      if (element.closest('[aria-hidden="true"]')) {
+        return false;
+      }
+
+      return true;
+    });
+  }
+
+  function focusElement(element) {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    try {
+      element.focus({ preventScroll: true });
+    } catch (error) {
+      void error;
+      element.focus();
+    }
+  }
+
+  function handleModerationKeydown(event) {
+    if (!moderationIsOpen || !(moderationModal instanceof HTMLElement)) {
+      return;
+    }
+
+    if (event.key === 'Escape' || event.key === 'Esc') {
+      event.preventDefault();
+      closeModerationModal();
+      return;
+    }
+
+    if (event.key !== 'Tab') {
+      return;
+    }
+
+    const focusable = getFocusableElements(moderationModal);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      focusElement(moderationModal);
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
+    const shifted = Boolean(event.shiftKey);
+
+    if (shifted) {
+      if (!active || active === first || !moderationModal.contains(active)) {
+        event.preventDefault();
+        focusElement(last);
+      }
+    } else if (!active || active === last || !moderationModal.contains(active)) {
+      event.preventDefault();
+      focusElement(first);
+    }
+  }
+
+  function openModerationModal(trigger) {
+    if (!(moderationModal instanceof HTMLElement)) {
+      console.warn('[profile] Moderations-Modal ist nicht im Dokument verfügbar.');
+      return;
+    }
+
+    if (moderationIsOpen) {
+      return;
+    }
+
+    moderationLastTrigger = trigger instanceof HTMLElement ? trigger : null;
+    moderationIsOpen = true;
+    moderationModal.classList.remove('hidden');
+    moderationModal.setAttribute('aria-hidden', 'false');
+
+    const [firstFocusable] = getFocusableElements(moderationModal);
+    if (firstFocusable) {
+      focusElement(firstFocusable);
+    } else {
+      focusElement(moderationModal);
+    }
+
+    doc.addEventListener('keydown', handleModerationKeydown, true);
+  }
+
+  function closeModerationModal() {
+    if (!(moderationModal instanceof HTMLElement)) {
+      return;
+    }
+
+    if (!moderationIsOpen) {
+      return;
+    }
+
+    moderationIsOpen = false;
+    moderationModal.classList.add('hidden');
+    moderationModal.setAttribute('aria-hidden', 'true');
+    doc.removeEventListener('keydown', handleModerationKeydown, true);
+
+    if (moderationLastTrigger) {
+      focusElement(moderationLastTrigger);
+    }
+
+    moderationLastTrigger = null;
+  }
+
+  if (moderationModal instanceof HTMLElement) {
+    if (moderationOverlay instanceof HTMLElement) {
+      moderationOverlay.addEventListener('click', (event) => {
+        if (event.target === moderationOverlay) {
+          closeModerationModal();
+        }
+      });
+    }
+
+    moderationCloseButtons.forEach((button) => {
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        closeModerationModal();
+      });
+    });
+  }
+
+  function resolveModerationDropdown(options = {}) {
+    if (options && options.dropdown instanceof HTMLElement) {
+      return options.dropdown;
+    }
+
+    return doc.querySelector(MODERATION_DROPDOWN_SELECTOR);
+  }
+
+  function removeModerationEntry(dropdown) {
+    if (dropdown instanceof HTMLElement) {
+      const existing = dropdown.querySelector(MODERATION_ITEM_SELECTOR);
+      if (existing instanceof HTMLElement) {
+        existing.remove();
+      }
+      return;
+    }
+
+    const fallbacks = Array.from(doc.querySelectorAll(MODERATION_ITEM_SELECTOR));
+    fallbacks.forEach((element) => {
+      if (element instanceof HTMLElement) {
+        element.remove();
+      }
+    });
+  }
+
+  function showModerationLink(role, options = {}) {
+    const dropdown = resolveModerationDropdown(options);
+    const normalizedRole = normalizeRole(role);
+
+    if (!MODERATION_ROLES.has(normalizedRole)) {
+      removeModerationEntry(dropdown);
+      return null;
+    }
+
+    if (!(dropdown instanceof HTMLElement)) {
+      return null;
+    }
+
+    let button = dropdown.querySelector(MODERATION_ITEM_SELECTOR);
+
+    if (!(button instanceof HTMLButtonElement)) {
+      button = doc.createElement('button');
+      button.type = 'button';
+      button.dataset.menuItem = 'moderation';
+      button.className = `${MODERATION_CLASSES} mt-1`;
+      button.textContent = 'Moderation';
+      button.addEventListener('click', (event) => {
+        event.preventDefault();
+        openModerationModal(button);
+      });
+
+      const logoutButton = dropdown.querySelector('[data-menu-item="logout"]');
+      if (logoutButton instanceof HTMLElement && logoutButton.parentElement === dropdown) {
+        dropdown.insertBefore(button, logoutButton);
+      } else {
+        dropdown.appendChild(button);
+      }
+    }
+
+    return button;
+  }
+
+  globalScope.showModerationLink = showModerationLink;
+
+  if (moderationModal instanceof HTMLElement) {
+    globalScope.ModerationModal = {
+      open: openModerationModal,
+      close: closeModerationModal,
+    };
+  }
+
   const overlay = doc.querySelector('[data-profile-modal-overlay]');
   if (!overlay) {
     console.warn('[profile] Profil-Modal-Markup fehlt.');

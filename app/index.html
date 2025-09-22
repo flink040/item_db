@@ -344,24 +344,86 @@
                 <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity"></p>
               </div>
               <div>
-                <label class="block" for="itemStars">
-                  <span class="text-sm font-medium text-slate-300">Sterne<span class="text-rose-400">*</span></span>
-                  <select
-                    id="itemStars"
-                    name="stars"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemStarsError"
+                <span id="itemStarsLabel" class="text-sm font-medium text-slate-300"
+                  >Sterne<span class="text-rose-400">*</span></span
+                >
+                <input
+                  id="itemStars"
+                  name="stars"
+                  type="hidden"
+                  required
+                  value=""
+                  data-star-rating-input
+                  aria-required="true"
+                />
+                <div
+                  class="mt-2 inline-flex items-center gap-2 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 transition focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                  role="radiogroup"
+                  aria-labelledby="itemStarsLabel"
+                  aria-describedby="itemStarsError"
+                  data-star-rating
+                >
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 text-sm font-semibold text-slate-400 transition hover:border-emerald-400 hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="0"
+                    role="radio"
+                    aria-label="Keine Sterne"
+                    aria-checked="false"
                   >
-                    <option value="">Auswählen…</option>
-                    <option value="0">0</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                  </select>
-                </label>
+                    <span aria-hidden="true">0</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="1"
+                    role="radio"
+                    aria-label="1 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="2"
+                    role="radio"
+                    aria-label="2 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="3"
+                    role="radio"
+                    aria-label="3 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="4"
+                    role="radio"
+                    aria-label="4 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="5"
+                    role="radio"
+                    aria-label="5 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                </div>
                 <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
               </div>
               <div class="sm:col-span-2 space-y-2">
@@ -667,6 +729,69 @@
               Schließen
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+    <div
+      id="moderation-modal"
+      class="fixed inset-0 z-[60] hidden items-center justify-center bg-slate-950/80 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="moderation-modal-title"
+      aria-hidden="true"
+      data-moderation-modal
+    >
+      <div class="absolute inset-0" data-moderation-overlay></div>
+      <div
+        class="relative z-10 w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
+        role="document"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="moderation-modal-title" class="text-xl font-semibold text-slate-50">Moderation</h2>
+            <p class="mt-1 text-sm text-slate-400">
+              Dieser Bereich ist nur für Moderator:innen und Admins sichtbar. Weitere Inhalte folgen.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            data-moderation-close
+            aria-label="Moderationsmodal schließen"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12" />
+              <path d="m18 6-12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="mt-6 space-y-5 text-sm text-slate-400">
+          <p>
+            Hier entsteht in Kürze das Moderations-Dashboard. Nutze diesen Platzhalter, um erste Abläufe zu planen oder mit dem
+            Team abzustimmen, welche Funktionen benötigt werden.
+          </p>
+          <p class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-500">
+            Tipp: Verlinke dieses Modal später mit deiner finalen Moderationsansicht unter <code class="font-mono text-emerald-300">/moderation</code>.
+          </p>
+        </div>
+        <div class="mt-6 flex justify-end">
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            data-moderation-close
+          >
+            Schließen
+          </button>
         </div>
       </div>
     </div>
