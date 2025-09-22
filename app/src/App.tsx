@@ -7,6 +7,7 @@ import {
   type ChangeEvent,
   type FormEvent
 } from 'react'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { SVGProps } from 'react'
 
 import logoUrl from './logo.svg'
@@ -264,6 +265,139 @@ const getSupabaseAccessToken = () => {
   return getSupabaseAccessTokenFromLocalStorage()
 }
 
+const SUPABASE_URL =
+  typeof import.meta.env?.VITE_SUPABASE_URL === 'string'
+    ? import.meta.env.VITE_SUPABASE_URL.trim()
+    : ''
+const SUPABASE_ANON_KEY =
+  typeof import.meta.env?.VITE_SUPABASE_ANON_KEY === 'string'
+    ? import.meta.env.VITE_SUPABASE_ANON_KEY.trim()
+    : ''
+
+const supabaseClient =
+  SUPABASE_URL && SUPABASE_ANON_KEY
+    ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+        auth: {
+          persistSession: true,
+          autoRefreshToken: true,
+          detectSessionInUrl: true
+        }
+      })
+    : null
+
+const getSupabaseClient = () => supabaseClient
+
+const STORAGE_BUCKET_ITEM_MEDIA = 'item-media'
+const STORAGE_UPLOAD_ROOT = 'items'
+
+const ALLOWED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.gif'] as const
+
+const IMAGE_MIME_EXTENSION_MAP: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif'
+}
+
+const getFileExtension = (name: string | undefined | null) => {
+  if (typeof name !== 'string') {
+    return ''
+  }
+
+  const trimmed = name.trim()
+  if (!trimmed) {
+    return ''
+  }
+
+  const dotIndex = trimmed.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex === trimmed.length - 1) {
+    return ''
+  }
+
+  return trimmed.slice(dotIndex).toLowerCase()
+}
+
+const hasAllowedImageExtension = (extension: string) =>
+  ALLOWED_IMAGE_EXTENSIONS.includes(extension as (typeof ALLOWED_IMAGE_EXTENSIONS)[number])
+
+const inferImageExtension = (file: File | null | undefined) => {
+  if (!file) {
+    return ''
+  }
+
+  const byName = getFileExtension(file.name)
+  if (hasAllowedImageExtension(byName)) {
+    return byName
+  }
+
+  const type = typeof file.type === 'string' ? file.type.trim().toLowerCase() : ''
+  for (const [extension, mime] of Object.entries(IMAGE_MIME_EXTENSION_MAP)) {
+    if (type && mime === type) {
+      return extension
+    }
+  }
+
+  return ''
+}
+
+const inferMimeTypeFromExtension = (extension: string) =>
+  IMAGE_MIME_EXTENSION_MAP[extension] ?? 'application/octet-stream'
+
+const sanitizeStorageSegment = (value: string | undefined | null, fallback: string) => {
+  if (typeof value !== 'string') {
+    return fallback
+  }
+
+  const normalized = value.toLowerCase().replace(/[^a-z0-9-_]/g, '')
+  return normalized || fallback
+}
+
+const createUniqueId = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
+}
+
+const buildStoragePath = (userId: string | null, variant: string, extension: string) => {
+  const safeUserId = sanitizeStorageSegment(userId, 'anonymous')
+  const safeVariant = sanitizeStorageSegment(variant, 'asset')
+  const uniqueId = createUniqueId()
+  const variantPrefix = safeVariant ? `${safeVariant}-` : ''
+  return `${STORAGE_UPLOAD_ROOT}/${safeUserId}/${variantPrefix}${uniqueId}${extension}`
+}
+
+const uploadImageFile = async (
+  client: SupabaseClient,
+  file: File,
+  variant: string,
+  userId: string
+) => {
+  const extension = inferImageExtension(file)
+  if (!extension) {
+    throw new Error('Ungültiges Dateiformat.')
+  }
+
+  const path = buildStoragePath(userId, variant, extension)
+  const contentType =
+    typeof file.type === 'string' && file.type.trim() ? file.type : inferMimeTypeFromExtension(extension)
+
+  const { error: uploadError } = await client.storage
+    .from(STORAGE_BUCKET_ITEM_MEDIA)
+    .upload(path, file, { cacheControl: '3600', upsert: false, contentType })
+
+  if (uploadError) {
+    throw uploadError
+  }
+
+  const publicUrlResult = client.storage.from(STORAGE_BUCKET_ITEM_MEDIA).getPublicUrl(path)
+  const publicUrl = publicUrlResult?.data?.publicUrl ?? null
+
+  return { path, publicUrl }
+}
+
 const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
   if (!Array.isArray(input)) {
     return []
@@ -429,6 +563,69 @@ const createInitialItemFormFileValues = (): ItemFormFileValues => ({
 
 type ItemFormErrors = Partial<Record<keyof ItemFormValues, string>>
 
+const mapWorkerIssuesToFormState = (issues: unknown) => {
+  const fieldErrors: ItemFormErrors = {}
+  let enchantmentError: string | null = null
+  let message: string | null = null
+
+  if (!Array.isArray(issues)) {
+    return { fieldErrors, enchantmentError, message }
+  }
+
+  for (const issue of issues) {
+    if (!issue || typeof issue !== 'object') {
+      continue
+    }
+
+    const record = issue as Record<string, unknown>
+    const path = Array.isArray(record.path) ? record.path : []
+    const field = typeof path[0] === 'string' ? path[0] : null
+    const issueMessage = typeof record.message === 'string' ? record.message.trim() : ''
+
+    if (!issueMessage) {
+      continue
+    }
+
+    if (!message) {
+      message = issueMessage
+    }
+
+    switch (field) {
+      case 'name':
+      case 'title':
+        fieldErrors.name = issueMessage
+        break
+      case 'item_type_id':
+      case 'itemType':
+        fieldErrors.itemType = issueMessage
+        break
+      case 'material_id':
+      case 'material':
+        fieldErrors.material = issueMessage
+        break
+      case 'rarity_id':
+      case 'rarity':
+        fieldErrors.rarity = issueMessage
+        break
+      case 'star_level':
+      case 'stars':
+      case 'starLevel':
+        fieldErrors.starLevel = issueMessage
+        break
+      case 'price':
+        fieldErrors.price = issueMessage
+        break
+      case 'enchantments':
+        enchantmentError = issueMessage
+        break
+      default:
+        break
+    }
+  }
+
+  return { fieldErrors, enchantmentError, message }
+}
+
 type FetchItemsParams = {
   search: string
   type: string
@@ -470,6 +667,23 @@ const resolveSupabaseFilterValue = (
     if (Number.isInteger(parsed) && parsed > 0) {
       return String(parsed)
     }
+  }
+
+  return null
+}
+
+const resolveNumericOptionValue = (value: string, options: FilterOption[]) => {
+  const supabaseValue = resolveSupabaseFilterValue(value, options)
+  if (supabaseValue) {
+    const parsedSupabaseValue = Number.parseInt(supabaseValue, 10)
+    if (Number.isInteger(parsedSupabaseValue) && parsedSupabaseValue > 0) {
+      return parsedSupabaseValue
+    }
+  }
+
+  const parsedValue = Number.parseInt(value, 10)
+  if (Number.isInteger(parsedValue) && parsedValue > 0) {
+    return parsedValue
   }
 
   return null
@@ -1598,27 +1812,33 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       nextErrors.name = 'Name ist erforderlich.'
     }
 
-    if (!formValues.itemType) {
-      nextErrors.itemType = 'Item-Typ ist erforderlich.'
+    const itemTypeId = resolveNumericOptionValue(formValues.itemType, typeOptions)
+    if (!itemTypeId) {
+      nextErrors.itemType = formValues.itemType
+        ? 'Ungültiger Item-Typ ausgewählt.'
+        : 'Item-Typ ist erforderlich.'
     }
 
-    if (!formValues.material) {
-      nextErrors.material = 'Material ist erforderlich.'
+    const materialId = resolveNumericOptionValue(formValues.material, materialOptions)
+    if (!materialId) {
+      nextErrors.material = formValues.material
+        ? 'Ungültiges Material ausgewählt.'
+        : 'Material ist erforderlich.'
     }
 
-    if (!formValues.rarity) {
-      nextErrors.rarity = 'Seltenheit ist erforderlich.'
+    const rarityId = resolveNumericOptionValue(formValues.rarity, rarityOptions)
+    if (!rarityId) {
+      nextErrors.rarity = formValues.rarity
+        ? 'Ungültige Seltenheit ausgewählt.'
+        : 'Seltenheit ist erforderlich.'
     }
 
-    let normalizedPrice: number | null = null
     if (priceValue) {
       const parsedPrice = Number(priceValue.replace(',', '.'))
       if (!Number.isFinite(parsedPrice)) {
         nextErrors.price = 'Preis muss eine gültige Zahl sein.'
       } else if (parsedPrice < 0) {
         nextErrors.price = 'Preis darf nicht negativ sein.'
-      } else {
-        normalizedPrice = Math.round(parsedPrice * 100) / 100
       }
     }
 
@@ -1642,55 +1862,159 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     }
 
     setEnchantmentError(null)
+    const ensuredItemTypeId = itemTypeId!
+    const ensuredMaterialId = materialId!
+    const ensuredRarityId = rarityId!
+
+    const supabase = getSupabaseClient()
+    const uploadedFilePaths: string[] = []
+    const cleanupUploads = async () => {
+      if (!uploadedFilePaths.length || !supabase) {
+        return
+      }
+
+      try {
+        await supabase.storage.from(STORAGE_BUCKET_ITEM_MEDIA).remove(uploadedFilePaths)
+      } catch (cleanupError) {
+        console.warn('Bereits hochgeladene Dateien konnten nicht entfernt werden.', cleanupError)
+      }
+    }
+
+    let uploadErrorMessage: string | null = null
+
     setSubmitting(true)
 
     try {
-      const formData = new FormData()
-      formData.append('name', trimmedName)
-      formData.append('itemType', formValues.itemType)
-      formData.append('material', formValues.material)
-      formData.append('rarity', formValues.rarity)
-      formData.append('starLevel', normalizedStarLevel.toString())
+      let sessionToken = getSupabaseAccessToken()
+      let userId: string | null = null
 
-      if (priceValue && normalizedPrice !== null) {
-        formData.append('price', normalizedPrice.toString())
-      }
+      if (supabase) {
+        const [userResult, sessionResult] = await Promise.all([
+          supabase.auth.getUser(),
+          supabase.auth.getSession()
+        ])
 
-      if (fileValues.itemImage) {
-        formData.append('itemImage', fileValues.itemImage)
-      }
+        if (userResult.error) {
+          throw userResult.error
+        }
 
-      if (fileValues.itemLoreImage) {
-        formData.append('itemLoreImage', fileValues.itemLoreImage)
-      }
+        if (sessionResult.error) {
+          throw sessionResult.error
+        }
 
-      if (selections.length > 0) {
-        formData.append('enchantments', JSON.stringify(selections))
-      }
-
-      const sessionToken = getSupabaseAccessToken()
-      const requestInit: RequestInit = {
-        method: 'POST',
-        body: formData,
-        credentials: 'include',
-      }
-
-      if (sessionToken) {
-        requestInit.headers = {
-          Authorization: `Bearer ${sessionToken}`,
+        userId = userResult.data?.user?.id ?? null
+        if (!sessionToken) {
+          sessionToken = sessionResult.data?.session?.access_token ?? null
         }
       }
 
-      const response = await fetch('/api/items', requestInit)
-
-      if (!response.ok) {
-        throw new Error('Request failed')
+      if (!sessionToken) {
+        onError('Bitte anmelden, um Items zu speichern.')
+        return
       }
 
-      const result = await response.json().catch(() => null)
+      if ((fileValues.itemImage || fileValues.itemLoreImage) && (!supabase || !userId)) {
+        onError('Upload der Bilder ist nicht möglich. Bitte erneut anmelden.')
+        return
+      }
 
-      if (!result || result.ok !== true) {
-        throw new Error('Invalid response')
+      let itemImageUrl: string | null = null
+      if (supabase && userId && fileValues.itemImage) {
+        try {
+          const uploadResult = await uploadImageFile(supabase, fileValues.itemImage, 'item', userId)
+          if (uploadResult.path) {
+            uploadedFilePaths.push(uploadResult.path)
+          }
+          itemImageUrl = uploadResult.publicUrl ?? null
+        } catch (error) {
+          uploadErrorMessage = 'Upload des Item-Bildes ist fehlgeschlagen.'
+          throw error
+        }
+      }
+
+      let loreImageUrl: string | null = null
+      if (supabase && userId && fileValues.itemLoreImage) {
+        try {
+          const uploadResult = await uploadImageFile(supabase, fileValues.itemLoreImage, 'item-lore', userId)
+          if (uploadResult.path) {
+            uploadedFilePaths.push(uploadResult.path)
+          }
+          loreImageUrl = uploadResult.publicUrl ?? null
+        } catch (error) {
+          uploadErrorMessage = 'Upload des Lore-Bildes ist fehlgeschlagen.'
+          throw error
+        }
+      }
+
+      const payload: Record<string, unknown> = {
+        name: trimmedName,
+        title: trimmedName,
+        item_type_id: ensuredItemTypeId,
+        material_id: ensuredMaterialId,
+        rarity_id: ensuredRarityId,
+        star_level: normalizedStarLevel,
+        stars: normalizedStarLevel,
+        is_published: false,
+        enchantments: selections
+      }
+
+      if (itemImageUrl) {
+        payload.item_image = itemImageUrl
+      }
+
+      if (loreImageUrl) {
+        payload.item_lore_image = loreImageUrl
+      }
+
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionToken}`
+      }
+
+      const response = await fetch('/api/items', {
+        method: 'POST',
+        credentials: 'include',
+        headers,
+        body: JSON.stringify(payload)
+      })
+
+      const isJsonResponse = response.headers.get('content-type')?.includes('application/json') ?? false
+      const result = isJsonResponse ? await response.json().catch(() => null) : null
+
+      if (!response.ok) {
+        await cleanupUploads()
+
+        if (response.status === 400) {
+          const { fieldErrors, enchantmentError: workerEnchantmentError, message } =
+            mapWorkerIssuesToFormState(result?.issues)
+
+          setErrors(fieldErrors)
+          setEnchantmentError(workerEnchantmentError ?? null)
+
+          const fallbackMessage =
+            typeof result?.message === 'string' && result.message.trim()
+              ? result.message.trim()
+              : message ?? 'Validierung fehlgeschlagen.'
+
+          onError(fallbackMessage)
+          return
+        }
+
+        if (response.status === 401 || response.status === 403) {
+          const message =
+            typeof result?.message === 'string' && result.message.trim()
+              ? result.message.trim()
+              : 'Bitte anmelden, um Items zu speichern.'
+          onError(message)
+          return
+        }
+
+        const message =
+          typeof result?.message === 'string' && result.message.trim()
+            ? result.message.trim()
+            : 'Fehler beim Speichern ❌'
+        onError(message)
+        return
       }
 
       onSuccess('Item gespeichert ✅')
@@ -1702,7 +2026,12 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       setEnchantmentError(null)
       onClose()
     } catch (error) {
-      onError('Fehler beim Speichern ❌')
+      await cleanupUploads()
+      if (uploadErrorMessage) {
+        onError(uploadErrorMessage)
+      } else {
+        onError('Fehler beim Speichern ❌')
+      }
     } finally {
       setSubmitting(false)
     }
