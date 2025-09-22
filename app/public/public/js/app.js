@@ -37,6 +37,8 @@ const elements = {
   addItemButton: document.getElementById('btn-add-item'),
   addItemModal: document.getElementById('addItemModal'),
   addItemForm: document.getElementById('addItemForm'),
+  starRating: document.querySelector('[data-star-rating]'),
+  starRatingInput: document.querySelector('[data-star-rating-input]'),
   enchantmentsSearchInput: document.getElementById('enchantmentsSearch'),
   enchantmentsList: document.getElementById('enchantmentsList'),
   formError: document.getElementById('addItemFormError'),
@@ -77,6 +79,14 @@ let menuMediaQuery = null
 let menuMediaHandler = null
 let ignoreNextMenuClick = false
 const customFileInputs = new Map()
+const starRatingControl = {
+  container: null,
+  input: null,
+  buttons: [],
+  value: null,
+  hoverValue: null,
+  initialised: false,
+}
 
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
 const MAX_VISIBLE_ENCHANTMENTS = 5
@@ -551,6 +561,7 @@ function bindModalEvents() {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
     elements.addItemForm.addEventListener('reset', handleAddItemFormReset)
     initializeCustomFileInputs()
+    initializeStarRatingControl()
   }
 
   document.addEventListener('keydown', (event) => {
@@ -598,6 +609,7 @@ function resetAddItemForm() {
   }
   renderEnchantmentsList()
   resetCustomFileInputs()
+  resetStarRatingControl()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -762,13 +774,18 @@ function clearFormErrors() {
     element.classList.add('hidden')
     element.textContent = ''
   })
+  setStarRatingErrorState(false)
 }
 
 function clearFieldError(field) {
   const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
-  if (!target) return
-  target.textContent = ''
-  target.classList.add('hidden')
+  if (target) {
+    target.textContent = ''
+    target.classList.add('hidden')
+  }
+  if (field === 'stars') {
+    setStarRatingErrorState(false)
+  }
 }
 
 function showFieldError(field, message) {
@@ -776,6 +793,9 @@ function showFieldError(field, message) {
   if (!target) return
   target.textContent = message
   target.classList.remove('hidden')
+  if (field === 'stars') {
+    setStarRatingErrorState(true)
+  }
 }
 
 function updateCustomFileInput(entry) {
@@ -867,9 +887,300 @@ function resetCustomFileInputs() {
   })
 }
 
+function normalizeStarValue(value) {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 0 && value <= 5 ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+    const numeric = Number(trimmed)
+    return Number.isInteger(numeric) && numeric >= 0 && numeric <= 5 ? numeric : null
+  }
+
+  return null
+}
+
+function updateStarRatingDisplay() {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const previewValue =
+    typeof starRatingControl.hoverValue === 'number'
+      ? starRatingControl.hoverValue
+      : starRatingControl.value
+
+  let focusAssigned = false
+
+  starRatingControl.buttons.forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return
+    }
+
+    const buttonValue = normalizeStarValue(button.dataset.starValue)
+    if (buttonValue === null) {
+      button.tabIndex = -1
+      button.dataset.starSelected = 'false'
+      return
+    }
+
+    const icon = button.querySelector('[data-star-icon]')
+    const isZero = buttonValue === 0
+    const isSelected = starRatingControl.value !== null && buttonValue === starRatingControl.value
+    const isPreviewed =
+      previewValue !== null && typeof previewValue === 'number' && buttonValue > 0 && buttonValue <= previewValue
+    const highlight = isPreviewed || (isSelected && buttonValue > 0 && previewValue === starRatingControl.value)
+
+    if (icon instanceof HTMLElement) {
+      icon.textContent = highlight ? '★' : '☆'
+    }
+
+    button.setAttribute('aria-checked', isSelected ? 'true' : 'false')
+    button.dataset.starSelected = isSelected ? 'true' : 'false'
+
+    if (isZero) {
+      button.classList.toggle('border-emerald-400', isSelected)
+      button.classList.toggle('text-emerald-200', isSelected)
+      button.classList.toggle('bg-emerald-500/10', isSelected)
+      button.classList.toggle('text-slate-400', !isSelected)
+      button.classList.toggle('border-slate-800/70', !isSelected)
+    } else {
+      button.classList.toggle('text-amber-300', highlight || isSelected)
+      button.classList.toggle('text-slate-600', !(highlight || isSelected))
+    }
+
+    if (isSelected && !focusAssigned) {
+      button.tabIndex = 0
+      focusAssigned = true
+    } else {
+      button.tabIndex = -1
+    }
+  })
+
+  if (!focusAssigned && starRatingControl.buttons.length) {
+    const fallback =
+      starRatingControl.buttons.find((button) => normalizeStarValue(button.dataset.starValue) === 0) ??
+      starRatingControl.buttons[0]
+    if (fallback instanceof HTMLButtonElement) {
+      fallback.tabIndex = 0
+    }
+  }
+
+  if (starRatingControl.input instanceof HTMLInputElement) {
+    const currentValue = starRatingControl.value === null ? '' : String(starRatingControl.value)
+    starRatingControl.input.dataset.starRatingValue = currentValue
+  }
+}
+
+function setStarRatingValue(value) {
+  const normalized = normalizeStarValue(value)
+
+  const input =
+    starRatingControl.input instanceof HTMLInputElement
+      ? starRatingControl.input
+      : elements.starRatingInput instanceof HTMLInputElement
+        ? elements.starRatingInput
+        : null
+
+  if (input) {
+    input.value = normalized === null ? '' : String(normalized)
+  }
+
+  if (!starRatingControl.initialised) {
+    starRatingControl.value = normalized
+    return
+  }
+
+  starRatingControl.value = normalized
+  starRatingControl.hoverValue = null
+  updateStarRatingDisplay()
+  clearFieldError('stars')
+}
+
+function setStarRatingHover(value) {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const normalized = normalizeStarValue(value)
+  starRatingControl.hoverValue = normalized
+  updateStarRatingDisplay()
+}
+
+function setStarRatingErrorState(hasError) {
+  const container =
+    starRatingControl.container instanceof HTMLElement
+      ? starRatingControl.container
+      : elements.starRating instanceof HTMLElement
+        ? elements.starRating
+        : null
+
+  const input =
+    starRatingControl.input instanceof HTMLInputElement
+      ? starRatingControl.input
+      : elements.starRatingInput instanceof HTMLInputElement
+        ? elements.starRatingInput
+        : null
+
+  if (container) {
+    if (hasError) {
+      container.classList.remove('border-slate-800/60')
+      container.classList.add('border-rose-500/60', 'ring-rose-500/40')
+      container.setAttribute('aria-invalid', 'true')
+    } else {
+      container.classList.remove('border-rose-500/60', 'ring-rose-500/40')
+      container.classList.add('border-slate-800/60')
+      container.removeAttribute('aria-invalid')
+    }
+  }
+
+  if (input) {
+    if (hasError) {
+      input.setAttribute('aria-invalid', 'true')
+    } else {
+      input.removeAttribute('aria-invalid')
+    }
+  }
+}
+
+function handleStarRatingKeydown(event) {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const { key } = event
+  const actionableKeys = ['ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'Home', 'End', ' ', 'Enter']
+  if (!actionableKeys.includes(key)) {
+    return
+  }
+
+  const activeElement = document.activeElement
+  const index = starRatingControl.buttons.findIndex((button) => button === activeElement)
+  if (index === -1) {
+    return
+  }
+
+  if (key === ' ' || key === 'Enter') {
+    event.preventDefault()
+    const buttonValue = normalizeStarValue(starRatingControl.buttons[index]?.dataset.starValue)
+    setStarRatingValue(buttonValue)
+    return
+  }
+
+  event.preventDefault()
+
+  let nextIndex = index
+  if (key === 'ArrowRight' || key === 'ArrowUp') {
+    nextIndex = Math.min(starRatingControl.buttons.length - 1, index + 1)
+  } else if (key === 'ArrowLeft' || key === 'ArrowDown') {
+    nextIndex = Math.max(0, index - 1)
+  } else if (key === 'Home') {
+    nextIndex = 0
+  } else if (key === 'End') {
+    nextIndex = starRatingControl.buttons.length - 1
+  }
+
+  const nextButton = starRatingControl.buttons[nextIndex]
+  if (nextButton instanceof HTMLButtonElement) {
+    nextButton.focus()
+    const buttonValue = normalizeStarValue(nextButton.dataset.starValue)
+    setStarRatingValue(buttonValue)
+    if (buttonValue !== null) {
+      setStarRatingHover(buttonValue)
+    }
+  }
+}
+
+function initializeStarRatingControl() {
+  if (starRatingControl.initialised) {
+    return
+  }
+
+  const container = elements.starRating
+  const input = elements.starRatingInput
+  if (!(container instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
+    return
+  }
+
+  const buttons = Array.from(container.querySelectorAll('[data-star-value]')).filter(
+    (node) => node instanceof HTMLButtonElement,
+  )
+
+  if (!buttons.length) {
+    return
+  }
+
+  starRatingControl.container = container
+  starRatingControl.input = input
+  starRatingControl.buttons = buttons
+  starRatingControl.initialised = true
+  starRatingControl.value = normalizeStarValue(input.value)
+  if (starRatingControl.value === null) {
+    input.value = ''
+  }
+  starRatingControl.hoverValue = null
+
+  buttons.forEach((button) => {
+    const buttonValue = normalizeStarValue(button.dataset.starValue)
+    button.dataset.starSelected = 'false'
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      setStarRatingValue(buttonValue)
+    })
+
+    button.addEventListener('mouseenter', () => {
+      if (buttonValue !== null) {
+        setStarRatingHover(buttonValue)
+      }
+    })
+
+    button.addEventListener('mouseleave', () => {
+      setStarRatingHover(null)
+    })
+
+    button.addEventListener('focus', () => {
+      if (buttonValue !== null) {
+        setStarRatingHover(buttonValue)
+      }
+    })
+
+    button.addEventListener('blur', () => {
+      setStarRatingHover(null)
+    })
+  })
+
+  container.addEventListener('mouseleave', () => {
+    setStarRatingHover(null)
+  })
+
+  container.addEventListener('keydown', handleStarRatingKeydown)
+
+  updateStarRatingDisplay()
+  setStarRatingErrorState(false)
+}
+
+function resetStarRatingControl() {
+  setStarRatingValue(null)
+  if (starRatingControl.initialised) {
+    starRatingControl.hoverValue = null
+    updateStarRatingDisplay()
+  }
+  setStarRatingErrorState(false)
+}
+
 function handleAddItemFormReset() {
   window.setTimeout(() => {
     resetCustomFileInputs()
+    resetStarRatingControl()
   }, 0)
 }
 
@@ -1873,25 +2184,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       delete variant.name
       delete variant.rarity
       variant.owner = user.id
-
-      if (Object.prototype.hasOwnProperty.call(variant, 'image_url')) {
-        const value = variant.image_url
-        delete variant.image_url
-        if (value !== undefined) {
-          variant.image = value
-        }
-      }
-
-      if (Object.prototype.hasOwnProperty.call(variant, 'lore_image_url')) {
-        const value = variant.lore_image_url
-        delete variant.lore_image_url
-        if (value !== undefined) {
-          variant.lore_image = value
-        }
-      }
-    } else {
-      delete variant.image
-      delete variant.lore_image
     }
 
     return variant
@@ -1920,11 +2212,10 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumns = ['created_by', 'name', 'rarity', 'description', 'image_url', 'lore_image_url']
-    const legacyColumnIssue = legacyColumns.some((column) =>
-      message.includes(`column "${column}`) || message.includes(`column items.${column}`)
-    )
-
+    const legacyColumnIssue =
+      message.includes('column "created_by"') ||
+      message.includes('column "name"') ||
+      message.includes('column "rarity"')
     if (legacyColumnIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {

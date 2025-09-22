@@ -344,24 +344,86 @@
                 <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity"></p>
               </div>
               <div>
-                <label class="block" for="itemStars">
-                  <span class="text-sm font-medium text-slate-300">Sterne<span class="text-rose-400">*</span></span>
-                  <select
-                    id="itemStars"
-                    name="stars"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemStarsError"
+                <span id="itemStarsLabel" class="text-sm font-medium text-slate-300"
+                  >Sterne<span class="text-rose-400">*</span></span
+                >
+                <input
+                  id="itemStars"
+                  name="stars"
+                  type="hidden"
+                  required
+                  value=""
+                  data-star-rating-input
+                  aria-required="true"
+                />
+                <div
+                  class="mt-2 inline-flex items-center gap-2 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 transition focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                  role="radiogroup"
+                  aria-labelledby="itemStarsLabel"
+                  aria-describedby="itemStarsError"
+                  data-star-rating
+                >
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 text-sm font-semibold text-slate-400 transition hover:border-emerald-400 hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="0"
+                    role="radio"
+                    aria-label="Keine Sterne"
+                    aria-checked="false"
                   >
-                    <option value="">Auswählen…</option>
-                    <option value="0">0</option>
-                    <option value="1">1</option>
-                    <option value="2">2</option>
-                    <option value="3">3</option>
-                    <option value="4">4</option>
-                    <option value="5">5</option>
-                  </select>
-                </label>
+                    <span aria-hidden="true">0</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="1"
+                    role="radio"
+                    aria-label="1 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="2"
+                    role="radio"
+                    aria-label="2 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="3"
+                    role="radio"
+                    aria-label="3 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="4"
+                    role="radio"
+                    aria-label="4 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    data-star-value="5"
+                    role="radio"
+                    aria-label="5 von 5 Sternen"
+                    aria-checked="false"
+                  >
+                    <span aria-hidden="true" data-star-icon>☆</span>
+                  </button>
+                </div>
                 <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
               </div>
               <div class="sm:col-span-2 space-y-2">

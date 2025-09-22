@@ -262,19 +262,11 @@ async function insertItemWithEnchantments(
     }
 
     if (item.image_url !== undefined) {
-      if (useLegacyFallback) {
-        payload.image = item.image_url
-      } else {
-        payload.image_url = item.image_url
-      }
+      payload.image_url = item.image_url
     }
 
     if (item.lore_image_url !== undefined) {
-      if (useLegacyFallback) {
-        payload.lore_image = item.lore_image_url
-      } else {
-        payload.lore_image_url = item.lore_image_url
-      }
+      payload.lore_image_url = item.lore_image_url
     }
 
     if (item.rarity_id !== null) {
@@ -309,7 +301,6 @@ async function insertItemWithEnchantments(
   const starColumns: Array<'stars' | 'star_level'> = ['stars', 'star_level']
   let itemResult: Awaited<ReturnType<typeof executeInsert>> | null = null
   let lastError: unknown = null
-
   for (const starColumn of starColumns) {
     let result = await executeInsert(starColumn, false)
     if (!result.error && result.data) {
@@ -322,11 +313,8 @@ async function insertItemWithEnchantments(
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumnErrors = ['name', 'description', 'rarity', 'created_by', 'image_url', 'lore_image_url']
-    const hasLegacyIssue = legacyColumnErrors.some((column) =>
-      message.includes(`column "${column}`) || message.includes(`column items.${column}`)
-    )
-
+    const legacyColumnErrors = ['name', 'description', 'rarity']
+    const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
     if (hasLegacyIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {
