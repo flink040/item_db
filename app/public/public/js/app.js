@@ -1,15 +1,18 @@
 import { supabase } from './supabaseClient.js'
 
+const DEFAULT_RARITY_OPTIONS = [
+  { id: 'common', value: 'common', label: 'Gewöhnlich' },
+  { id: 'rare', value: 'rare', label: 'Selten' },
+  { id: 'epic', value: 'epic', label: 'Episch' },
+  { id: 'legendary', value: 'legendary', label: 'Legendär' },
+]
+
 const state = {
   filters: {
-    typeId: null,
-    materialId: null,
-    rarityId: null,
+    rarity: null,
     search: null,
   },
-  itemTypes: [],
-  materials: [],
-  rarities: [],
+  rarityOptions: [...DEFAULT_RARITY_OPTIONS],
   enchantments: [],
   enchantmentsLoaded: false,
   enchantmentsError: false,
@@ -28,8 +31,6 @@ const state = {
 }
 
 const elements = {
-  filterType: document.getElementById('filter-type'),
-  filterMaterial: document.getElementById('filter-material'),
   filterRarity: document.getElementById('filter-rarity'),
   searchInput: document.getElementById('app-search-input'),
   searchForm: document.querySelector('[data-js="search-form"]'),
@@ -387,9 +388,14 @@ function attachItemLookups(items) {
     return []
   }
 
-  const typeMap = createLookupMap(state.itemTypes)
-  const materialMap = createLookupMap(state.materials)
-  const rarityMap = createLookupMap(state.rarities)
+  const rarityMap = new Map(
+    state.rarityOptions
+      .map((option) => {
+        const key = toLookupKey(option.value ?? option.id ?? null)
+        return key ? [key.toLowerCase(), option] : null
+      })
+      .filter(Boolean)
+  )
 
   return items.map((item) => {
     if (!item || typeof item !== 'object') {
@@ -398,28 +404,72 @@ function attachItemLookups(items) {
 
     const enriched = { ...item }
 
-    const typeKey = toLookupKey(item.item_type_id ?? item.itemTypeId ?? null)
-    if (typeKey && !enriched.item_types && typeMap.has(typeKey)) {
-      enriched.item_types = typeMap.get(typeKey)
-    }
+    if (!enriched.rarities) {
+      const rawRarityValue = (() => {
+        if (typeof enriched.rarity === 'string') {
+          return enriched.rarity.trim()
+        }
+        if (typeof enriched.rarity_id === 'string') {
+          return enriched.rarity_id.trim()
+        }
+        if (typeof enriched.rarity_id === 'number' && Number.isFinite(enriched.rarity_id)) {
+          return String(enriched.rarity_id)
+        }
+        return null
+      })()
 
-    const materialKey = toLookupKey(item.material_id ?? item.materialId ?? null)
-    if (materialKey && !enriched.materials && materialMap.has(materialKey)) {
-      enriched.materials = materialMap.get(materialKey)
-    }
+      const normalizedKey = rawRarityValue ? rawRarityValue.toLowerCase() : null
 
-    const rarityKey = toLookupKey(item.rarity_id ?? item.rarityId ?? null)
-    if (rarityKey && !enriched.rarities && rarityMap.has(rarityKey)) {
-      enriched.rarities = rarityMap.get(rarityKey)
-    } else if (!enriched.rarities && typeof enriched.rarity === 'string') {
-      const rarityLabel = enriched.rarity.trim()
-      if (rarityLabel.length > 0) {
-        enriched.rarities = { label: rarityLabel }
+      if (normalizedKey && rarityMap.has(normalizedKey)) {
+        const option = rarityMap.get(normalizedKey)
+        enriched.rarities = { label: option.label, value: option.value }
+        if (typeof option.value === 'string') {
+          enriched.rarity = option.value
+        }
+      } else if (typeof rawRarityValue === 'string' && rawRarityValue.length > 0) {
+        enriched.rarities = {
+          label: rawRarityValue,
+          value: rawRarityValue.toLowerCase(),
+        }
       }
     }
 
     return enriched
   })
+}
+
+function resolveRarityLabel(item) {
+  if (!item || typeof item !== 'object') {
+    return null
+  }
+
+  const directLabel = (() => {
+    if (item?.rarities && typeof item.rarities === 'object') {
+      const raw = item.rarities?.label
+      if (typeof raw === 'string' && raw.trim()) {
+        return raw.trim()
+      }
+    }
+    return null
+  })()
+
+  if (directLabel) {
+    return directLabel
+  }
+
+  if (typeof item.rarity === 'string') {
+    const raw = item.rarity.trim()
+    if (raw.length > 0) {
+      const normalized = raw.toLowerCase()
+      const option = state.rarityOptions.find((entry) => {
+        const key = toLookupKey(entry.value ?? entry.id ?? null)
+        return key && key.toLowerCase() === normalized
+      })
+      return option?.label ?? raw
+    }
+  }
+
+  return null
 }
 
 function errorMentionsColumn(error, ...columns) {
@@ -495,15 +545,24 @@ function renderItems(items) {
     const meta = document.createElement('div')
     meta.className = 'flex flex-wrap gap-2 text-xs text-slate-300'
 
-    const rarityLabel = item?.rarities?.label ?? 'Unbekannt'
-    const typeLabel = item?.item_types?.label ?? 'Unbekannt'
-    const materialLabel = item?.materials?.label ?? 'Unbekannt'
+    const rarityLabel = resolveRarityLabel(item)
+    if (rarityLabel) {
+      meta.appendChild(createMetaBadge('Seltenheit', rarityLabel))
+    }
 
-    meta.appendChild(createMetaBadge('Seltenheit', rarityLabel))
-    meta.appendChild(createMetaBadge('Typ', typeLabel))
-    meta.appendChild(createMetaBadge('Material', materialLabel))
+    const typeLabel = item?.item_types?.label
+    if (typeof typeLabel === 'string' && typeLabel.trim()) {
+      meta.appendChild(createMetaBadge('Typ', typeLabel.trim()))
+    }
 
-    card.appendChild(meta)
+    const materialLabel = item?.materials?.label
+    if (typeof materialLabel === 'string' && materialLabel.trim()) {
+      meta.appendChild(createMetaBadge('Material', materialLabel.trim()))
+    }
+
+    if (meta.childElementCount > 0) {
+      card.appendChild(meta)
+    }
 
     const loreText = truncateText(resolveItemDescription(item), 360)
     const loreImageUrl = resolveLoreImageUrl(item)
@@ -600,9 +659,9 @@ function populateSelect(select, items, placeholder = 'Alle') {
   }
 }
 
-function handleSelectChange(event, key) {
-  const value = event.target.value
-  state.filters[key] = value ? Number(value) : null
+function handleRarityFilterChange(event) {
+  const value = typeof event.target.value === 'string' ? event.target.value.trim() : ''
+  state.filters.rarity = value ? value.toLowerCase() : null
   loadItems()
 }
 
@@ -625,9 +684,7 @@ function handleEnchantmentsSearchInput(event) {
 }
 
 function bindFilterEvents() {
-  elements.filterType?.addEventListener('change', (event) => handleSelectChange(event, 'typeId'))
-  elements.filterMaterial?.addEventListener('change', (event) => handleSelectChange(event, 'materialId'))
-  elements.filterRarity?.addEventListener('change', (event) => handleSelectChange(event, 'rarityId'))
+  elements.filterRarity?.addEventListener('change', handleRarityFilterChange)
   elements.searchInput?.addEventListener('input', handleSearchInput)
   elements.searchForm?.addEventListener('submit', (event) => {
     event.preventDefault()
@@ -2568,11 +2625,8 @@ function sanitizeInsertPayloadForLog(payload) {
 
   const allowedKeys = [
     'name',
-    'title',
-    'item_type_id',
-    'material_id',
-    'rarity_id',
     'rarity',
+    'description',
     'star_level',
     'stars',
     'image_url',
@@ -2739,11 +2793,7 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       : 0
 
   const basePayload = {
-    title: payload.name ?? payload.title ?? '',
     name: payload.name ?? payload.title ?? '',
-    item_type_id: payload.item_type_id,
-    material_id: payload.material_id,
-    rarity_id: payload.rarity_id ?? null,
     rarity: payload.rarity ?? null,
     stars: resolvedStars,
     star_level: resolvedStars,
@@ -2751,6 +2801,10 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     image_url: payload.image_url ?? null,
     lore_image_url: payload.lore_image_url ?? null,
     is_published: payload.is_published === true,
+  }
+
+  if (payload.description !== undefined) {
+    basePayload.description = payload.description
   }
 
   const buildPayloadVariant = (starColumn, useLegacyFallback) => {
@@ -2768,6 +2822,9 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       delete variant.created_by
       delete variant.name
       delete variant.rarity
+      if ('description' in variant && variant.description !== undefined) {
+        variant.lore = variant.description
+      }
       variant.owner = user.id
     }
 
@@ -2915,9 +2972,7 @@ async function handleAddItemSubmit(event) {
 
   const formData = new FormData(elements.addItemForm)
   const title = (formData.get('title') || '').toString().trim()
-  const typeId = formData.get('itemType')?.toString() ?? ''
-  const materialId = formData.get('material')?.toString() ?? ''
-  const rarityId = formData.get('rarity')?.toString() ?? ''
+  const rarityValue = formData.get('rarity')?.toString().trim() ?? ''
   const starsValue = formData.get('stars')?.toString() ?? ''
   const itemImageFile = normalizeFileValue(formData.get('itemImage'))
   const loreImageFile = normalizeFileValue(formData.get('itemLoreImage'))
@@ -2927,16 +2982,13 @@ async function handleAddItemSubmit(event) {
     showFieldError('title', 'Titel muss zwischen 1 und 120 Zeichen lang sein.')
     hasError = true
   }
-  if (!typeId) {
-    showFieldError('itemType', 'Bitte einen Item-Typ auswählen.')
-    hasError = true
-  }
-  if (!materialId) {
-    showFieldError('material', 'Bitte ein Material auswählen.')
-    hasError = true
-  }
-  if (!rarityId) {
-    showFieldError('rarity', 'Bitte eine Seltenheit auswählen.')
+  const normalizedRarityValue = rarityValue ? rarityValue.toLowerCase() : ''
+  const rarityOption = state.rarityOptions.find((option) => {
+    const key = toLookupKey(option.value ?? option.id ?? null)
+    return key && key.toLowerCase() === normalizedRarityValue
+  })
+  if (!normalizedRarityValue || !rarityOption) {
+    showFieldError('rarity', 'Bitte eine gültige Seltenheit auswählen.')
     hasError = true
   }
   if (!starsValue) {
@@ -3045,10 +3097,7 @@ async function handleAddItemSubmit(event) {
 
     const basePayload = {
       name: title,
-      title,
-      item_type_id: Number(typeId),
-      material_id: Number(materialId),
-      rarity_id: Number(rarityId),
+      rarity: rarityOption?.value ?? normalizedRarityValue,
       star_level: normalizedStars,
       stars: normalizedStars,
       is_published: false,
@@ -3185,9 +3234,7 @@ function registerItemInsertSelfTest() {
 
     const testPayload = {
       name: `SelfTest Item ${Date.now()}`,
-      item_type_id: 1,
-      material_id: 1,
-      rarity_id: 1,
+      rarity: 'common',
       star_level: 0,
       enchantments: [],
       is_published: false,
@@ -3260,35 +3307,21 @@ async function loadFiltersAndLists() {
   setAriaBusy(true)
   renderSkeleton(6)
   try {
-    const [itemTypesResult, materialsResult, raritiesResult, enchantmentsResult] = await Promise.all([
-      supabase.from('item_types').select('id,label').order('label', { ascending: true }),
-      supabase.from('materials').select('id,label').order('label', { ascending: true }),
-      supabase
-        .from('rarities')
-        .select('id,label,sort')
-        .order('sort', { ascending: true })
-        .order('label', { ascending: true }),
-      supabase.from('enchantments').select('id,label,max_level').order('label', { ascending: true }),
-    ])
+    const enchantmentsResult = await supabase
+      .from('enchantments')
+      .select('id,label,max_level')
+      .order('label', { ascending: true })
 
-    const errors = [itemTypesResult.error, materialsResult.error, raritiesResult.error, enchantmentsResult.error].filter(Boolean)
-    if (errors.length) {
-      throw errors[0]
+    if (enchantmentsResult.error) {
+      throw enchantmentsResult.error
     }
 
-    state.itemTypes = itemTypesResult.data ?? []
-    state.materials = materialsResult.data ?? []
-    state.rarities = raritiesResult.data ?? []
     state.enchantments = enchantmentsResult.data ?? []
     state.enchantmentsLoaded = true
     state.enchantmentsError = false
 
-    populateSelect(elements.filterType, state.itemTypes)
-    populateSelect(elements.filterMaterial, state.materials)
-    populateSelect(elements.filterRarity, state.rarities)
-    populateSelect(document.getElementById('itemTypeSelect'), state.itemTypes, 'Auswählen…')
-    populateSelect(document.getElementById('itemMaterialSelect'), state.materials, 'Auswählen…')
-    populateSelect(document.getElementById('itemRaritySelect'), state.rarities, 'Auswählen…')
+    populateSelect(elements.filterRarity, state.rarityOptions)
+    populateSelect(document.getElementById('itemRaritySelect'), state.rarityOptions, 'Auswählen…')
 
     renderEnchantmentsList()
 
@@ -3367,15 +3400,8 @@ async function loadItems() {
         formatSelectColumn(selectConfig.imageColumn),
         formatSelectColumn(selectConfig.loreImageColumn),
         formatSelectColumn(selectConfig.createdAtColumn),
-        formatSelectColumn(selectConfig.itemTypeColumn),
-        formatSelectColumn(selectConfig.materialColumn),
-        formatSelectColumn(selectConfig.rarityIdColumn),
+        formatSelectColumn(selectConfig.rarityColumn),
       ].filter((column) => typeof column === 'string' && column.length > 0)
-
-      const raritySelect = formatSelectColumn(selectConfig.rarityColumn)
-      if (raritySelect) {
-        baseColumns.push(raritySelect)
-      }
 
       const selectColumns = Array.from(new Set(baseColumns)).join(',')
 
@@ -3385,14 +3411,8 @@ async function loadItems() {
         query = query.order(selectConfig.createdAtColumn.column, { ascending: false })
       }
 
-      if (state.filters.typeId && selectConfig.itemTypeColumn?.column) {
-        query = query.eq(selectConfig.itemTypeColumn.column, state.filters.typeId)
-      }
-      if (state.filters.materialId && selectConfig.materialColumn?.column) {
-        query = query.eq(selectConfig.materialColumn.column, state.filters.materialId)
-      }
-      if (state.filters.rarityId && selectConfig.rarityIdColumn?.column) {
-        query = query.eq(selectConfig.rarityIdColumn.column, state.filters.rarityId)
+      if (state.filters.rarity && selectConfig.rarityColumn?.column) {
+        query = query.eq(selectConfig.rarityColumn.column, state.filters.rarity)
       }
       if (sanitizedSearch) {
         const searchColumns = [
@@ -3452,25 +3472,6 @@ async function loadItems() {
       { column: 'created', alias: 'created_at' },
       { column: null, alias: null },
     ]
-    const itemTypeColumnOptions = [
-      { column: 'item_type_id', alias: 'item_type_id' },
-      { column: 'itemTypeId', alias: 'item_type_id' },
-      { column: 'type_id', alias: 'item_type_id' },
-      { column: 'typeId', alias: 'item_type_id' },
-      { column: null, alias: null },
-    ]
-    const materialColumnOptions = [
-      { column: 'material_id', alias: 'material_id' },
-      { column: 'materialId', alias: 'material_id' },
-      { column: 'material_id_fk', alias: 'material_id' },
-      { column: null, alias: null },
-    ]
-    const rarityIdColumnOptions = [
-      { column: 'rarity_id', alias: 'rarity_id' },
-      { column: 'rarityId', alias: 'rarity_id' },
-      { column: 'rarity_id_fk', alias: 'rarity_id' },
-      { column: null, alias: null },
-    ]
     const rarityColumnOptions = [
       { column: 'rarity', alias: 'rarity' },
       { column: 'rarity_label', alias: 'rarity' },
@@ -3486,9 +3487,6 @@ async function loadItems() {
     let imageColumnIndex = 0
     let loreImageColumnIndex = 0
     let createdAtColumnIndex = 0
-    let itemTypeColumnIndex = 0
-    let materialColumnIndex = 0
-    let rarityIdColumnIndex = 0
     let rarityColumnIndex = 0
     let itemsResult = null
 
@@ -3500,9 +3498,6 @@ async function loadItems() {
         imageColumn: imageColumnOptions[imageColumnIndex],
         loreImageColumn: loreImageColumnOptions[loreImageColumnIndex],
         createdAtColumn: createdAtColumnOptions[createdAtColumnIndex],
-        itemTypeColumn: itemTypeColumnOptions[itemTypeColumnIndex],
-        materialColumn: materialColumnOptions[materialColumnIndex],
-        rarityIdColumn: rarityIdColumnOptions[rarityIdColumnIndex],
         rarityColumn: rarityColumnOptions[rarityColumnIndex],
       })
 
@@ -3573,36 +3568,6 @@ async function loadItems() {
         createdAtColumnIndex + 1 < createdAtColumnOptions.length
       ) {
         createdAtColumnIndex += 1
-        handled = true
-      }
-
-      const currentItemTypeColumn = itemTypeColumnOptions[itemTypeColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentItemTypeColumn, 'item_type_id') &&
-        itemTypeColumnIndex + 1 < itemTypeColumnOptions.length
-      ) {
-        itemTypeColumnIndex += 1
-        handled = true
-      }
-
-      const currentMaterialColumn = materialColumnOptions[materialColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentMaterialColumn, 'material_id') &&
-        materialColumnIndex + 1 < materialColumnOptions.length
-      ) {
-        materialColumnIndex += 1
-        handled = true
-      }
-
-      const currentRarityIdColumn = rarityIdColumnOptions[rarityIdColumnIndex]
-      if (
-        !handled &&
-        columnMentionsError(queryResult.error, currentRarityIdColumn, 'rarity_id') &&
-        rarityIdColumnIndex + 1 < rarityIdColumnOptions.length
-      ) {
-        rarityIdColumnIndex += 1
         handled = true
       }
 
