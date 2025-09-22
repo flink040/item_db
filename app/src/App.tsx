@@ -31,8 +31,11 @@ type Enchantment = {
   maxLevel: number
 }
 
-const STAR_LEVEL_VALUES = [0, 1, 2, 3] as const
-const MAX_STAR_LEVEL = STAR_LEVEL_VALUES[STAR_LEVEL_VALUES.length - 1]
+const MAX_STAR_LEVEL = 3 as const
+const STAR_LEVEL_VALUES = Array.from(
+  { length: MAX_STAR_LEVEL + 1 },
+  (_, index) => index
+) as ReadonlyArray<number>
 
 const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
   if (!Array.isArray(input)) {
@@ -1595,7 +1598,6 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   </span>
                   <p className="mt-2 text-xs text-slate-500">
                     Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne oder setze die Auswahl auf 0, um keine Sterne zu vergeben.
-
                   </p>
                   {errors.starLevel && (
                     <p id="item-modal-starLevel-error" className="mt-2 text-sm text-rose-400">
