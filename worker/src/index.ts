@@ -301,7 +301,6 @@ async function insertItemWithEnchantments(
   const starColumns: Array<'stars' | 'star_level'> = ['stars', 'star_level']
   let itemResult: Awaited<ReturnType<typeof executeInsert>> | null = null
   let lastError: unknown = null
-
   for (const starColumn of starColumns) {
     let result = await executeInsert(starColumn, false)
     if (!result.error && result.data) {
@@ -316,7 +315,6 @@ async function insertItemWithEnchantments(
       message.includes('column "stars"') || message.includes('column items.stars')
     const legacyColumnErrors = ['name', 'description', 'rarity']
     const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
-
     if (hasLegacyIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {

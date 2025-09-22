@@ -2216,7 +2216,6 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
       message.includes('column "created_by"') ||
       message.includes('column "name"') ||
       message.includes('column "rarity"')
-
     if (legacyColumnIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {

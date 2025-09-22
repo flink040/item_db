@@ -733,6 +733,69 @@
       </div>
     </div>
     <div
+      id="moderation-modal"
+      class="fixed inset-0 z-[60] hidden items-center justify-center bg-slate-950/80 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="moderation-modal-title"
+      aria-hidden="true"
+      data-moderation-modal
+    >
+      <div class="absolute inset-0" data-moderation-overlay></div>
+      <div
+        class="relative z-10 w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
+        role="document"
+      >
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="moderation-modal-title" class="text-xl font-semibold text-slate-50">Moderation</h2>
+            <p class="mt-1 text-sm text-slate-400">
+              Dieser Bereich ist nur für Moderator:innen und Admins sichtbar. Weitere Inhalte folgen.
+            </p>
+          </div>
+          <button
+            type="button"
+            class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            data-moderation-close
+            aria-label="Moderationsmodal schließen"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="h-5 w-5"
+              aria-hidden="true"
+            >
+              <path d="m6 6 12 12" />
+              <path d="m18 6-12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="mt-6 space-y-5 text-sm text-slate-400">
+          <p>
+            Hier entsteht in Kürze das Moderations-Dashboard. Nutze diesen Platzhalter, um erste Abläufe zu planen oder mit dem
+            Team abzustimmen, welche Funktionen benötigt werden.
+          </p>
+          <p class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-500">
+            Tipp: Verlinke dieses Modal später mit deiner finalen Moderationsansicht unter <code class="font-mono text-emerald-300">/moderation</code>.
+          </p>
+        </div>
+        <div class="mt-6 flex justify-end">
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            data-moderation-close
+          >
+            Schließen
+          </button>
+        </div>
+      </div>
+    </div>
+    <div
       id="toast-container"
       class="pointer-events-none fixed top-6 left-1/2 z-[60] flex w-full max-w-sm -translate-x-1/2 flex-col gap-3"
       aria-live="polite"
