@@ -14011,6 +14011,107 @@ var NEVER = INVALID;
 
 // src/index.ts
 var SUPPORTED_RARITIES = ["common", "rare", "epic", "legendary"];
+var MAX_STAR_RATING = 3;
+var SUPABASE_AUTH_COOKIE_NAMES = /* @__PURE__ */ new Set([
+  "sb-access-token",
+  "sb:token",
+  "sb-token",
+  "supabase-access-token",
+  "supabase-auth-token"
+]);
+var BEARER_PREFIX = /^bearer\s+/i;
+var readHeader = /* @__PURE__ */ __name((req, name) => req.header(name) ?? req.header(name.toLowerCase()) ?? req.header(name.toUpperCase()), "readHeader");
+var decodeCookieValue = /* @__PURE__ */ __name((value) => {
+  try {
+    return decodeURIComponent(value);
+  } catch (error) {
+    void error;
+    return value;
+  }
+}, "decodeCookieValue");
+var cleanupCookieToken = /* @__PURE__ */ __name((value) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return "";
+  }
+  const unquoted = trimmed.replace(/^"|"$/g, "");
+  return unquoted.trim();
+}, "cleanupCookieToken");
+var isSupabaseAccessTokenCookie = /* @__PURE__ */ __name((name) => {
+  const normalized = name.trim().toLowerCase();
+  if (!normalized) {
+    return false;
+  }
+  if (SUPABASE_AUTH_COOKIE_NAMES.has(normalized)) {
+    return true;
+  }
+  if (normalized.endsWith("-access-token")) {
+    return true;
+  }
+  return normalized.includes("supabase") && normalized.includes("access") && normalized.includes("token");
+}, "isSupabaseAccessTokenCookie");
+var extractSupabaseTokenFromCookieHeader = /* @__PURE__ */ __name((cookieHeader) => {
+  if (!cookieHeader || typeof cookieHeader !== "string") {
+    return null;
+  }
+  const segments = cookieHeader.split(";");
+  for (const segment of segments) {
+    const separatorIndex = segment.indexOf("=");
+    if (separatorIndex === -1) {
+      continue;
+    }
+    const name = segment.slice(0, separatorIndex).trim();
+    if (!isSupabaseAccessTokenCookie(name)) {
+      continue;
+    }
+    const rawValue = segment.slice(separatorIndex + 1);
+    const decoded = decodeCookieValue(rawValue);
+    const cleaned = cleanupCookieToken(decoded);
+    if (cleaned) {
+      return cleaned;
+    }
+  }
+  return null;
+}, "extractSupabaseTokenFromCookieHeader");
+var normalizeAuthorizationHeaderValue = /* @__PURE__ */ __name((value) => {
+  if (!value) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return BEARER_PREFIX.test(trimmed) ? trimmed : `Bearer ${trimmed}`;
+}, "normalizeAuthorizationHeaderValue");
+var resolveSupabaseBearerToken = /* @__PURE__ */ __name((req) => {
+  const headerValue = readHeader(req, "authorization");
+  if (typeof headerValue === "string" && headerValue.trim()) {
+    const match = headerValue.match(BEARER_PREFIX);
+    if (match) {
+      const tokenPart = headerValue.slice(match[0].length).trim();
+      if (tokenPart) {
+        return tokenPart;
+      }
+    } else {
+      return headerValue.trim();
+    }
+  }
+  const cookieHeader = readHeader(req, "cookie");
+  const cookieToken = extractSupabaseTokenFromCookieHeader(cookieHeader);
+  return cookieToken;
+}, "resolveSupabaseBearerToken");
+var resolveSupabaseAuthorizationHeader = /* @__PURE__ */ __name((req) => {
+  const headerValue = normalizeAuthorizationHeaderValue(readHeader(req, "authorization"));
+  if (headerValue) {
+    return headerValue;
+  }
+  const cookieHeader = readHeader(req, "cookie");
+  const cookieToken = extractSupabaseTokenFromCookieHeader(cookieHeader);
+  if (cookieToken) {
+    return normalizeAuthorizationHeaderValue(`Bearer ${cookieToken}`);
+  }
+  return null;
+}, "resolveSupabaseAuthorizationHeader");
 var integerFromUnknown = /* @__PURE__ */ __name((opts = {}) => external_exports.preprocess((value) => {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
@@ -14055,10 +14156,12 @@ var itemSchema = external_exports.object({
   rarity_id: integerFromUnknown({ positive: true }).optional(),
   item_type_id: integerFromUnknown({ positive: true }),
   material_id: integerFromUnknown({ positive: true }),
-  star_level: integerFromUnknown({ nonNegative: true, max: 5 }).optional(),
-  stars: integerFromUnknown({ nonNegative: true, max: 5 }).optional(),
+  star_level: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
+  stars: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
   image_url: external_exports.string().trim().url().max(2048).optional(),
   lore_image_url: external_exports.string().trim().url().max(2048).optional(),
+  item_image: external_exports.string().trim().url().max(2048).optional(),
+  item_lore_image: external_exports.string().trim().url().max(2048).optional(),
   enchantments: external_exports.array(enchantmentSchema).max(64).optional(),
   is_published: external_exports.boolean().optional()
 }).superRefine((data, ctx) => {
@@ -14098,6 +14201,9 @@ __name(verifyUser, "verifyUser");
 function normaliseItemPayload(payload) {
   const name = (payload.name ?? payload.title ?? "").trim();
   const starLevel = typeof payload.star_level === "number" ? payload.star_level : typeof payload.stars === "number" ? payload.stars : 0;
+  const normalizedStarLevel = Math.max(0, Math.min(starLevel, MAX_STAR_RATING));
+  const itemImage = payload.item_image ?? payload.image_url ?? null;
+  const itemLoreImage = payload.item_lore_image ?? payload.lore_image_url ?? null;
   return {
     name,
     description: (payload.description ?? payload.lore ?? "").trim() || null,
@@ -14105,9 +14211,9 @@ function normaliseItemPayload(payload) {
     rarity: payload.rarity ?? null,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
-    star_level: starLevel,
-    image_url: payload.image_url ?? null,
-    lore_image_url: payload.lore_image_url ?? null,
+    star_level: normalizedStarLevel,
+    item_image: itemImage,
+    item_lore_image: itemLoreImage,
     enchantments: payload.enchantments ?? [],
     is_published: payload.is_published === true
   };
@@ -14194,11 +14300,11 @@ async function insertItemWithEnchantments(client, item, enchantments) {
     if (item.title) {
       payload.title = item.title;
     }
-    if (item.image_url !== void 0) {
-      payload.image_url = item.image_url;
+    if (item.item_image !== void 0) {
+      payload.item_image = item.item_image;
     }
-    if (item.lore_image_url !== void 0) {
-      payload.lore_image_url = item.lore_image_url;
+    if (item.item_lore_image !== void 0) {
+      payload.item_lore_image = item.item_lore_image;
     }
     if (item.rarity_id !== null) {
       payload.rarity_id = item.rarity_id;
@@ -14279,14 +14385,37 @@ __name(insertItemWithEnchantments, "insertItemWithEnchantments");
 var app = new Hono2();
 var sanitizeSearchValue = /* @__PURE__ */ __name((value) => value.trim().replace(/[*,%]/g, " ").replace(/[()]/g, " ").replace(/\s+/g, " ").trim(), "sanitizeSearchValue");
 var normalizeFilterValue = /* @__PURE__ */ __name((value) => value?.trim() ?? "", "normalizeFilterValue");
+var extractPositiveIntegerFilter = /* @__PURE__ */ __name((...candidates) => {
+  for (const candidate of candidates) {
+    const normalized = normalizeFilterValue(candidate);
+    if (!normalized) {
+      continue;
+    }
+    const parsed = Number.parseInt(normalized, 10);
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return String(parsed);
+    }
+  }
+  return null;
+}, "extractPositiveIntegerFilter");
 app.get("/api/health", (c) => c.json({ ok: true }));
 app.get("/api/items", async (c) => {
   const query = c.req.query();
   const params = new URLSearchParams({ select: "*" });
   const search = sanitizeSearchValue(query.search ?? "");
-  const type = normalizeFilterValue(query.type);
-  const material = normalizeFilterValue(query.material);
   const rarity = normalizeFilterValue(query.rarity);
+  const itemTypeFilter = extractPositiveIntegerFilter(
+    query["item_type_id"],
+    query["type_id"],
+    query["typeId"],
+    query.type
+  );
+  const materialFilter = extractPositiveIntegerFilter(
+    query["material_id"],
+    query["materialId"],
+    query.material
+  );
+  const rarityIdFilter = extractPositiveIntegerFilter(query["rarity_id"], query["rarityId"]);
   if (search.length > 0) {
     const pattern = `*${search}*`;
     params.set(
@@ -14294,19 +14423,26 @@ app.get("/api/items", async (c) => {
       `(name.ilike.${pattern},slug.ilike.${pattern},description.ilike.${pattern})`
     );
   }
-  if (type) {
-    params.append("type", `eq.${type}`);
+  if (itemTypeFilter) {
+    params.append("item_type_id", `eq.${itemTypeFilter}`);
   }
-  if (material) {
-    params.append("material", `eq.${material}`);
+  if (materialFilter) {
+    params.append("material_id", `eq.${materialFilter}`);
   }
-  if (rarity) {
+  if (rarityIdFilter) {
+    params.append("rarity_id", `eq.${rarityIdFilter}`);
+  } else if (rarity) {
     params.append("rarity", `eq.${rarity}`);
   }
   params.append("order", "name.asc");
   const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`;
+  const supabaseHeaders = { apikey: c.env.SUPABASE_ANON_KEY };
+  const forwardedAuthHeader = resolveSupabaseAuthorizationHeader(c.req);
+  if (forwardedAuthHeader) {
+    supabaseHeaders.Authorization = forwardedAuthHeader;
+  }
   const res = await fetch(url, {
-    headers: { apikey: c.env.SUPABASE_ANON_KEY }
+    headers: supabaseHeaders
   });
   if (!res.ok) return c.json({ error: "supabase_error" }, res.status);
   return c.json(await res.json(), 200, {
@@ -14314,9 +14450,7 @@ app.get("/api/items", async (c) => {
   });
 });
 app.post("/api/items", async (c) => {
-  const authHeader = c.req.header("authorization") ?? c.req.header("Authorization") ?? "";
-  const bearerMatch = authHeader.match(/bearer\s+(.+)/i);
-  const token = bearerMatch ? bearerMatch[1].trim() : authHeader.trim();
+  const token = resolveSupabaseBearerToken(c.req);
   if (!token) {
     return c.json({ error: "auth_required", message: "Bitte mit einem g\xFCltigen Supabase-Token anfragen." }, 401);
   }
@@ -14358,8 +14492,8 @@ app.post("/api/items", async (c) => {
     stars: normalized.star_level,
     star_level: normalized.star_level,
     created_by: user.id,
-    image_url: normalized.image_url ?? void 0,
-    lore_image_url: normalized.lore_image_url ?? void 0,
+    item_image: normalized.item_image ?? void 0,
+    item_lore_image: normalized.item_lore_image ?? void 0,
     is_published: normalized.is_published
   };
   if (dryRun) {
