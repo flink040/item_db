@@ -37,6 +37,8 @@ const elements = {
   addItemButton: document.getElementById('btn-add-item'),
   addItemModal: document.getElementById('addItemModal'),
   addItemForm: document.getElementById('addItemForm'),
+  starRating: document.querySelector('[data-star-rating]'),
+  starRatingInput: document.querySelector('[data-star-rating-input]'),
   enchantmentsSearchInput: document.getElementById('enchantmentsSearch'),
   enchantmentsList: document.getElementById('enchantmentsList'),
   formError: document.getElementById('addItemFormError'),
@@ -77,6 +79,14 @@ let menuMediaQuery = null
 let menuMediaHandler = null
 let ignoreNextMenuClick = false
 const customFileInputs = new Map()
+const starRatingControl = {
+  container: null,
+  input: null,
+  buttons: [],
+  value: null,
+  hoverValue: null,
+  initialised: false,
+}
 
 const DESKTOP_MENU_MEDIA_QUERY = '(min-width: 768px)'
 const MAX_VISIBLE_ENCHANTMENTS = 5
@@ -300,6 +310,26 @@ function renderStars(starCount) {
   return Array.from({ length: 5 }, (_, index) => (index < normalized ? '★' : '☆')).join('')
 }
 
+function normaliseItemStarFields(entry) {
+  if (!entry || typeof entry !== 'object') {
+    return entry
+  }
+
+  const result = { ...entry }
+  const resolvedStars = Number.isFinite(Number(result.stars))
+    ? Number(result.stars)
+    : Number.isFinite(Number(result.star_level))
+      ? Number(result.star_level)
+      : 0
+
+  result.stars = resolvedStars
+  if (!Number.isFinite(Number(result.star_level))) {
+    result.star_level = resolvedStars
+  }
+
+  return result
+}
+
 function renderItems(items) {
   if (!elements.itemsList) return
   if (!Array.isArray(items) || items.length === 0) {
@@ -337,10 +367,16 @@ function renderItems(items) {
     title.textContent = item?.title ?? 'Unbenanntes Item'
     header.appendChild(title)
 
+    const starValue = Number.isFinite(Number(item?.stars))
+      ? Number(item?.stars)
+      : Number.isFinite(Number(item?.star_level))
+        ? Number(item?.star_level)
+        : 0
+
     const stars = document.createElement('span')
     stars.className = 'text-sm font-medium text-amber-300'
-    stars.setAttribute('aria-label', `${Number(item?.stars ?? 0)} von 5 Sternen`)
-    stars.textContent = renderStars(item?.stars ?? 0)
+    stars.setAttribute('aria-label', `${starValue} von 5 Sternen`)
+    stars.textContent = renderStars(starValue)
     header.appendChild(stars)
 
     card.appendChild(header)
@@ -525,6 +561,7 @@ function bindModalEvents() {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
     elements.addItemForm.addEventListener('reset', handleAddItemFormReset)
     initializeCustomFileInputs()
+    initializeStarRatingControl()
   }
 
   document.addEventListener('keydown', (event) => {
@@ -572,6 +609,7 @@ function resetAddItemForm() {
   }
   renderEnchantmentsList()
   resetCustomFileInputs()
+  resetStarRatingControl()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -736,13 +774,18 @@ function clearFormErrors() {
     element.classList.add('hidden')
     element.textContent = ''
   })
+  setStarRatingErrorState(false)
 }
 
 function clearFieldError(field) {
   const target = elements.addItemForm?.querySelector(`[data-error-for="${field}"]`)
-  if (!target) return
-  target.textContent = ''
-  target.classList.add('hidden')
+  if (target) {
+    target.textContent = ''
+    target.classList.add('hidden')
+  }
+  if (field === 'stars') {
+    setStarRatingErrorState(false)
+  }
 }
 
 function showFieldError(field, message) {
@@ -750,6 +793,9 @@ function showFieldError(field, message) {
   if (!target) return
   target.textContent = message
   target.classList.remove('hidden')
+  if (field === 'stars') {
+    setStarRatingErrorState(true)
+  }
 }
 
 function updateCustomFileInput(entry) {
@@ -841,9 +887,300 @@ function resetCustomFileInputs() {
   })
 }
 
+function normalizeStarValue(value) {
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  if (typeof value === 'number') {
+    return Number.isInteger(value) && value >= 0 && value <= 5 ? value : null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+    const numeric = Number(trimmed)
+    return Number.isInteger(numeric) && numeric >= 0 && numeric <= 5 ? numeric : null
+  }
+
+  return null
+}
+
+function updateStarRatingDisplay() {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const previewValue =
+    typeof starRatingControl.hoverValue === 'number'
+      ? starRatingControl.hoverValue
+      : starRatingControl.value
+
+  let focusAssigned = false
+
+  starRatingControl.buttons.forEach((button) => {
+    if (!(button instanceof HTMLButtonElement)) {
+      return
+    }
+
+    const buttonValue = normalizeStarValue(button.dataset.starValue)
+    if (buttonValue === null) {
+      button.tabIndex = -1
+      button.dataset.starSelected = 'false'
+      return
+    }
+
+    const icon = button.querySelector('[data-star-icon]')
+    const isZero = buttonValue === 0
+    const isSelected = starRatingControl.value !== null && buttonValue === starRatingControl.value
+    const isPreviewed =
+      previewValue !== null && typeof previewValue === 'number' && buttonValue > 0 && buttonValue <= previewValue
+    const highlight = isPreviewed || (isSelected && buttonValue > 0 && previewValue === starRatingControl.value)
+
+    if (icon instanceof HTMLElement) {
+      icon.textContent = highlight ? '★' : '☆'
+    }
+
+    button.setAttribute('aria-checked', isSelected ? 'true' : 'false')
+    button.dataset.starSelected = isSelected ? 'true' : 'false'
+
+    if (isZero) {
+      button.classList.toggle('border-emerald-400', isSelected)
+      button.classList.toggle('text-emerald-200', isSelected)
+      button.classList.toggle('bg-emerald-500/10', isSelected)
+      button.classList.toggle('text-slate-400', !isSelected)
+      button.classList.toggle('border-slate-800/70', !isSelected)
+    } else {
+      button.classList.toggle('text-amber-300', highlight || isSelected)
+      button.classList.toggle('text-slate-600', !(highlight || isSelected))
+    }
+
+    if (isSelected && !focusAssigned) {
+      button.tabIndex = 0
+      focusAssigned = true
+    } else {
+      button.tabIndex = -1
+    }
+  })
+
+  if (!focusAssigned && starRatingControl.buttons.length) {
+    const fallback =
+      starRatingControl.buttons.find((button) => normalizeStarValue(button.dataset.starValue) === 0) ??
+      starRatingControl.buttons[0]
+    if (fallback instanceof HTMLButtonElement) {
+      fallback.tabIndex = 0
+    }
+  }
+
+  if (starRatingControl.input instanceof HTMLInputElement) {
+    const currentValue = starRatingControl.value === null ? '' : String(starRatingControl.value)
+    starRatingControl.input.dataset.starRatingValue = currentValue
+  }
+}
+
+function setStarRatingValue(value) {
+  const normalized = normalizeStarValue(value)
+
+  const input =
+    starRatingControl.input instanceof HTMLInputElement
+      ? starRatingControl.input
+      : elements.starRatingInput instanceof HTMLInputElement
+        ? elements.starRatingInput
+        : null
+
+  if (input) {
+    input.value = normalized === null ? '' : String(normalized)
+  }
+
+  if (!starRatingControl.initialised) {
+    starRatingControl.value = normalized
+    return
+  }
+
+  starRatingControl.value = normalized
+  starRatingControl.hoverValue = null
+  updateStarRatingDisplay()
+  clearFieldError('stars')
+}
+
+function setStarRatingHover(value) {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const normalized = normalizeStarValue(value)
+  starRatingControl.hoverValue = normalized
+  updateStarRatingDisplay()
+}
+
+function setStarRatingErrorState(hasError) {
+  const container =
+    starRatingControl.container instanceof HTMLElement
+      ? starRatingControl.container
+      : elements.starRating instanceof HTMLElement
+        ? elements.starRating
+        : null
+
+  const input =
+    starRatingControl.input instanceof HTMLInputElement
+      ? starRatingControl.input
+      : elements.starRatingInput instanceof HTMLInputElement
+        ? elements.starRatingInput
+        : null
+
+  if (container) {
+    if (hasError) {
+      container.classList.remove('border-slate-800/60')
+      container.classList.add('border-rose-500/60', 'ring-rose-500/40')
+      container.setAttribute('aria-invalid', 'true')
+    } else {
+      container.classList.remove('border-rose-500/60', 'ring-rose-500/40')
+      container.classList.add('border-slate-800/60')
+      container.removeAttribute('aria-invalid')
+    }
+  }
+
+  if (input) {
+    if (hasError) {
+      input.setAttribute('aria-invalid', 'true')
+    } else {
+      input.removeAttribute('aria-invalid')
+    }
+  }
+}
+
+function handleStarRatingKeydown(event) {
+  if (!starRatingControl.initialised) {
+    return
+  }
+
+  const { key } = event
+  const actionableKeys = ['ArrowRight', 'ArrowUp', 'ArrowLeft', 'ArrowDown', 'Home', 'End', ' ', 'Enter']
+  if (!actionableKeys.includes(key)) {
+    return
+  }
+
+  const activeElement = document.activeElement
+  const index = starRatingControl.buttons.findIndex((button) => button === activeElement)
+  if (index === -1) {
+    return
+  }
+
+  if (key === ' ' || key === 'Enter') {
+    event.preventDefault()
+    const buttonValue = normalizeStarValue(starRatingControl.buttons[index]?.dataset.starValue)
+    setStarRatingValue(buttonValue)
+    return
+  }
+
+  event.preventDefault()
+
+  let nextIndex = index
+  if (key === 'ArrowRight' || key === 'ArrowUp') {
+    nextIndex = Math.min(starRatingControl.buttons.length - 1, index + 1)
+  } else if (key === 'ArrowLeft' || key === 'ArrowDown') {
+    nextIndex = Math.max(0, index - 1)
+  } else if (key === 'Home') {
+    nextIndex = 0
+  } else if (key === 'End') {
+    nextIndex = starRatingControl.buttons.length - 1
+  }
+
+  const nextButton = starRatingControl.buttons[nextIndex]
+  if (nextButton instanceof HTMLButtonElement) {
+    nextButton.focus()
+    const buttonValue = normalizeStarValue(nextButton.dataset.starValue)
+    setStarRatingValue(buttonValue)
+    if (buttonValue !== null) {
+      setStarRatingHover(buttonValue)
+    }
+  }
+}
+
+function initializeStarRatingControl() {
+  if (starRatingControl.initialised) {
+    return
+  }
+
+  const container = elements.starRating
+  const input = elements.starRatingInput
+  if (!(container instanceof HTMLElement) || !(input instanceof HTMLInputElement)) {
+    return
+  }
+
+  const buttons = Array.from(container.querySelectorAll('[data-star-value]')).filter(
+    (node) => node instanceof HTMLButtonElement,
+  )
+
+  if (!buttons.length) {
+    return
+  }
+
+  starRatingControl.container = container
+  starRatingControl.input = input
+  starRatingControl.buttons = buttons
+  starRatingControl.initialised = true
+  starRatingControl.value = normalizeStarValue(input.value)
+  if (starRatingControl.value === null) {
+    input.value = ''
+  }
+  starRatingControl.hoverValue = null
+
+  buttons.forEach((button) => {
+    const buttonValue = normalizeStarValue(button.dataset.starValue)
+    button.dataset.starSelected = 'false'
+
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      setStarRatingValue(buttonValue)
+    })
+
+    button.addEventListener('mouseenter', () => {
+      if (buttonValue !== null) {
+        setStarRatingHover(buttonValue)
+      }
+    })
+
+    button.addEventListener('mouseleave', () => {
+      setStarRatingHover(null)
+    })
+
+    button.addEventListener('focus', () => {
+      if (buttonValue !== null) {
+        setStarRatingHover(buttonValue)
+      }
+    })
+
+    button.addEventListener('blur', () => {
+      setStarRatingHover(null)
+    })
+  })
+
+  container.addEventListener('mouseleave', () => {
+    setStarRatingHover(null)
+  })
+
+  container.addEventListener('keydown', handleStarRatingKeydown)
+
+  updateStarRatingDisplay()
+  setStarRatingErrorState(false)
+}
+
+function resetStarRatingControl() {
+  setStarRatingValue(null)
+  if (starRatingControl.initialised) {
+    starRatingControl.hoverValue = null
+    updateStarRatingDisplay()
+  }
+  setStarRatingErrorState(false)
+}
+
 function handleAddItemFormReset() {
   window.setTimeout(() => {
     resetCustomFileInputs()
+    resetStarRatingControl()
   }, 0)
 }
 
@@ -1810,6 +2147,12 @@ async function attemptBffInsert({ payload, token, userId }) {
 }
 
 async function attemptDirectInsert({ user, payload, enchantments }) {
+  const resolvedStars = Number.isFinite(Number(payload.star_level))
+    ? Number(payload.star_level)
+    : Number.isFinite(Number(payload.stars))
+      ? Number(payload.stars)
+      : 0
+
   const basePayload = {
     title: payload.name ?? payload.title ?? '',
     name: payload.name ?? payload.title ?? '',
@@ -1817,48 +2160,89 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     material_id: payload.material_id,
     rarity_id: payload.rarity_id ?? null,
     rarity: payload.rarity ?? null,
-    stars: payload.star_level ?? payload.stars ?? 0,
+    stars: resolvedStars,
+    star_level: resolvedStars,
     created_by: user.id,
     image_url: payload.image_url ?? null,
     lore_image_url: payload.lore_image_url ?? null,
     is_published: payload.is_published === true,
   }
 
+  const buildPayloadVariant = (starColumn, useLegacyFallback) => {
+    const variant = { ...basePayload }
+    delete variant.stars
+    delete variant.star_level
+
+    if (starColumn === 'star_level') {
+      variant.star_level = resolvedStars
+    } else {
+      variant.stars = resolvedStars
+    }
+
+    if (useLegacyFallback) {
+      delete variant.created_by
+      delete variant.name
+      delete variant.rarity
+      variant.owner = user.id
+    }
+
+    return variant
+  }
+
   const logPayload = { ...payload, enchantments }
 
-  let insertResult = await supabase
-    .from('items')
-    .insert([basePayload])
-    .select()
-    .single()
+  const executeInsert = async (starColumn, useLegacyFallback) =>
+    supabase.from('items').insert([buildPayloadVariant(starColumn, useLegacyFallback)]).select().single()
 
-  if (insertResult.error) {
-    const message = String(insertResult.error.message ?? '').toLowerCase()
-    if (
+  const starColumns = ['stars', 'star_level']
+  let insertResult = null
+  let lastError = null
+  let lastStatus = null
+
+  for (const starColumn of starColumns) {
+    let result = await executeInsert(starColumn, false)
+    if (!result.error && result.data) {
+      insertResult = result
+      break
+    }
+
+    lastError = result.error ?? null
+    lastStatus = result.status ?? null
+
+    const message = String(result.error?.message ?? '').toLowerCase()
+    const missingStarColumn =
+      message.includes('column "stars"') || message.includes('column items.stars')
+    const legacyColumnIssue =
       message.includes('column "created_by"') ||
       message.includes('column "name"') ||
       message.includes('column "rarity"')
-    ) {
-      const legacyPayload = { ...basePayload }
-      delete legacyPayload.created_by
-      delete legacyPayload.name
-      delete legacyPayload.rarity
-      legacyPayload.owner = user.id
-      insertResult = await supabase.from('items').insert([legacyPayload]).select().single()
+
+    if (legacyColumnIssue) {
+      result = await executeInsert(starColumn, true)
+      if (!result.error && result.data) {
+        insertResult = result
+        break
+      }
+      lastError = result.error ?? null
+      lastStatus = result.status ?? null
+    }
+
+    if (starColumn === 'stars' && !missingStarColumn) {
+      break
     }
   }
 
-  if (insertResult.error || !insertResult.data) {
+  if (!insertResult || insertResult.error || !insertResult.data) {
     logInsertAttempt('supabase', {
       payload: logPayload,
-      status: insertResult.status ?? null,
-      error: insertResult.error ?? 'insert_failed',
+      status: insertResult?.status ?? lastStatus ?? null,
+      error: insertResult?.error ?? lastError ?? 'insert_failed',
       userId: user.id,
     })
-    throw insertResult.error || new Error('Item konnte nicht gespeichert werden.')
+    throw insertResult?.error || lastError || new Error('Item konnte nicht gespeichert werden.')
   }
 
-  const createdItem = insertResult.data
+  const createdItem = normaliseItemStarFields(insertResult.data)
 
   if (enchantments.length) {
     const enchantRows = enchantments.map((entry) => ({
@@ -2352,36 +2736,63 @@ async function loadItems() {
   setAriaBusy(true)
   renderSkeleton(3)
   try {
-    let query = supabase
-      .from('items')
-      .select(
-        `id,title,lore,stars,created_at,image_url,lore_image_url,
-        item_types:item_type_id(id,label),
-        materials:material_id(id,label),
-        rarities:rarity_id(id,label,sort)`
-      )
-      .order('created_at', { ascending: false })
+    const sanitizedSearch = state.filters.search
+      ? state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
+      : ''
 
-    if (state.filters.typeId) {
-      query = query.eq('item_type_id', state.filters.typeId)
-    }
-    if (state.filters.materialId) {
-      query = query.eq('material_id', state.filters.materialId)
-    }
-    if (state.filters.rarityId) {
-      query = query.eq('rarity_id', state.filters.rarityId)
-    }
-    if (state.filters.search) {
-      const sanitized = state.filters.search.replace(/%/g, '\\%').replace(/_/g, '\\_')
-      query = query.or(`title.ilike.%${sanitized}%,lore.ilike.%${sanitized}%`)
+    const buildItemsQuery = (starColumn) => {
+      const selectColumns = [
+        'id',
+        'title',
+        'lore',
+        starColumn,
+        'created_at',
+        'image_url',
+        'lore_image_url',
+        'item_types:item_type_id(id,label)',
+        'materials:material_id(id,label)',
+        'rarities:rarity_id(id,label,sort)',
+      ].join(',')
+
+      let query = supabase
+        .from('items')
+        .select(selectColumns)
+        .order('created_at', { ascending: false })
+
+      if (state.filters.typeId) {
+        query = query.eq('item_type_id', state.filters.typeId)
+      }
+      if (state.filters.materialId) {
+        query = query.eq('material_id', state.filters.materialId)
+      }
+      if (state.filters.rarityId) {
+        query = query.eq('rarity_id', state.filters.rarityId)
+      }
+      if (sanitizedSearch) {
+        query = query.or(`title.ilike.%${sanitizedSearch}%,lore.ilike.%${sanitizedSearch}%`)
+      }
+
+      return query
     }
 
-    const { data, error } = await query
+    const { data, error } = await buildItemsQuery('stars')
     if (error) {
+      if (error?.code === '42703') {
+        const { data: fallbackData, error: fallbackError } = await buildItemsQuery('stars:star_level')
+        if (fallbackError) {
+          throw fallbackError
+        }
+        const normalisedFallback = Array.isArray(fallbackData)
+          ? fallbackData.map(normaliseItemStarFields)
+          : []
+        renderItems(normalisedFallback)
+        return
+      }
       throw error
     }
 
-    renderItems(data ?? [])
+    const normalisedItems = Array.isArray(data) ? data.map(normaliseItemStarFields) : []
+    renderItems(normalisedItems)
   } catch (error) {
     console.error(error)
     renderItemsError('Items konnten nicht geladen werden.')
