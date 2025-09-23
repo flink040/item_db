@@ -22,6 +22,10 @@ type RequestLike = {
   header(name: string): string | undefined
 }
 
+type RequestWithBody = RequestLike & {
+  text(): Promise<string>
+}
+
 const SUPABASE_AUTH_COOKIE_NAMES = new Set([
   'sb-access-token',
   'sb:token',
@@ -34,6 +38,149 @@ const BEARER_PREFIX = /^bearer\s+/i
 
 const readHeader = (req: RequestLike, name: string) =>
   req.header(name) ?? req.header(name.toLowerCase()) ?? req.header(name.toUpperCase())
+
+const JSON_ERROR_CONTEXT_RADIUS = 20
+
+const computeLineAndColumn = (source: string, index: number) => {
+  const preceding = source.slice(0, index)
+  const lines = preceding.split(/\r\n|[\n\r]/)
+  const line = lines.length
+  const column = (lines[lines.length - 1]?.length ?? 0) + 1
+  return { line, column }
+}
+
+const createJsonErrorContext = (source: string, position: number) => {
+  const start = Math.max(0, position - JSON_ERROR_CONTEXT_RADIUS)
+  const end = Math.min(source.length, position + JSON_ERROR_CONTEXT_RADIUS)
+  const fragment = source.slice(start, end)
+  return { fragment, pointer: position - start }
+}
+
+type JsonParseSuccess = {
+  success: true
+  data: unknown
+  rawText: string
+}
+
+type JsonParseFailure = {
+  success: false
+  status: number
+  body: {
+    error: string
+    message: string
+    details?: Record<string, unknown>
+  }
+}
+
+const describeJsonParseError = (
+  error: unknown,
+  rawBody: string,
+  contentType: string | undefined
+): { message: string; details?: Record<string, unknown> } => {
+  const baseMessage = 'Ungültiger JSON-Body. Bitte gültiges JSON senden.'
+  const details: Record<string, unknown> = {}
+
+  if (contentType && contentType.trim()) {
+    details.contentType = contentType
+  }
+
+  if (error instanceof SyntaxError) {
+    details.reason = error.message
+    const match = error.message.match(/position\s+(\d+)/i)
+    if (match) {
+      const position = Number.parseInt(match[1], 10)
+      if (Number.isFinite(position)) {
+        const { line, column } = computeLineAndColumn(rawBody, position)
+        const { fragment, pointer } = createJsonErrorContext(rawBody, position)
+        details.offset = position
+        details.position = position + 1
+        details.line = line
+        details.column = column
+        details.fragment = fragment
+        details.fragmentPointer = pointer
+        return {
+          message: `${baseMessage} Syntaxfehler bei Zeichen ${position + 1} (Zeile ${line}, Spalte ${column}).`,
+          details,
+        }
+      }
+    }
+    return {
+      message: `${baseMessage} ${error.message}.`,
+      details,
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    details.reason = error.message
+    return {
+      message: `${baseMessage} ${error.message}.`,
+      details,
+    }
+  }
+
+  return {
+    message: baseMessage,
+    details: Object.keys(details).length ? details : undefined,
+  }
+}
+
+const parseJsonBody = async (
+  req: RequestWithBody
+): Promise<JsonParseSuccess | JsonParseFailure> => {
+  let rawText: string
+  try {
+    rawText = await req.text()
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : 'Unbekannter Fehler beim Lesen des Request-Bodys.'
+    return {
+      success: false,
+      status: 400,
+      body: {
+        error: 'invalid_json',
+        message: 'Request-Body konnte nicht gelesen werden.',
+        details: { reason },
+      },
+    }
+  }
+
+  if (!rawText.trim()) {
+    return { success: true, data: {}, rawText }
+  }
+
+  try {
+    const parsed = JSON.parse(rawText)
+    return { success: true, data: parsed, rawText }
+  } catch (error) {
+    const contentType = readHeader(req, 'content-type')
+    const isLikelyJsonContentType =
+      typeof contentType === 'string' && /json|\+json/i.test(contentType)
+
+    const { message, details } = describeJsonParseError(error, rawText, contentType)
+    const detailObject: Record<string, unknown> = details ? { ...details } : {}
+
+    if (!isLikelyJsonContentType) {
+      detailObject.expectedContentType = 'application/json'
+      detailObject.receivedContentType =
+        typeof contentType === 'string' && contentType.trim() ? contentType : null
+    }
+
+    const body: JsonParseFailure['body'] = {
+      error: 'invalid_json',
+      message,
+    }
+
+    if (Object.keys(detailObject).length) {
+      body.details = detailObject
+    }
+
+    return {
+      success: false,
+      status: 400,
+      body,
+    }
+  }
+}
 
 const decodeCookieValue = (value: string) => {
   try {
@@ -543,6 +690,71 @@ const extractPositiveIntegerFilter = (
 // Healthcheck
 app.get('/api/health', (c) => c.json({ ok: true }))
 
+// Debug echo endpoint
+app.all('/api/debug/echo', async (c) => {
+  let rawBody = ''
+  try {
+    rawBody = await c.req.text()
+  } catch (error) {
+    const reason =
+      error instanceof Error ? error.message : 'Unbekannter Fehler beim Lesen des Request-Bodys.'
+    return c.json(
+      {
+        error: 'body_read_failed',
+        message: 'Request-Body konnte nicht gelesen werden.',
+        details: { reason },
+      },
+      400
+    )
+  }
+
+  const trimmed = rawBody.trim()
+  let parsedJson: unknown
+  let jsonParseError: { message: string; details?: Record<string, unknown> } | undefined
+
+  if (trimmed) {
+    try {
+      parsedJson = JSON.parse(rawBody)
+    } catch (error) {
+      const { message, details } = describeJsonParseError(
+        error,
+        rawBody,
+        readHeader(c.req, 'content-type')
+      )
+      jsonParseError = details ? { message, details } : { message }
+    }
+  }
+
+  const headersRecord = c.req.header() as Record<string, string>
+  const headers: Record<string, string> = {}
+  for (const [key, value] of Object.entries(headersRecord)) {
+    headers[key] = value
+  }
+
+  const url = new URL(c.req.url)
+  const responsePayload: Record<string, unknown> = {
+    ok: true,
+    method: c.req.method,
+    url: c.req.url,
+    path: url.pathname,
+    query: c.req.query(),
+    queries: c.req.queries(),
+    headers,
+    body: rawBody,
+    bodyLength: rawBody.length,
+  }
+
+  if (typeof parsedJson !== 'undefined') {
+    responsePayload.json = parsedJson
+  }
+
+  if (jsonParseError) {
+    responsePayload.jsonParseError = jsonParseError
+  }
+
+  return c.json(responsePayload)
+})
+
 // GET /api/items
 app.get('/api/items', async (c) => {
   const query = c.req.query()
@@ -622,7 +834,12 @@ app.post('/api/items', async (c) => {
     return c.json({ error: 'auth_failed', reason }, 401)
   }
 
-  const rawBody = await c.req.json().catch(() => ({}))
+  const bodyResult = await parseJsonBody(c.req)
+  if (!bodyResult.success) {
+    return c.json(bodyResult.body, bodyResult.status as any)
+  }
+
+  const rawBody = bodyResult.data
   const parsed = itemSchema.safeParse(rawBody)
 
   if (!parsed.success) {
