@@ -16,6 +16,7 @@ type FilterOption = {
   value: string
   label: string
   supabaseValue?: string
+  supabaseTextValue?: string
 }
 
 type Item = {
@@ -37,6 +38,16 @@ type Item = {
   image_url?: string | null
   item_lore_image?: string | null
   lore_image_url?: string | null
+  item_types?: ReferenceLookup | null
+  materials?: ReferenceLookup | null
+  rarities?: ReferenceLookup | null
+}
+
+type ReferenceLookup = {
+  id?: number | null
+  label?: string | null
+  code?: string | null
+  slug?: string | null
 }
 
 type Enchantment = {
@@ -439,269 +450,52 @@ const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
     .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
-type LoadedFilterOption = FilterOption & {
-  id: number
-  aliases: string[]
-}
+const fallbackTypeOptions: FilterOption[] = [
+  { value: '', label: 'Alle Typen' },
+  { value: 'helm', label: 'Helm' },
+  { value: 'brustplatte', label: 'Brustplatte' },
+  { value: 'hose', label: 'Hose' },
+  { value: 'stiefel', label: 'Stiefel' },
+  { value: 'schildkroetenpanzer', label: 'Schildkrötenpanzer' },
+  { value: 'schwert', label: 'Schwert' },
+  { value: 'spitzhacke', label: 'Spitzhacke' },
+  { value: 'schaufel', label: 'Schaufel' },
+  { value: 'axt', label: 'Axt' },
+  { value: 'hacke', label: 'Hacke' },
+  { value: 'streitkolben', label: 'Streitkolben' },
+  { value: 'bogen', label: 'Bogen' },
+  { value: 'armbrust', label: 'Armbrust' },
+  { value: 'dreizack', label: 'Dreizack' },
+  { value: 'schild', label: 'Schild' },
+  { value: 'totem_der_unsterblichkeit', label: 'Totem der Unsterblichkeit' },
+  { value: 'angel', label: 'Angel' },
+  { value: 'elytra', label: 'Elytra' },
+  { value: 'sonstiges', label: 'Sonstiges' }
+]
 
-type LoadedRarityOption = LoadedFilterOption & {
-  code: string
-}
+const fallbackMaterialOptions: FilterOption[] = [
+  { value: '', label: 'Alle Materialien' },
+  { value: 'netherite', label: 'Netherit' },
+  { value: 'diamond', label: 'Diamant' },
+  { value: 'gold', label: 'Gold' },
+  { value: 'iron', label: 'Eisen' },
+  { value: 'leather', label: 'Leder' },
+  { value: 'wood', label: 'Holz' },
+  { value: 'stone', label: 'Stein' },
+  { value: 'other', label: 'Sonstiges' }
+]
 
-type SupabaseConfig = {
-  url: string | null
-  anonKey: string | null
-}
+const fallbackRarityOptions: FilterOption[] = [
+  { value: '', label: 'Alle Seltenheiten' },
+  { value: 'selten', label: 'Selten' },
+  { value: 'episch', label: 'Episch' },
+  { value: 'unbezahlbar', label: 'Unbezahlbar' },
+  { value: 'legendär', label: 'Legendär' },
+  { value: 'jackpot', label: 'Jackpot' },
+  { value: 'mega_jackpot', label: 'Mega Jackpot' }
+]
+const createFilterLabelMap = (options: FilterOption[]) =>
 
-declare global {
-  interface Window {
-    __ENV?: {
-      VITE_SUPABASE_URL?: string
-      VITE_SUPABASE_ANON_KEY?: string
-    }
-  }
-}
-
-const COLLATOR = new Intl.Collator('de', { sensitivity: 'base' })
-
-const normalizePositiveInteger = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
-    return Math.trunc(value)
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      return null
-    }
-
-    const parsed = Number.parseInt(trimmed, 10)
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : null
-  }
-
-  return null
-}
-
-const normalizeLabel = (value: unknown, fallback: string): string => {
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (trimmed) {
-      return trimmed
-    }
-  }
-
-  return fallback
-}
-
-const canonicalizeValue = (value: string) =>
-  value
-    .trim()
-    .toLowerCase()
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '')
-
-const createAliasCandidates = (...values: unknown[]): string[] => {
-  const aliases = new Set<string>()
-
-  const register = (input: unknown): void => {
-    if (Array.isArray(input)) {
-      input.forEach(register)
-      return
-    }
-
-    if (typeof input === 'number' && Number.isFinite(input)) {
-      aliases.add(String(Math.trunc(input)))
-      return
-    }
-
-    if (typeof input !== 'string') {
-      return
-    }
-
-    const trimmed = input.trim()
-    if (!trimmed) {
-      return
-    }
-
-    aliases.add(trimmed)
-
-    const lower = trimmed.toLowerCase()
-    aliases.add(lower)
-
-    const normalized = lower.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
-    if (normalized) {
-      aliases.add(normalized)
-
-      const underscore = normalized
-        .replace(/[^a-z0-9]+/g, '_')
-        .replace(/_+/g, '_')
-        .replace(/^_|_$/g, '')
-      if (underscore) {
-        aliases.add(underscore)
-      }
-
-      const hyphen = normalized
-        .replace(/[^a-z0-9]+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-+|-+$/g, '')
-      if (hyphen) {
-        aliases.add(hyphen)
-      }
-    }
-  }
-
-  values.forEach(register)
-
-  return Array.from(aliases)
-}
-
-const parseReferenceOptions = (
-  data: unknown,
-  fallbackLabel: (id: number) => string
-): LoadedFilterOption[] => {
-  if (!Array.isArray(data)) {
-    return []
-  }
-
-  const parsed: Array<{ option: LoadedFilterOption; sortOrder: number | null }> = []
-
-  data.forEach((entry) => {
-    if (!entry || typeof entry !== 'object') {
-      return
-    }
-
-    const candidate = entry as Record<string, unknown>
-    const id = normalizePositiveInteger(candidate['id'])
-    if (id === null) {
-      return
-    }
-
-    const label = normalizeLabel(
-      candidate['label'] ?? candidate['name'] ?? candidate['title'],
-      fallbackLabel(id)
-    )
-
-    const option: LoadedFilterOption = {
-      id,
-      label,
-      value: String(id),
-      supabaseValue: String(id),
-      aliases: createAliasCandidates([
-        id,
-        label,
-        candidate['value'],
-        candidate['code'],
-        candidate['slug'],
-        candidate['key'],
-        candidate['identifier'],
-        candidate['name'],
-        candidate['title'],
-      ]),
-    }
-
-    const sortOrder = normalizePositiveInteger(
-      candidate['sort'] ?? candidate['order'] ?? candidate['position'] ?? candidate['index'] ?? null
-    )
-
-    parsed.push({ option, sortOrder })
-  })
-
-  return parsed
-    .sort((a, b) => {
-      if (a.sortOrder !== null && b.sortOrder !== null && a.sortOrder !== b.sortOrder) {
-        return a.sortOrder - b.sortOrder
-      }
-      return COLLATOR.compare(a.option.label, b.option.label)
-    })
-    .map((entry) => entry.option)
-}
-
-const parseRarityOptions = (data: unknown): LoadedRarityOption[] => {
-  if (!Array.isArray(data)) {
-    return []
-  }
-
-  const parsed: Array<{ option: LoadedRarityOption; sortOrder: number | null }> = []
-
-  data.forEach((entry) => {
-    if (!entry || typeof entry !== 'object') {
-      return
-    }
-
-    const candidate = entry as Record<string, unknown>
-    const id = normalizePositiveInteger(candidate['id'])
-    if (id === null) {
-      return
-    }
-
-    const label = normalizeLabel(
-      candidate['label'] ?? candidate['name'] ?? candidate['title'],
-      `Seltenheit #${id}`
-    )
-
-    const codeCandidates = [
-      candidate['value'],
-      candidate['code'],
-      candidate['key'],
-      candidate['identifier'],
-      candidate['slug'],
-      candidate['name'],
-      candidate['title'],
-    ]
-
-    let canonicalCode = ''
-    for (const raw of codeCandidates) {
-      if (typeof raw !== 'string') {
-        continue
-      }
-      const normalized = canonicalizeValue(raw)
-      if (normalized) {
-        canonicalCode = normalized
-        break
-      }
-    }
-
-    if (!canonicalCode) {
-      const fallbackCode = canonicalizeValue(label)
-      canonicalCode = fallbackCode || `rarity_${id}`
-    }
-
-    const option: LoadedRarityOption = {
-      id,
-      label,
-      value: canonicalCode,
-      code: canonicalCode,
-      supabaseValue: String(id),
-      aliases: createAliasCandidates([
-        id,
-        label,
-        canonicalCode,
-        `rarity_${id}`,
-        codeCandidates,
-      ]),
-    }
-
-    const sortOrder = normalizePositiveInteger(
-      candidate['sort'] ?? candidate['order'] ?? candidate['position'] ?? candidate['index'] ?? null
-    )
-
-    parsed.push({ option, sortOrder })
-  })
-
-  return parsed
-    .sort((a, b) => {
-      if (a.sortOrder !== null && b.sortOrder !== null && a.sortOrder !== b.sortOrder) {
-        return a.sortOrder - b.sortOrder
-      }
-      return COLLATOR.compare(a.option.label, b.option.label)
-    })
-    .map((entry) => entry.option)
-}
-
-const createOptionLabelMap = <T extends LoadedFilterOption>(options: T[]) =>
   options.reduce<Record<string, string>>((acc, option) => {
     const register = (candidate: unknown) => {
       if (typeof candidate === 'number' && Number.isFinite(candidate)) {
@@ -716,107 +510,119 @@ const createOptionLabelMap = <T extends LoadedFilterOption>(options: T[]) =>
 
     register(option.value)
     register(option.supabaseValue)
-    register(option.id)
-    option.aliases.forEach(register)
+    register(option.supabaseTextValue)
+
 
     return acc
   }, {})
 
-const createOptionLookupMap = <T extends LoadedFilterOption>(options: T[]) => {
-  const map = new Map<string, T>()
 
-  options.forEach((option) => {
-    const aliases = createAliasCandidates(option.value, option.supabaseValue, option.id, option.aliases)
-    aliases.forEach((alias) => {
-      const key = alias.trim().toLowerCase()
-      if (!key || map.has(key)) {
-        return
+const normalizeStringValue = (input: unknown) =>
+  typeof input === 'string' ? input.trim() : ''
+
+const createReferenceOptionsFromRecords = (
+  entries: unknown[],
+  fallbackLabelPrefix: string
+) => {
+  if (!Array.isArray(entries)) {
+    return []
+  }
+
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
       }
-      map.set(key, option)
+
+      const record = entry as Record<string, unknown>
+      const id = Number(record.id)
+      if (!Number.isInteger(id) || id <= 0) {
+        return null
+      }
+
+      const labelCandidate = normalizeStringValue(record.label)
+      const label = labelCandidate || `${fallbackLabelPrefix} #${id}`
+
+      const rawValueCandidates = [
+        normalizeStringValue(record.slug),
+        normalizeStringValue(record.value),
+        normalizeStringValue(record.code)
+      ]
+
+      const resolvedValue = rawValueCandidates.find((candidate) => candidate) ?? String(id)
+
+      const option: FilterOption = {
+        value: resolvedValue,
+        label,
+        supabaseValue: String(id)
+      }
+
+      if (resolvedValue && resolvedValue !== option.supabaseValue) {
+        option.supabaseTextValue = resolvedValue
+      }
+
+      return option
     })
-  })
-
-  return map
+    .filter((option): option is FilterOption => option !== null)
+    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
-const resolveOptionFromCandidates = <T extends LoadedFilterOption>(
-  lookup: Map<string, T>,
-  ...candidates: unknown[]
-): T | null => {
-  for (const candidate of candidates) {
-    const aliases = createAliasCandidates(candidate)
-    for (const alias of aliases) {
-      const key = alias.trim().toLowerCase()
-      if (!key) {
-        continue
-      }
-      const option = lookup.get(key)
-      if (option) {
-        return option
-      }
-    }
+const createRarityOptionsFromRecords = (entries: unknown[]) => {
+  if (!Array.isArray(entries)) {
+    return []
   }
 
-  return null
-}
-
-const getSupabaseConfig = (): SupabaseConfig => {
-  let url: string | null = null
-  let anonKey: string | null = null
-
-  if (typeof import.meta !== 'undefined' && import.meta.env) {
-    const envUrl = import.meta.env.VITE_SUPABASE_URL
-    const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
-
-    if (typeof envUrl === 'string' && envUrl.trim()) {
-      url = envUrl.trim()
-    }
-
-    if (typeof envAnonKey === 'string' && envAnonKey.trim()) {
-      anonKey = envAnonKey.trim()
-    }
-  }
-
-  if (!url || !anonKey) {
-    const fallbackEnv = typeof window !== 'undefined' ? window.__ENV : undefined
-    if (!url && fallbackEnv && typeof fallbackEnv.VITE_SUPABASE_URL === 'string') {
-      const trimmed = fallbackEnv.VITE_SUPABASE_URL.trim()
-      if (trimmed) {
-        url = trimmed
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
       }
-    }
 
-    if (!anonKey && fallbackEnv && typeof fallbackEnv.VITE_SUPABASE_ANON_KEY === 'string') {
-      const trimmed = fallbackEnv.VITE_SUPABASE_ANON_KEY.trim()
-      if (trimmed) {
-        anonKey = trimmed
+      const record = entry as Record<string, unknown>
+      const id = Number(record.id)
+      if (!Number.isInteger(id) || id <= 0) {
+        return null
       }
-    }
-  }
 
-  return {
-    url: url ?? null,
-    anonKey: anonKey ?? null,
-  }
+      const labelCandidate = normalizeStringValue(record.label)
+      const label = labelCandidate || `Seltenheit #${id}`
+
+      const code = normalizeStringValue(record.code)
+      const slug = normalizeStringValue(record.slug)
+      const valueCandidate = slug || code || normalizeStringValue(record.value)
+      const resolvedValue = valueCandidate || String(id)
+
+      const option: FilterOption = {
+        value: resolvedValue,
+        label,
+        supabaseValue: String(id)
+      }
+
+      if (code) {
+        option.supabaseTextValue = code
+      } else if (resolvedValue && resolvedValue !== option.supabaseValue) {
+        option.supabaseTextValue = resolvedValue
+      }
+
+      return option
+    })
+    .filter((option): option is FilterOption => option !== null)
+    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
 const rarityBadgeClasses: Record<string, string> = {
-  gewöhnlich: 'border border-slate-700/70 bg-slate-800/60 text-slate-200',
-  common: 'border border-slate-700/70 bg-slate-800/60 text-slate-200',
-  ungewöhnlich: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
-  uncommon: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  common: 'border border-slate-700/60 bg-slate-900/40 text-slate-300',
   selten: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
   rare: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
   episch: 'border border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
   epic: 'border border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
+  unbezahlbar: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
+  priceless: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
   legendär: 'border border-purple-500/40 bg-purple-500/10 text-purple-300',
   legendary: 'border border-purple-500/40 bg-purple-500/10 text-purple-300',
-  mythisch: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
-  mythic: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
-  unbezahlbar: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
-  exotic: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
   jackpot: 'border border-pink-500/40 bg-pink-500/10 text-pink-200',
-  mega_jackpot: 'border border-rose-500/40 bg-rose-500/10 text-rose-200'
+  mega_jackpot: 'border border-rose-500/40 bg-rose-500/10 text-rose-200',
+  'mega-jackpot': 'border border-rose-500/40 bg-rose-500/10 text-rose-200'
 }
 
 const MAX_RECENT_SEARCHES = 5
@@ -947,29 +753,23 @@ const sanitizeSearchValue = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim()
 
-const resolveSupabaseFilterValue = (
-  value: string,
-  options: FilterOption[]
-): string | null => {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return null
+type SupabaseFilterResolution = {
+  id: string | null
+  text: string | null
+}
+
+const extractSupabaseNumericCandidate = (value: unknown): string | null => {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return String(value)
   }
 
-  const selectedOption = options.find((option) => option.value === trimmed)
-  const candidateValues: string[] = []
-
-  if (selectedOption?.supabaseValue) {
-    const supabaseCandidate = selectedOption.supabaseValue.trim()
-    if (supabaseCandidate) {
-      candidateValues.push(supabaseCandidate)
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
     }
-  }
 
-  candidateValues.push(trimmed)
-
-  for (const candidate of candidateValues) {
-    const parsed = Number.parseInt(candidate, 10)
+    const parsed = Number.parseInt(trimmed, 10)
     if (Number.isInteger(parsed) && parsed > 0) {
       return String(parsed)
     }
@@ -978,7 +778,158 @@ const resolveSupabaseFilterValue = (
   return null
 }
 
+const resolveSupabaseFilterValue = (
+  value: string,
+  options: FilterOption[]
+): SupabaseFilterResolution => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return { id: null, text: null }
+  }
+
+  const selectedOption = options.find((option) => option.value === trimmed)
+
+  const numericFromOption = extractSupabaseNumericCandidate(selectedOption?.supabaseValue)
+  const numericValue = numericFromOption ?? extractSupabaseNumericCandidate(trimmed)
+
+  const textFromOption = (() => {
+    const candidate = selectedOption?.supabaseTextValue
+    if (typeof candidate === 'string') {
+      const normalized = candidate.trim()
+      if (normalized) {
+        return normalized
+      }
+    }
+    return null
+  })()
+
+  let textValue: string | null = null
+  if (textFromOption) {
+    textValue = textFromOption
+  } else if (!numericValue) {
+    textValue = trimmed
+  }
+
+  return { id: numericValue, text: textValue }
+}
+
+const resolveNumericOptionValue = (value: string, options: FilterOption[]) => {
+  const { id } = resolveSupabaseFilterValue(value, options)
+  if (id) {
+    const parsedSupabaseValue = Number.parseInt(id, 10)
+    if (Number.isInteger(parsedSupabaseValue) && parsedSupabaseValue > 0) {
+      return parsedSupabaseValue
+    }
+  }
+
+  const parsedValue = Number.parseInt(value, 10)
+  if (Number.isInteger(parsedValue) && parsedValue > 0) {
+    return parsedValue
+  }
+
+  return null
+}
+
+function getRarityMeta(
+  values: Array<string | null | undefined>,
+  rarityId: number | null | undefined,
+  options: FilterOption[],
+  rarityLabelMap: Record<string, string>
+) {
+  const fallback = {
+    label: 'Unbekannt',
+    badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
+  }
+
+  const resolveBadgeClass = (option: FilterOption | null | undefined, candidate?: string) => {
+    if (option) {
+      if (option.value && rarityBadgeClasses[option.value]) {
+        return rarityBadgeClasses[option.value]
+      }
+      if (option.supabaseTextValue && rarityBadgeClasses[option.supabaseTextValue]) {
+        return rarityBadgeClasses[option.supabaseTextValue]
+      }
+    }
+
+    if (candidate && rarityBadgeClasses[candidate]) {
+      return rarityBadgeClasses[candidate]
+    }
+
+    return fallback.badgeClass
+  }
+
+  const normalizedValues = values
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0)
+
+  const findOption = (candidate: string) => {
+    const lowerCandidate = candidate.toLowerCase()
+    return options.find((option) => {
+      if (option.value.trim().toLowerCase() === lowerCandidate) {
+        return true
+      }
+      if (option.supabaseValue && option.supabaseValue.trim() === candidate) {
+        return true
+      }
+      if (
+        option.supabaseTextValue &&
+        option.supabaseTextValue.trim().toLowerCase() === lowerCandidate
+      ) {
+        return true
+      }
+      return option.label.trim().toLowerCase() === lowerCandidate
+    })
+  }
+
+  for (const candidate of normalizedValues) {
+    const option = findOption(candidate)
+    if (option) {
+      return {
+        label: option.label,
+        badgeClass: resolveBadgeClass(option)
+      }
+    }
+
+    const mappedLabel = rarityLabelMap[candidate]
+    if (mappedLabel) {
+      return {
+        label: mappedLabel,
+        badgeClass: resolveBadgeClass(null, candidate)
+      }
+    }
+  }
+
+  if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
+    const rarityKey = String(rarityId)
+    const option = options.find(
+      (entry) => entry.supabaseValue === rarityKey || entry.value === rarityKey
+    )
+
+    if (option) {
+      return {
+        label: option.label,
+        badgeClass: resolveBadgeClass(option)
+      }
+    }
+
+    const mappedLabel = rarityLabelMap[rarityKey]
+    if (mappedLabel) {
+      return { label: mappedLabel, badgeClass: fallback.badgeClass }
+    }
+
+    return {
+      label: `Seltenheit #${rarityKey}`,
+      badgeClass: fallback.badgeClass
+    }
+  }
+
+  return fallback
+}
+
 export default function App() {
+  const [typeOptions, setTypeOptions] = useState<FilterOption[]>(fallbackTypeOptions)
+  const [materialOptions, setMaterialOptions] = useState<FilterOption[]>(fallbackMaterialOptions)
+  const [rarityOptions, setRarityOptions] = useState<FilterOption[]>(fallbackRarityOptions)
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -996,15 +947,66 @@ export default function App() {
   )
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
-  const [itemTypeOptionsState, setItemTypeOptionsState] = useState<LoadedFilterOption[]>([])
-  const [materialOptionsState, setMaterialOptionsState] = useState<LoadedFilterOption[]>([])
-  const [rarityOptionsState, setRarityOptionsState] = useState<LoadedRarityOption[]>([])
-  const [referenceLoading, setReferenceLoading] = useState(false)
-  const [referenceError, setReferenceError] = useState<string | null>(null)
-  const [referenceLoaded, setReferenceLoaded] = useState(false)
-
+  const typeLabelMap = useMemo(() => createFilterLabelMap(typeOptions), [typeOptions])
+  const materialLabelMap = useMemo(
+    () => createFilterLabelMap(materialOptions),
+    [materialOptions]
+  )
+  const rarityLabelMap = useMemo(() => createFilterLabelMap(rarityOptions), [rarityOptions])
   const abortControllerRef = useRef<AbortController | null>(null)
   const metadataAbortControllerRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      return
+    }
+
+    let isCancelled = false
+
+    const loadReferenceData = async () => {
+      try {
+        const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
+          supabase.from('item_types').select('*').order('label', { ascending: true }),
+          supabase.from('materials').select('*').order('label', { ascending: true }),
+          supabase.from('rarities').select('*').order('label', { ascending: true })
+        ])
+
+        if (isCancelled) {
+          return
+        }
+
+        if (!itemTypesResult.error && Array.isArray(itemTypesResult.data)) {
+          const options = createReferenceOptionsFromRecords(itemTypesResult.data, 'Typ')
+          if (options.length > 0) {
+            setTypeOptions([{ value: '', label: 'Alle Typen' }, ...options])
+          }
+        }
+
+        if (!materialsResult.error && Array.isArray(materialsResult.data)) {
+          const options = createReferenceOptionsFromRecords(materialsResult.data, 'Material')
+          if (options.length > 0) {
+            setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...options])
+          }
+        }
+
+        if (!raritiesResult.error && Array.isArray(raritiesResult.data)) {
+          const options = createRarityOptionsFromRecords(raritiesResult.data)
+          if (options.length > 0) {
+            setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...options])
+          }
+        }
+      } catch (error) {
+        console.warn('Referenzdaten konnten nicht geladen werden.', error)
+      }
+    }
+
+    void loadReferenceData()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   const buildFetchParams = useCallback(
     (overrides: Partial<FetchItemsParams> = {}): FetchItemsParams => ({
@@ -1311,24 +1313,21 @@ export default function App() {
         params.set('search', sanitizedSearch)
       }
 
-      const typeFilterValue = resolveSupabaseFilterValue(type, itemTypeOptionsState)
-      if (typeFilterValue) {
-        params.set('item_type_id', typeFilterValue)
+      const typeResolution = resolveSupabaseFilterValue(type, typeOptions)
+      if (typeResolution.id) {
+        params.set('item_type_id', typeResolution.id)
       }
 
-      const materialFilterValue = resolveSupabaseFilterValue(material, materialOptionsState)
-      if (materialFilterValue) {
-        params.set('material_id', materialFilterValue)
+      const materialResolution = resolveSupabaseFilterValue(material, materialOptions)
+      if (materialResolution.id) {
+        params.set('material_id', materialResolution.id)
       }
 
-      const rarityFilterValue = resolveSupabaseFilterValue(rarity, rarityOptionsState)
-      if (rarityFilterValue) {
-        params.set('rarity_id', rarityFilterValue)
-      } else {
-        const normalizedRarity = rarity.trim()
-        if (normalizedRarity) {
-          params.set('rarity', normalizedRarity)
-        }
+      const rarityResolution = resolveSupabaseFilterValue(rarity, rarityOptions)
+      if (rarityResolution.id) {
+        params.set('rarity_id', rarityResolution.id)
+      } else if (rarityResolution.text) {
+        params.set('rarity', rarityResolution.text)
       }
 
       abortControllerRef.current?.abort()
@@ -1489,7 +1488,61 @@ export default function App() {
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = sanitizeSearchValue(search).toLowerCase()
-    const normalizedRarityFilter = rarityFilter.trim().toLowerCase()
+    const typeResolution = resolveSupabaseFilterValue(typeFilter, typeOptions)
+    const materialResolution = resolveSupabaseFilterValue(materialFilter, materialOptions)
+    const rarityResolution = resolveSupabaseFilterValue(rarityFilter, rarityOptions)
+
+    const matchesResolution = (
+      resolution: SupabaseFilterResolution,
+      numericCandidates: Array<number | string | null | undefined>,
+      stringCandidates: Array<string | null | undefined>,
+      labelMap: Record<string, string>
+    ) => {
+      if (resolution.id) {
+        for (const candidate of numericCandidates) {
+          const numericCandidate = extractSupabaseNumericCandidate(candidate)
+          if (numericCandidate && numericCandidate === resolution.id) {
+            return true
+          }
+        }
+        return false
+      }
+
+      if (resolution.text) {
+        const normalizedFilter = resolution.text.trim().toLowerCase()
+        if (!normalizedFilter) {
+          return true
+        }
+
+        const candidates: string[] = []
+
+        for (const candidate of stringCandidates) {
+          if (typeof candidate === 'string') {
+            const normalized = candidate.trim()
+            if (normalized) {
+              candidates.push(normalized.toLowerCase())
+            }
+          }
+        }
+
+        for (const candidate of numericCandidates) {
+          const numericCandidate = extractSupabaseNumericCandidate(candidate)
+          if (numericCandidate) {
+            const mapped = labelMap[numericCandidate]
+            if (mapped) {
+              const normalizedMapped = mapped.trim().toLowerCase()
+              if (normalizedMapped) {
+                candidates.push(normalizedMapped)
+              }
+            }
+          }
+        }
+
+        return candidates.some((candidate) => candidate === normalizedFilter)
+      }
+
+      return true
+    }
 
     return items
       .filter((item) => {
@@ -1498,45 +1551,58 @@ export default function App() {
           [item.name, item.slug, item.description ?? ''].some((field) =>
             field?.toLowerCase().includes(normalizedSearch)
           )
-
-        const typeOption = resolveOptionFromCandidates(
-          itemTypeLookupMap,
+        const typeNumericCandidates = [
           item.item_type_id,
           item.itemTypeId,
-          item.type
+          item.item_types?.id
+        ]
+        const typeStringCandidates = [
+          item.type,
+          item.item_types?.label,
+          item.item_types?.code,
+          item.item_types?.slug
+        ]
+        const matchesType = matchesResolution(
+          typeResolution,
+          typeNumericCandidates,
+          typeStringCandidates,
+          typeLabelMap
         )
-        const itemTypeValue = typeOption?.value ??
-          (typeof item.item_type_id === 'number' ? String(item.item_type_id) : '')
-        const matchesType = !typeFilter || itemTypeValue === typeFilter
 
-        const materialOption = resolveOptionFromCandidates(
-          materialLookupMap,
+        const materialNumericCandidates = [
           item.material_id,
           item.materialId,
-          item.material
+          item.materials?.id
+        ]
+        const materialStringCandidates = [
+          item.material,
+          item.materials?.label,
+          item.materials?.code,
+          item.materials?.slug
+        ]
+        const matchesMaterial = matchesResolution(
+          materialResolution,
+          materialNumericCandidates,
+          materialStringCandidates,
+          materialLabelMap
         )
-        const itemMaterialValue = materialOption?.value ??
-          (typeof item.material_id === 'number' ? String(item.material_id) : '')
-        const matchesMaterial = !materialFilter || itemMaterialValue === materialFilter
 
-        let matchesRarity = true
-        if (normalizedRarityFilter) {
-          const rarityOption = resolveOptionFromCandidates(
-            rarityLookupMap,
-            item.rarity_id,
-            item.rarityId,
-            item.rarity
-          )
-
-          if (rarityOption) {
-            matchesRarity = rarityOption.value === rarityFilter
-          } else {
-            const rarityAliases = createAliasCandidates(item.rarity)
-            matchesRarity = rarityAliases.some(
-              (alias) => alias.trim().toLowerCase() === normalizedRarityFilter
-            )
-          }
-        }
+        const rarityNumericCandidates = [
+          item.rarity_id,
+          item.rarityId,
+          item.rarities?.id
+        ]
+        const rarityStringCandidates = [
+          item.rarity,
+          item.rarities?.label,
+          item.rarities?.code
+        ]
+        const matchesRarity = matchesResolution(
+          rarityResolution,
+          rarityNumericCandidates,
+          rarityStringCandidates,
+          rarityLabelMap
+        )
 
         return matchesSearch && matchesType && matchesMaterial && matchesRarity
       })
@@ -1547,9 +1613,12 @@ export default function App() {
     typeFilter,
     materialFilter,
     rarityFilter,
-    itemTypeLookupMap,
-    materialLookupMap,
-    rarityLookupMap,
+    typeOptions,
+    materialOptions,
+    rarityOptions,
+    typeLabelMap,
+    materialLabelMap,
+    rarityLabelMap
   ])
 
   const normalizedSearchTerm = sanitizeSearchValue(search)
@@ -1947,11 +2016,10 @@ export default function App() {
                       <ItemCard
                         key={item.id}
                         item={item}
-                        itemTypeLookupMap={itemTypeLookupMap}
-                        materialLookupMap={materialLookupMap}
-                        itemTypeLabelMap={itemTypeLabelMap}
+                        typeLabelMap={typeLabelMap}
                         materialLabelMap={materialLabelMap}
-                        resolveRarityMeta={resolveRarityMeta}
+                        rarityLabelMap={rarityLabelMap}
+                        rarityOptions={rarityOptions}
                       />
                     ))}
                   </div>
@@ -3156,33 +3224,35 @@ function ItemModal({
     </div>
   )
 }
-type ItemCardProps = {
-  item: Item
-  itemTypeLookupMap: Map<string, LoadedFilterOption>
-  materialLookupMap: Map<string, LoadedFilterOption>
-  itemTypeLabelMap: Record<string, string>
-  materialLabelMap: Record<string, string>
-  resolveRarityMeta: (value?: string | null, rarityId?: number | null) => {
-    label: string
-    badgeClass: string
-  }
-}
-
 function ItemCard({
   item,
-  itemTypeLookupMap,
-  materialLookupMap,
-  itemTypeLabelMap,
+  typeLabelMap,
   materialLabelMap,
-  resolveRarityMeta,
-}: ItemCardProps) {
+  rarityLabelMap,
+  rarityOptions
+}: {
+  item: Item
+  typeLabelMap: Record<string, string>
+  materialLabelMap: Record<string, string>
+  rarityLabelMap: Record<string, string>
+  rarityOptions: FilterOption[]
+}) {
   const rarityId =
     typeof item.rarity_id === 'number'
       ? item.rarity_id
       : typeof item.rarityId === 'number'
         ? item.rarityId
-        : null
-  const { label, badgeClass } = resolveRarityMeta(item.rarity ?? undefined, rarityId)
+        : typeof item.rarities?.id === 'number'
+          ? item.rarities?.id ?? null
+          : null
+  const rarityValues = [item.rarity, item.rarities?.code, item.rarities?.label, item.rarities?.slug]
+  const { label, badgeClass } = getRarityMeta(
+    rarityValues,
+    rarityId,
+    rarityOptions,
+    rarityLabelMap
+  )
+
 
   const itemImageUrl = (() => {
     const candidates = [item.item_image, item.image_url]
@@ -3198,68 +3268,76 @@ function ItemCard({
     return null
   })()
 
-  const resolveFilterKey = (value: unknown, fallback?: unknown) => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return String(value)
-    }
-
-    if (typeof value === 'string') {
-      const normalized = value.trim()
-      if (normalized) {
-        return normalized
+  const resolveAttributeLabel = (
+    numericCandidates: Array<number | string | null | undefined>,
+    stringCandidates: Array<string | null | undefined>,
+    labelMap: Record<string, string>,
+    fallbackPrefix: string,
+    unknownFallback: string
+  ) => {
+    for (const candidate of numericCandidates) {
+      const numericCandidate = extractSupabaseNumericCandidate(candidate)
+      if (numericCandidate) {
+        const mapped = labelMap[numericCandidate]
+        if (mapped) {
+          return mapped
+        }
       }
     }
 
-    if (typeof fallback === 'number' && Number.isFinite(fallback)) {
-      return String(fallback)
-    }
+    for (const candidate of stringCandidates) {
+      if (typeof candidate === 'string') {
+        const normalized = candidate.trim()
+        if (!normalized) {
+          continue
+        }
 
-    if (typeof fallback === 'string') {
-      const normalizedFallback = fallback.trim()
-      if (normalizedFallback) {
-        return normalizedFallback
+        if (labelMap[normalized]) {
+          return labelMap[normalized]
+        }
       }
     }
 
-    return ''
+    for (const candidate of stringCandidates) {
+      if (typeof candidate === 'string') {
+        const normalized = candidate.trim()
+        if (normalized) {
+          return normalized
+        }
+      }
+    }
+
+    for (const candidate of numericCandidates) {
+      const numericCandidate = extractSupabaseNumericCandidate(candidate)
+      if (numericCandidate) {
+        return `${fallbackPrefix} #${numericCandidate}`
+      }
+    }
+
+    return unknownFallback
   }
 
-  const resolveLabelFromMap = (
-    map: Record<string, string>,
-    ...candidates: unknown[]
-  ): string | null => {
-    const aliases = createAliasCandidates(candidates)
-    for (const alias of aliases) {
-      if (map[alias]) {
-        return map[alias]
-      }
-    }
-    return null
-  }
-
-  const typeOption = resolveOptionFromCandidates(
-    itemTypeLookupMap,
-    item.item_type_id,
-    item.itemTypeId,
-    item.type
+  const typeLabel = resolveAttributeLabel(
+    [item.item_type_id, item.itemTypeId, item.item_types?.id],
+    [item.type, item.item_types?.label, item.item_types?.code, item.item_types?.slug],
+    typeLabelMap,
+    'Typ',
+    'Unbekannter Typ'
   )
-  const typeKey = resolveFilterKey(item.item_type_id, item.type ?? item.itemTypeId)
-  const typeLabel =
-    typeOption?.label ??
-    resolveLabelFromMap(itemTypeLabelMap, item.item_type_id, item.itemTypeId, item.type) ??
-    (typeKey ? `Typ #${typeKey}` : 'Unbekannter Typ')
 
-  const materialOption = resolveOptionFromCandidates(
-    materialLookupMap,
-    item.material_id,
-    item.materialId,
-    item.material
+  const materialLabel = resolveAttributeLabel(
+    [item.material_id, item.materialId, item.materials?.id],
+    [
+      item.material,
+      item.materials?.label,
+      item.materials?.code,
+      item.materials?.slug
+    ],
+    materialLabelMap,
+    'Material',
+    'Unbekanntes Material'
   )
-  const materialKey = resolveFilterKey(item.material_id, item.material ?? item.materialId)
-  const materialLabel =
-    materialOption?.label ??
-    resolveLabelFromMap(materialLabelMap, item.material_id, item.materialId, item.material) ??
-    (materialKey ? `Material #${materialKey}` : 'Unbekanntes Material')
+
   const starLevel =
     typeof item.star_level === 'number'
       ? Math.max(0, Math.min(MAX_STAR_LEVEL, item.star_level))
