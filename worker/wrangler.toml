@@ -1,6 +1,9 @@
 name = "op-item-db-api"
 main = "src/index.ts"
 compatibility_date = "2025-07-18"
+routes = [
+  { pattern = "op-item-db.com/api/*", zone_name = "op-item-db.com" }
+]
 
 [vars]
 SUPABASE_URL = "https://pgrtmdxmewsxixzubqpr.supabase.co"
