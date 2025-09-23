@@ -714,8 +714,7 @@
     </div>
     <div
       id="moderation-modal"
-
-      class="fixed inset-0 z-[60] hidden flex items-center justify-center bg-slate-950/80 p-6"
+      class="fixed inset-0 z-[60] hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
       role="dialog"
       aria-modal="true"
       aria-labelledby="moderation-modal-title"
@@ -724,55 +723,92 @@
     >
       <div class="absolute inset-0" data-moderation-overlay></div>
       <div
-        class="relative z-10 w-full max-w-lg rounded-2xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
+        class="relative z-10 w-full max-w-3xl rounded-2xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
         role="document"
       >
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <h2 id="moderation-modal-title" class="text-xl font-semibold text-slate-50">Moderation</h2>
-            <p class="mt-1 text-sm text-slate-400">
-              Dieser Bereich ist nur für Moderator:innen und Admins sichtbar. Weitere Inhalte folgen.
-            </p>
-          </div>
-          <button
-            type="button"
-            class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-            data-moderation-close
-            aria-label="Moderationsmodal schließen"
-          >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="1.5"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              class="h-5 w-5"
-              aria-hidden="true"
+        <div class="flex flex-col gap-6">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h2 id="moderation-modal-title" class="text-xl font-semibold text-slate-50">Moderation</h2>
+              <p class="mt-1 text-sm text-slate-400">
+                Unveröffentlichte Items prüfen und freigeben/ablehnen.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+              data-moderation-close
+              aria-label="Moderationsmodal schließen"
             >
-              <path d="m6 6 12 12" />
-              <path d="m18 6-12 12" />
-            </svg>
-          </button>
-        </div>
-        <div class="mt-6 space-y-5 text-sm text-slate-400">
-          <p>
-            Hier entsteht in Kürze das Moderations-Dashboard. Nutze diesen Platzhalter, um erste Abläufe zu planen oder mit dem
-            Team abzustimmen, welche Funktionen benötigt werden.
-          </p>
-          <p class="rounded-xl border border-slate-800 bg-slate-900/60 p-4 text-xs text-slate-500">
-            Tipp: Verlinke dieses Modal später mit deiner finalen Moderationsansicht unter <code class="font-mono text-emerald-300">/moderation</code>.
-          </p>
-        </div>
-        <div class="mt-6 flex justify-end">
-          <button
-            type="button"
-            class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-            data-moderation-close
-          >
-            Schließen
-          </button>
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                class="h-5 w-5"
+                aria-hidden="true"
+              >
+                <path d="m6 6 12 12" />
+                <path d="m18 6-12 12" />
+              </svg>
+            </button>
+          </div>
+          <div class="space-y-4">
+            <p
+              class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
+              data-moderation-error
+              role="alert"
+            ></p>
+            <div
+              class="hidden items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/60 px-4 py-4 text-sm text-slate-400"
+              data-moderation-loading
+            >
+              <svg
+                class="h-4 w-4 animate-spin text-emerald-400"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 3a9 9 0 1 1-9 9" />
+              </svg>
+              <span>Unveröffentlichte Items werden geladen…</span>
+            </div>
+            <div
+              class="hidden rounded-xl border border-slate-800/70 bg-slate-900/60 px-4 py-4 text-sm text-slate-400"
+              data-moderation-empty
+            >
+              Alle eingereichten Items wurden bereits moderiert.
+            </div>
+            <ul
+              class="flex max-h-[66vh] flex-col gap-4 overflow-y-auto pr-1"
+              data-moderation-list
+              role="list"
+              aria-live="polite"
+            ></ul>
+          </div>
+          <div class="flex items-center justify-between gap-3 pt-2">
+            <button
+              type="button"
+              class="text-sm font-medium text-slate-400 transition hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+              data-moderation-refresh
+            >
+              Aktualisieren
+            </button>
+            <button
+              type="button"
+              class="inline-flex items-center gap-2 rounded-lg bg-slate-800/60 px-4 py-2 text-sm font-semibold text-slate-200 transition hover:bg-slate-800 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+              data-moderation-close
+            >
+              Schließen
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -783,5 +819,6 @@
       aria-atomic="true"
     ></div>
     <script type="module" src="/public/js/app.js"></script>
+    <script src="/assets/js/moderation.js" defer></script>
   </body>
 </html>
