@@ -708,7 +708,7 @@ const cors = (overrides: Record<string, string> = {}) => ({
 })
 
 // Healthcheck
-app.get('/api/health', (c) => c.json({ ok: true }, 200, cors()))
+app.get('/api/health', (c) => c.text('ok'))
 
 // Debug echo endpoint
 app.all('/api/debug/echo', async (c) => {
