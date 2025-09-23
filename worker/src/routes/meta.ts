@@ -1,11 +1,11 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { createClient } from '@supabase/supabase-js'
-
 const meta = new Hono<{ Bindings: {
   SUPABASE_URL: string
   SUPABASE_SERVICE_ROLE_KEY: string
 } }>()
+
 
 // CORS
 meta.use('/*', cors({
