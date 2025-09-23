@@ -495,14 +495,15 @@ const fallbackRarityOptions: FilterOption[] = [
   { value: 'mega_jackpot', label: 'Mega Jackpot' }
 ]
 const createFilterLabelMap = (options: FilterOption[]) =>
+
   options.reduce<Record<string, string>>((acc, option) => {
-    const register = (value: unknown) => {
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        acc[String(value)] = option.label
-      } else if (typeof value === 'string') {
-        const normalized = value.trim()
-        if (normalized) {
-          acc[normalized] = option.label
+    const register = (candidate: unknown) => {
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+        acc[String(candidate)] = option.label
+      } else if (typeof candidate === 'string') {
+        const trimmed = candidate.trim()
+        if (trimmed) {
+          acc[trimmed] = option.label
         }
       }
     }
@@ -511,8 +512,10 @@ const createFilterLabelMap = (options: FilterOption[]) =>
     register(option.supabaseValue)
     register(option.supabaseTextValue)
 
+
     return acc
   }, {})
+
 
 const normalizeStringValue = (input: unknown) =>
   typeof input === 'string' ? input.trim() : ''
@@ -637,6 +640,8 @@ type ItemFormValues = {
   rarity: string
   price: string
   starLevel: string
+  itemImageUrl: string
+  itemLoreImageUrl: string
 }
 
 type ItemFormFileValues = {
@@ -650,7 +655,9 @@ const initialItemFormValues: ItemFormValues = {
   material: '',
   rarity: '',
   price: '',
-  starLevel: '0'
+  starLevel: '0',
+  itemImageUrl: '',
+  itemLoreImageUrl: ''
 }
 
 const initialItemFormFileValues: ItemFormFileValues = {
@@ -946,8 +953,8 @@ export default function App() {
     [materialOptions]
   )
   const rarityLabelMap = useMemo(() => createFilterLabelMap(rarityOptions), [rarityOptions])
-
   const abortControllerRef = useRef<AbortController | null>(null)
+  const metadataAbortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     const supabase = getSupabaseClient()
@@ -1031,6 +1038,272 @@ export default function App() {
     setHasSearched(false)
   }, [])
 
+  useEffect(() => {
+    if (!showItemModal) {
+      return
+    }
+
+    if (referenceLoading || referenceLoaded || referenceError) {
+      return
+    }
+
+    const { url, anonKey } = getSupabaseConfig()
+    if (!url || !anonKey) {
+      setReferenceError('Supabase-Konfiguration fehlt.')
+      setReferenceLoaded(false)
+      return
+    }
+
+    const controller = new AbortController()
+    metadataAbortControllerRef.current = controller
+
+    const loadMetadata = async () => {
+      setReferenceLoading(true)
+
+      try {
+        const sessionToken = getSupabaseAccessToken()
+        const headers: HeadersInit = {
+          apikey: anonKey,
+          accept: 'application/json',
+        }
+
+        if (sessionToken) {
+          headers.Authorization = `Bearer ${sessionToken}`
+        }
+
+        const [itemTypesResponse, materialsResponse, raritiesResponse] = await Promise.all([
+          fetch(`${url}/rest/v1/item_types?select=*`, { headers, signal: controller.signal }),
+          fetch(`${url}/rest/v1/materials?select=*`, { headers, signal: controller.signal }),
+          fetch(`${url}/rest/v1/rarities?select=*`, { headers, signal: controller.signal }),
+        ])
+
+        if (!itemTypesResponse.ok || !materialsResponse.ok || !raritiesResponse.ok) {
+          throw new Error('Stammdaten konnten nicht geladen werden.')
+        }
+
+        const [itemTypesJson, materialsJson, raritiesJson] = await Promise.all([
+          itemTypesResponse.json(),
+          materialsResponse.json(),
+          raritiesResponse.json(),
+        ])
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setItemTypeOptionsState(parseReferenceOptions(itemTypesJson, (id) => `Item-Typ #${id}`))
+        setMaterialOptionsState(parseReferenceOptions(materialsJson, (id) => `Material #${id}`))
+        setRarityOptionsState(parseRarityOptions(raritiesJson))
+        setReferenceLoaded(true)
+        setReferenceError(null)
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        const message =
+          error instanceof Error ? error.message : 'Stammdaten konnten nicht geladen werden.'
+        setReferenceError(message)
+        setReferenceLoaded(false)
+      } finally {
+        if (!controller.signal.aborted) {
+          setReferenceLoading(false)
+          metadataAbortControllerRef.current = null
+        }
+      }
+    }
+
+    void loadMetadata()
+
+    return () => {
+      controller.abort()
+      metadataAbortControllerRef.current = null
+      setReferenceLoading(false)
+    }
+  }, [showItemModal, referenceLoading, referenceLoaded, referenceError])
+
+  const handleMetadataReload = useCallback(() => {
+    if (referenceLoading) {
+      return
+    }
+
+    setReferenceError(null)
+    setReferenceLoaded(false)
+  }, [referenceLoading])
+
+  const itemTypeLabelMap = useMemo(
+    () => createOptionLabelMap(itemTypeOptionsState),
+    [itemTypeOptionsState]
+  )
+  const materialLabelMap = useMemo(
+    () => createOptionLabelMap(materialOptionsState),
+    [materialOptionsState]
+  )
+  const rarityLabelMap = useMemo(
+    () => createOptionLabelMap(rarityOptionsState),
+    [rarityOptionsState]
+  )
+
+  const itemTypeLookupMap = useMemo(
+    () => createOptionLookupMap(itemTypeOptionsState),
+    [itemTypeOptionsState]
+  )
+  const materialLookupMap = useMemo(
+    () => createOptionLookupMap(materialOptionsState),
+    [materialOptionsState]
+  )
+  const rarityLookupMap = useMemo(
+    () => createOptionLookupMap(rarityOptionsState),
+    [rarityOptionsState]
+  )
+
+  const rarityOptionByCode = useMemo(() => {
+    const map: Record<string, LoadedRarityOption> = {}
+    rarityOptionsState.forEach((option) => {
+      map[option.value] = option
+    })
+    return map
+  }, [rarityOptionsState])
+
+  const rarityOptionById = useMemo(() => {
+    const map: Record<string, LoadedRarityOption> = {}
+    rarityOptionsState.forEach((option) => {
+      map[String(option.id)] = option
+      if (option.supabaseValue) {
+        map[option.supabaseValue] = option
+      }
+    })
+    return map
+  }, [rarityOptionsState])
+
+  const resolveRarityMeta = useCallback(
+    (value?: string | null, rarityId?: number | null) => {
+      const fallback = {
+        label: 'Unbekannt',
+        badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
+      }
+
+      const optionFromLookup = resolveOptionFromCandidates(
+        rarityLookupMap,
+        rarityId,
+        value
+      )
+
+      const normalizedOption = (() => {
+        if (optionFromLookup) {
+          return optionFromLookup
+        }
+
+        if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
+          const key = String(rarityId)
+          if (rarityOptionById[key]) {
+            return rarityOptionById[key]
+          }
+        }
+
+        if (typeof value === 'string' && value.trim()) {
+          const trimmed = value.trim()
+          if (rarityOptionByCode[trimmed]) {
+            return rarityOptionByCode[trimmed]
+          }
+
+          const canonical = canonicalizeValue(trimmed)
+          if (canonical && rarityOptionByCode[canonical]) {
+            return rarityOptionByCode[canonical]
+          }
+        }
+
+        return null
+      })()
+
+      if (normalizedOption) {
+        const badgeKeys = [
+          normalizedOption.code,
+          normalizedOption.value,
+          canonicalizeValue(normalizedOption.label),
+        ]
+
+        const badgeClass = badgeKeys.reduce<string | null>((acc, key) => {
+          if (acc) {
+            return acc
+          }
+          if (!key) {
+            return null
+          }
+          return rarityBadgeClasses[key] ?? null
+        }, null)
+
+        return {
+          label: normalizedOption.label,
+          badgeClass: badgeClass ?? fallback.badgeClass,
+        }
+      }
+
+      if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
+        const key = String(rarityId)
+        if (rarityLabelMap[key]) {
+          return { label: rarityLabelMap[key], badgeClass: fallback.badgeClass }
+        }
+        return {
+          label: `Seltenheit #${key}`,
+          badgeClass: fallback.badgeClass,
+        }
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed) {
+          const canonical = canonicalizeValue(trimmed)
+          const label =
+            rarityLabelMap[trimmed] ??
+            (canonical ? rarityLabelMap[canonical] : undefined) ??
+            trimmed
+          const badgeClass =
+            (canonical && rarityBadgeClasses[canonical]) ??
+            rarityBadgeClasses[trimmed.toLowerCase()] ??
+            fallback.badgeClass
+          return { label, badgeClass }
+        }
+      }
+
+      return fallback
+    },
+    [rarityLookupMap, rarityOptionById, rarityOptionByCode, rarityLabelMap]
+  )
+
+  const filterTypeOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Alle Item-Typen' },
+      ...itemTypeOptionsState.map((option) => ({
+        value: option.value,
+        label: option.label,
+        supabaseValue: option.supabaseValue,
+      })),
+    ] satisfies FilterOption[]
+  }, [itemTypeOptionsState])
+
+  const filterMaterialOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Alle Materialien' },
+      ...materialOptionsState.map((option) => ({
+        value: option.value,
+        label: option.label,
+        supabaseValue: option.supabaseValue,
+      })),
+    ] satisfies FilterOption[]
+  }, [materialOptionsState])
+
+  const filterRarityOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Alle Seltenheiten' },
+      ...rarityOptionsState.map((option) => ({
+        value: option.value,
+        label: option.label,
+        supabaseValue: option.supabaseValue,
+      })),
+    ] satisfies FilterOption[]
+  }, [rarityOptionsState])
+
   const fetchItems = useCallback(
     async ({ search, type, material, rarity }: FetchItemsParams) => {
       const sanitizedSearch = sanitizeSearchValue(search)
@@ -1112,7 +1385,7 @@ export default function App() {
         }
       }
     },
-    []
+    [itemTypeOptionsState, materialOptionsState, rarityOptionsState]
   )
 
   const dismissToast = useCallback((id: number) => {
@@ -1278,7 +1551,6 @@ export default function App() {
           [item.name, item.slug, item.description ?? ''].some((field) =>
             field?.toLowerCase().includes(normalizedSearch)
           )
-
         const typeNumericCandidates = [
           item.item_type_id,
           item.itemTypeId,
@@ -1612,7 +1884,7 @@ export default function App() {
                       value={typeFilter}
                       onChange={handleTypeFilterChange}
                     >
-                      {typeOptions.map((option) => (
+                      {filterTypeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1629,7 +1901,7 @@ export default function App() {
                       value={materialFilter}
                       onChange={handleMaterialFilterChange}
                     >
-                      {materialOptions.map((option) => (
+                      {filterMaterialOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1646,7 +1918,7 @@ export default function App() {
                       value={rarityFilter}
                       onChange={handleRarityFilterChange}
                     >
-                      {rarityOptions.map((option) => (
+                      {filterRarityOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1764,6 +2036,12 @@ export default function App() {
           onClose={() => setShowItemModal(false)}
           onSuccess={handleModalSuccess}
           onError={handleModalError}
+          itemTypeOptions={itemTypeOptionsState}
+          materialOptions={materialOptionsState}
+          rarityOptions={rarityOptionsState}
+          referenceLoading={referenceLoading}
+          referenceError={referenceError}
+          onReloadMetadata={handleMetadataReload}
         />
       )}
     </div>
@@ -1777,6 +2055,12 @@ type ModalProps = {
 type ItemModalProps = ModalProps & {
   onSuccess: (message: string) => void
   onError: (message: string) => void
+  itemTypeOptions: LoadedFilterOption[]
+  materialOptions: LoadedFilterOption[]
+  rarityOptions: LoadedRarityOption[]
+  referenceLoading: boolean
+  referenceError: string | null
+  onReloadMetadata: () => void
 }
 
 function ProfileModal({ onClose }: ModalProps) {
@@ -1855,7 +2139,17 @@ function ProfileModal({ onClose }: ModalProps) {
   )
 }
 
-function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
+function ItemModal({
+  onClose,
+  onSuccess,
+  onError,
+  itemTypeOptions,
+  materialOptions,
+  rarityOptions,
+  referenceLoading,
+  referenceError,
+  onReloadMetadata,
+}: ItemModalProps) {
   const [formValues, setFormValues] = useState<ItemFormValues>(() => createInitialItemFormValues())
   const [fileValues, setFileValues] = useState<ItemFormFileValues>(() => createInitialItemFormFileValues())
   const [errors, setErrors] = useState<ItemFormErrors>({})
@@ -1870,6 +2164,17 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   const [enchantmentError, setEnchantmentError] = useState<string | null>(null)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
   const enchantmentsAbortControllerRef = useRef<AbortController | null>(null)
+
+  const metadataLoaded =
+    itemTypeOptions.length > 0 && materialOptions.length > 0 && rarityOptions.length > 0
+  const metadataLoadingActive = referenceLoading && !metadataLoaded
+  const metadataErrorActive = Boolean(referenceError) && !metadataLoaded
+  const metadataSelectDisabled = metadataLoadingActive || metadataErrorActive
+  const metadataPlaceholderLabel = metadataLoadingActive
+    ? 'Stammdaten werden geladen…'
+    : metadataErrorActive
+      ? 'Stammdaten nicht verfügbar'
+      : 'Bitte auswählen'
 
   const starLevelValue = Math.max(
     0,
@@ -2175,31 +2480,33 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
     const trimmedName = formValues.name.trim()
     const priceValue = formValues.price.trim()
+    const itemImageUrlValue = formValues.itemImageUrl.trim()
+    const itemLoreImageUrlValue = formValues.itemLoreImageUrl.trim()
     const nextErrors: ItemFormErrors = {}
 
     if (!trimmedName) {
       nextErrors.name = 'Name ist erforderlich.'
     }
 
-    const itemTypeId = resolveNumericOptionValue(formValues.itemType, typeOptions)
-    if (!itemTypeId) {
-      nextErrors.itemType = formValues.itemType
-        ? 'Ungültiger Item-Typ ausgewählt.'
-        : 'Item-Typ ist erforderlich.'
+    const selectedItemType = itemTypeOptions.find((option) => option.value === formValues.itemType)
+    if (!selectedItemType) {
+      nextErrors.itemType = itemTypeOptions.length === 0
+        ? 'Item-Typen konnten nicht geladen werden. Bitte lade die Stammdaten neu.'
+        : 'Bitte wähle einen gültigen Item-Typ.'
     }
 
-    const materialId = resolveNumericOptionValue(formValues.material, materialOptions)
-    if (!materialId) {
-      nextErrors.material = formValues.material
-        ? 'Ungültiges Material ausgewählt.'
-        : 'Material ist erforderlich.'
+    const selectedMaterial = materialOptions.find((option) => option.value === formValues.material)
+    if (!selectedMaterial) {
+      nextErrors.material = materialOptions.length === 0
+        ? 'Materialien konnten nicht geladen werden. Bitte lade die Stammdaten neu.'
+        : 'Bitte wähle ein gültiges Material.'
     }
 
-    const rarityId = resolveNumericOptionValue(formValues.rarity, rarityOptions)
-    if (!rarityId) {
-      nextErrors.rarity = formValues.rarity
-        ? 'Ungültige Seltenheit ausgewählt.'
-        : 'Seltenheit ist erforderlich.'
+    const selectedRarity = rarityOptions.find((option) => option.value === formValues.rarity)
+    if (!selectedRarity) {
+      nextErrors.rarity = rarityOptions.length === 0
+        ? 'Seltenheiten konnten nicht geladen werden. Bitte lade die Stammdaten neu.'
+        : 'Bitte wähle eine gültige Seltenheit.'
     }
 
     if (priceValue) {
@@ -2208,6 +2515,34 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
         nextErrors.price = 'Preis muss eine gültige Zahl sein.'
       } else if (parsedPrice < 0) {
         nextErrors.price = 'Preis darf nicht negativ sein.'
+      }
+    }
+
+    let normalizedItemImageUrl: string | null = null
+    if (itemImageUrlValue) {
+      try {
+        const parsed = new URL(itemImageUrlValue)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('invalid')
+        }
+        normalizedItemImageUrl = parsed.toString()
+      } catch (error) {
+        void error
+        nextErrors.itemImageUrl = 'Bitte gib eine gültige Bild-URL (http/https) ein.'
+      }
+    }
+
+    let normalizedItemLoreImageUrl: string | null = null
+    if (itemLoreImageUrlValue) {
+      try {
+        const parsed = new URL(itemLoreImageUrlValue)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('invalid')
+        }
+        normalizedItemLoreImageUrl = parsed.toString()
+      } catch (error) {
+        void error
+        nextErrors.itemLoreImageUrl = 'Bitte gib eine gültige Lore-Bild-URL (http/https) ein.'
       }
     }
 
@@ -2221,6 +2556,10 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
     if (Object.keys(nextErrors).length > 0) {
       setErrors(nextErrors)
+      return
+    }
+
+    if (!selectedItemType || !selectedMaterial || !selectedRarity) {
       return
     }
 
@@ -2254,136 +2593,113 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     setSubmitting(true)
 
     try {
-      let sessionToken = getSupabaseAccessToken()
-      let userId: string | null = null
-
-      if (supabase) {
-        const [userResult, sessionResult] = await Promise.all([
-          supabase.auth.getUser(),
-          supabase.auth.getSession()
-        ])
-
-        if (userResult.error) {
-          throw userResult.error
-        }
-
-        if (sessionResult.error) {
-          throw sessionResult.error
-        }
-
-        userId = userResult.data?.user?.id ?? null
-        if (!sessionToken) {
-          sessionToken = sessionResult.data?.session?.access_token ?? null
-        }
-      }
-
-      if (!sessionToken) {
-        onError('Bitte anmelden, um Items zu speichern.')
-        return
-      }
-
-      if ((fileValues.itemImage || fileValues.itemLoreImage) && (!supabase || !userId)) {
-        onError('Upload der Bilder ist nicht möglich. Bitte erneut anmelden.')
-        return
-      }
-
-      let itemImageUrl: string | null = null
-      if (supabase && userId && fileValues.itemImage) {
-        try {
-          const uploadResult = await uploadImageFile(supabase, fileValues.itemImage, 'item', userId)
-          if (uploadResult.path) {
-            uploadedFilePaths.push(uploadResult.path)
-          }
-          itemImageUrl = uploadResult.publicUrl ?? null
-        } catch (error) {
-          uploadErrorMessage = 'Upload des Item-Bildes ist fehlgeschlagen.'
-          throw error
-        }
-      }
-
-      let loreImageUrl: string | null = null
-      if (supabase && userId && fileValues.itemLoreImage) {
-        try {
-          const uploadResult = await uploadImageFile(supabase, fileValues.itemLoreImage, 'item-lore', userId)
-          if (uploadResult.path) {
-            uploadedFilePaths.push(uploadResult.path)
-          }
-          loreImageUrl = uploadResult.publicUrl ?? null
-        } catch (error) {
-          uploadErrorMessage = 'Upload des Lore-Bildes ist fehlgeschlagen.'
-          throw error
-        }
-      }
-
+      const sessionToken = getSupabaseAccessToken()
       const payload: Record<string, unknown> = {
         name: trimmedName,
-        title: trimmedName,
-        item_type_id: ensuredItemTypeId,
-        material_id: ensuredMaterialId,
-        rarity_id: ensuredRarityId,
+        item_type_id: selectedItemType.id,
+        material_id: selectedMaterial.id,
         star_level: normalizedStarLevel,
-        stars: normalizedStarLevel,
-        is_published: false,
-        enchantments: selections
+        enchantments: selections,
       }
 
-      if (itemImageUrl) {
-        payload.item_image = itemImageUrl
+      if (selectedRarity.id) {
+        payload.rarity_id = selectedRarity.id
       }
 
-      if (loreImageUrl) {
-        payload.item_lore_image = loreImageUrl
+      const rarityCode = selectedRarity.code || canonicalizeValue(selectedRarity.value)
+      if (rarityCode) {
+        payload.rarity = rarityCode
       }
 
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${sessionToken}`
+      if (normalizedItemImageUrl) {
+        payload.item_image = normalizedItemImageUrl
+        payload.image_url = normalizedItemImageUrl
       }
 
-      const response = await fetch('/api/items', {
+      if (normalizedItemLoreImageUrl) {
+        payload.item_lore_image = normalizedItemLoreImageUrl
+        payload.lore_image_url = normalizedItemLoreImageUrl
+      }
+
+      const requestInit: RequestInit = {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         credentials: 'include',
-        headers,
-        body: JSON.stringify(payload)
-      })
+        body: JSON.stringify(payload),
+      }
 
-      const isJsonResponse = response.headers.get('content-type')?.includes('application/json') ?? false
-      const result = isJsonResponse ? await response.json().catch(() => null) : null
+      if (sessionToken) {
+        requestInit.headers = {
+          ...requestInit.headers,
+          Authorization: `Bearer ${sessionToken}`,
+        }
+      }
+
+      const response = await fetch('/api/items', requestInit)
+      const result = await response.json().catch(() => null)
 
       if (!response.ok) {
-        await cleanupUploads()
+        if (result && typeof result === 'object' && Array.isArray(result['issues'])) {
+          const issues = result['issues'] as Array<{ path?: unknown; message?: unknown }>
+          const fieldMap: Record<string, keyof ItemFormValues | 'enchantments'> = {
+            item_type_id: 'itemType',
+            itemType: 'itemType',
+            material_id: 'material',
+            material: 'material',
+            rarity: 'rarity',
+            rarity_id: 'rarity',
+            name: 'name',
+            title: 'name',
+            star_level: 'starLevel',
+            stars: 'starLevel',
+            item_image: 'itemImageUrl',
+            image_url: 'itemImageUrl',
+            item_lore_image: 'itemLoreImageUrl',
+            lore_image_url: 'itemLoreImageUrl',
+            enchantments: 'enchantments',
+          }
 
-        if (response.status === 400) {
-          const { fieldErrors, enchantmentError: workerEnchantmentError, message } =
-            mapWorkerIssuesToFormState(result?.issues)
+          const serverErrors: ItemFormErrors = {}
+          let enchantmentIssue: string | null = null
 
-          setErrors(fieldErrors)
-          setEnchantmentError(workerEnchantmentError ?? null)
+          issues.forEach((issue) => {
+            if (!issue || typeof issue !== 'object') {
+              return
+            }
 
-          const fallbackMessage =
-            typeof result?.message === 'string' && result.message.trim()
-              ? result.message.trim()
-              : message ?? 'Validierung fehlgeschlagen.'
+            const path = Array.isArray(issue.path) ? issue.path[0] : null
+            const message =
+              typeof issue.message === 'string' && issue.message.trim()
+                ? issue.message.trim()
+                : 'Ungültige Eingabe.'
 
-          onError(fallbackMessage)
-          return
+            if (typeof path === 'string' && fieldMap[path]) {
+              const target = fieldMap[path]
+              if (target === 'enchantments') {
+                enchantmentIssue = message
+              } else {
+                serverErrors[target] = message
+              }
+            }
+          })
+
+          if (Object.keys(serverErrors).length > 0) {
+            setErrors((prev) => ({ ...prev, ...serverErrors }))
+          }
+
+          if (enchantmentIssue) {
+            setEnchantmentError(enchantmentIssue)
+          }
         }
 
-        if (response.status === 401 || response.status === 403) {
-          const message =
-            typeof result?.message === 'string' && result.message.trim()
-              ? result.message.trim()
-              : 'Bitte anmelden, um Items zu speichern.'
-          onError(message)
-          return
-        }
+        const errorMessage =
+          (result && typeof result === 'object' && typeof result['message'] === 'string'
+            ? result['message']
+            : null) ?? 'Fehler beim Speichern ❌'
+        throw new Error(errorMessage)
 
-        const message =
-          typeof result?.message === 'string' && result.message.trim()
-            ? result.message.trim()
-            : 'Fehler beim Speichern ❌'
-        onError(message)
-        return
       }
 
       onSuccess('Item gespeichert ✅')
@@ -2395,12 +2711,9 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       setEnchantmentError(null)
       onClose()
     } catch (error) {
-      await cleanupUploads()
-      if (uploadErrorMessage) {
-        onError(uploadErrorMessage)
-      } else {
-        onError('Fehler beim Speichern ❌')
-      }
+      const message =
+        error instanceof Error && error.message ? error.message : 'Fehler beim Speichern ❌'
+      onError(message)
     } finally {
       setSubmitting(false)
     }
@@ -2437,6 +2750,28 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 sm:px-8 sm:py-8">
             <form className="space-y-6" aria-label="Item hinzufügen" onSubmit={handleSubmit}>
+              {metadataLoadingActive && (
+                <div className="rounded-lg border border-slate-800/70 bg-slate-900/60 px-4 py-3 text-sm text-slate-300" aria-live="polite">
+                  Stammdaten werden geladen …
+                </div>
+              )}
+
+              {metadataErrorActive && (
+                <div className="flex flex-col gap-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" role="alert">
+                  <p>{referenceError ?? 'Stammdaten konnten nicht geladen werden.'}</p>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={onReloadMetadata}
+                      disabled={referenceLoading}
+                      className="inline-flex items-center gap-2 rounded-md border border-rose-500/50 bg-transparent px-3 py-1 text-xs font-semibold text-rose-100 transition hover:border-rose-300 hover:text-rose-50 focus:outline-none focus-visible:ring focus-visible:ring-rose-400/60 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      Erneut versuchen
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block" htmlFor="modal-item-name">
                   <span className="text-sm font-medium text-slate-300">Name *</span>
@@ -2471,15 +2806,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     onChange={handleFieldChange}
                     aria-invalid={Boolean(errors.itemType)}
                     aria-describedby={getErrorId('itemType')}
+                    disabled={metadataSelectDisabled}
                   >
-                    <option value="">Bitte auswählen</option>
-                    {typeOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    <option value="">{metadataPlaceholderLabel}</option>
+                    {itemTypeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {errors.itemType && (
                     <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
@@ -2499,15 +2833,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     onChange={handleFieldChange}
                     aria-invalid={Boolean(errors.material)}
                     aria-describedby={getErrorId('material')}
+                    disabled={metadataSelectDisabled}
                   >
-                    <option value="">Bitte auswählen</option>
-                    {materialOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    <option value="">{metadataPlaceholderLabel}</option>
+                    {materialOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {errors.material && (
                     <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
@@ -2527,15 +2860,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     onChange={handleFieldChange}
                     aria-invalid={Boolean(errors.rarity)}
                     aria-describedby={getErrorId('rarity')}
+                    disabled={metadataSelectDisabled}
                   >
-                    <option value="">Bitte auswählen</option>
-                    {rarityOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    <option value="">{metadataPlaceholderLabel}</option>
+                    {rarityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {errors.rarity && (
                     <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
@@ -2649,6 +2981,50 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   {errors.price && (
                     <p id="item-modal-price-error" className="mt-2 text-sm text-rose-400">
                       {errors.price}
+                    </p>
+                  )}
+                </label>
+
+                <label className="sm:col-span-2 block" htmlFor="modal-item-image-url">
+                  <span className="text-sm font-medium text-slate-300">Item-Bild URL</span>
+                  <input
+                    id="modal-item-image-url"
+                    name="itemImageUrl"
+                    type="url"
+                    inputMode="url"
+                    className={getFieldClassName('itemImageUrl')}
+                    placeholder="https://..."
+                    value={formValues.itemImageUrl}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.itemImageUrl)}
+                    aria-describedby={getErrorId('itemImageUrl')}
+                  />
+                  <p className="mt-2 text-xs text-slate-500">Optional – hinterlege einen direkten Link zum Item-Bild.</p>
+                  {errors.itemImageUrl && (
+                    <p id="item-modal-itemImageUrl-error" className="mt-2 text-sm text-rose-400">
+                      {errors.itemImageUrl}
+                    </p>
+                  )}
+                </label>
+
+                <label className="sm:col-span-2 block" htmlFor="modal-item-lore-image-url">
+                  <span className="text-sm font-medium text-slate-300">Lore-Bild URL</span>
+                  <input
+                    id="modal-item-lore-image-url"
+                    name="itemLoreImageUrl"
+                    type="url"
+                    inputMode="url"
+                    className={getFieldClassName('itemLoreImageUrl')}
+                    placeholder="https://..."
+                    value={formValues.itemLoreImageUrl}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.itemLoreImageUrl)}
+                    aria-describedby={getErrorId('itemLoreImageUrl')}
+                  />
+                  <p className="mt-2 text-xs text-slate-500">Optional – Link zu einem zusätzlichen Lore-Bild.</p>
+                  {errors.itemLoreImageUrl && (
+                    <p id="item-modal-itemLoreImageUrl-error" className="mt-2 text-sm text-rose-400">
+                      {errors.itemLoreImageUrl}
                     </p>
                   )}
                 </label>
@@ -2834,7 +3210,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || !metadataLoaded}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {submitting && <SpinnerIcon className="h-4 w-4" />}
@@ -2876,6 +3252,7 @@ function ItemCard({
     rarityOptions,
     rarityLabelMap
   )
+
 
   const itemImageUrl = (() => {
     const candidates = [item.item_image, item.image_url]
@@ -2960,6 +3337,7 @@ function ItemCard({
     'Material',
     'Unbekanntes Material'
   )
+
   const starLevel =
     typeof item.star_level === 'number'
       ? Math.max(0, Math.min(MAX_STAR_LEVEL, item.star_level))
