@@ -447,7 +447,7 @@
     }
 
     return value.replace(/[^a-zA-Z0-9_-]/g, function (character) {
-      return '\' + character;
+      return '\\' + character;
     });
   }
 
