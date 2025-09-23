@@ -22,7 +22,7 @@ type FilterOption = {
 type Item = {
   id: string
   slug: string
-  name: string
+  title: string
   rarity?: string | null
   rarity_id?: number | null
   rarityId?: number | null
@@ -634,7 +634,7 @@ type ToastMessage = {
 }
 
 type ItemFormValues = {
-  name: string
+  title: string
   itemType: string
   material: string
   rarity: string
@@ -650,7 +650,7 @@ type ItemFormFileValues = {
 }
 
 const initialItemFormValues: ItemFormValues = {
-  name: '',
+  title: '',
   itemType: '',
   material: '',
   rarity: '',
@@ -705,7 +705,7 @@ const mapWorkerIssuesToFormState = (issues: unknown) => {
     switch (field) {
       case 'name':
       case 'title':
-        fieldErrors.name = issueMessage
+        fieldErrors.title = issueMessage
         break
       case 'item_type_id':
       case 'itemType':
@@ -1548,7 +1548,7 @@ export default function App() {
       .filter((item) => {
         const matchesSearch =
           normalizedSearch.length === 0 ||
-          [item.name, item.slug, item.description ?? ''].some((field) =>
+          [item.title, item.slug, item.description ?? ''].some((field) =>
             field?.toLowerCase().includes(normalizedSearch)
           )
         const typeNumericCandidates = [
@@ -1606,7 +1606,7 @@ export default function App() {
 
         return matchesSearch && matchesType && matchesMaterial && matchesRarity
       })
-      .sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
+      .sort((a, b) => (a.title || '').localeCompare(b.title || '', 'de', { sensitivity: 'base' }))
   }, [
     items,
     search,
@@ -2162,7 +2162,7 @@ function ItemModal({
     () => new Map()
   )
   const [enchantmentError, setEnchantmentError] = useState<string | null>(null)
-  const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const titleInputRef = useRef<HTMLInputElement | null>(null)
   const enchantmentsAbortControllerRef = useRef<AbortController | null>(null)
 
   const metadataLoaded =
@@ -2194,7 +2194,7 @@ function ItemModal({
   const activeStarLevel = starPreviewValue ?? starLevelValue
 
   useEffect(() => {
-    nameInputRef.current?.focus()
+    titleInputRef.current?.focus()
   }, [])
 
   useEffect(() => {
@@ -2478,14 +2478,14 @@ function ItemModal({
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    const trimmedName = formValues.name.trim()
+    const trimmedTitle = formValues.title.trim()
     const priceValue = formValues.price.trim()
     const itemImageUrlValue = formValues.itemImageUrl.trim()
     const itemLoreImageUrlValue = formValues.itemLoreImageUrl.trim()
     const nextErrors: ItemFormErrors = {}
 
-    if (!trimmedName) {
-      nextErrors.name = 'Name ist erforderlich.'
+    if (!trimmedTitle) {
+      nextErrors.title = 'Name ist erforderlich.'
     }
 
     const selectedItemType = itemTypeOptions.find((option) => option.value === formValues.itemType)
@@ -2595,7 +2595,7 @@ function ItemModal({
     try {
       const sessionToken = getSupabaseAccessToken()
       const payload: Record<string, unknown> = {
-        name: trimmedName,
+        title: trimmedTitle,
         item_type_id: selectedItemType.id,
         material_id: selectedMaterial.id,
         star_level: normalizedStarLevel,
@@ -2650,8 +2650,8 @@ function ItemModal({
             material: 'material',
             rarity: 'rarity',
             rarity_id: 'rarity',
-            name: 'name',
-            title: 'name',
+            name: 'title',
+            title: 'title',
             star_level: 'starLevel',
             stars: 'starLevel',
             item_image: 'itemImageUrl',
@@ -2773,24 +2773,24 @@ function ItemModal({
               )}
 
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="block" htmlFor="modal-item-name">
+                <label className="block" htmlFor="modal-item-title">
                   <span className="text-sm font-medium text-slate-300">Name *</span>
                   <input
-                    id="modal-item-name"
-                    name="name"
-                    ref={nameInputRef}
+                    id="modal-item-title"
+                    name="title"
+                    ref={titleInputRef}
                     type="text"
                     required
-                    className={getFieldClassName('name')}
+                    className={getFieldClassName('title')}
                     placeholder="Z. B. OP Netherite Helm"
-                    value={formValues.name}
+                    value={formValues.title}
                     onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.name)}
-                    aria-describedby={getErrorId('name')}
+                    aria-invalid={Boolean(errors.title)}
+                    aria-describedby={getErrorId('title')}
                   />
-                  {errors.name && (
-                    <p id="item-modal-name-error" className="mt-2 text-sm text-rose-400">
-                      {errors.name}
+                  {errors.title && (
+                    <p id="item-modal-title-error" className="mt-2 text-sm text-rose-400">
+                      {errors.title}
                     </p>
                   )}
                 </label>
@@ -3352,13 +3352,13 @@ function ItemCard({
             {itemImageUrl ? (
               <img src={itemImageUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              <span>{item.name.charAt(0)}</span>
+              <span>{item.title.charAt(0)}</span>
             )}
           </span>
           <div className="flex-1 space-y-3">
             <div>
               <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{item.slug}</p>
-              <h3 className="text-lg font-semibold text-slate-100">{item.name}</h3>
+              <h3 className="text-lg font-semibold text-slate-100">{item.title}</h3>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
