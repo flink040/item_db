@@ -2,7 +2,6 @@ import { Hono, type Context } from "hono"
 import { createClient } from "@supabase/supabase-js"
 
 import type { Bindings } from "../types"
-
 type SupabaseClient = ReturnType<typeof createClient>
 
 export type MetaEnv = {
@@ -11,7 +10,6 @@ export type MetaEnv = {
     supabase?: SupabaseClient
   }
 }
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "content-type": "application/json",
@@ -77,5 +75,4 @@ export const registerMetaRoutes = (app: Hono<MetaEnv>, options?: { prefix?: stri
 
 const meta = new Hono<MetaEnv>()
 registerMetaRoutes(meta)
-
 export default meta

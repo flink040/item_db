@@ -1,6 +1,8 @@
 import { Hono } from "hono"
 
+
 import { registerMetaRoutes, type MetaEnv } from "./routes/meta"
+
 
 const DEFAULT_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -15,11 +17,8 @@ const cors = (overrides: Record<string, string> = {}) => ({
 })
 
 const app = new Hono<MetaEnv>()
-
 app.get("/api/health", (c) => c.json({ ok: true }, 200, cors()))
-
 registerMetaRoutes(app, { prefix: "/api" })
-
 app.options("*", (c) =>
   c.text("", 204, cors({ "content-type": "text/plain; charset=UTF-8", "Access-Control-Max-Age": "600" }))
 )
