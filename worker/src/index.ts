@@ -12,6 +12,7 @@ type Bindings = {
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
 const MAX_STAR_RATING = 3
+const LEGACY_RARITY_VALUES = new Set(['common', 'rare', 'epic', 'legendary'])
 const rarityStringSchema = z
   .string()
   .trim()
@@ -385,6 +386,19 @@ async function verifyUser(client: SupabaseClient, token: string) {
   return data.user
 }
 
+function resolveRarityValue(rawRarity: unknown, rarityId: number | null) {
+  const value = typeof rawRarity === 'string' ? rawRarity.trim() : ''
+  if (!value) {
+    return null
+  }
+
+  if (rarityId === null) {
+    return value
+  }
+
+  return LEGACY_RARITY_VALUES.has(value.toLowerCase()) ? value : null
+}
+
 function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
   const name = (payload.name ?? payload.title ?? '').trim()
   const starLevel =
@@ -398,14 +412,14 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
   const itemImage = payload.item_image ?? payload.image_url ?? null
   const itemLoreImage = payload.item_lore_image ?? payload.lore_image_url ?? null
 
+  const rarityId = typeof payload.rarity_id === 'number' ? payload.rarity_id : null
+  const rarity = resolveRarityValue(payload.rarity, rarityId)
+
   return {
     name,
     description: (payload.description ?? payload.lore ?? '').trim() || null,
-    rarity_id: typeof payload.rarity_id === 'number' ? payload.rarity_id : null,
-    rarity:
-      typeof payload.rarity === 'string' && payload.rarity.trim()
-        ? payload.rarity.trim()
-        : null,
+    rarity_id: rarityId,
+    rarity,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
     star_level: normalizedStarLevel,
@@ -569,8 +583,9 @@ async function insertItemWithEnchantments(
       if (item.name) {
         payload.name = item.name
       }
-      if (item.rarity) {
-        payload.rarity = item.rarity
+      const resolvedRarity = resolveRarityValue(item.rarity, item.rarity_id ?? null)
+      if (resolvedRarity) {
+        payload.rarity = resolvedRarity
       }
     }
 
