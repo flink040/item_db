@@ -1799,7 +1799,8 @@ function handleSearchSubmit(event) {
 
   const formData = new FormData(form);
   const query = (formData.get('search') ?? '').toString();
-  const rarity = (formData.get('rarity') ?? '').toString();
+  const rarityValue = formData.get('rarity_id') ?? formData.get('rarity');
+  const rarity = rarityValue != null ? rarityValue.toString() : '';
   const type = (formData.get('type') ?? '').toString();
   const material = (formData.get('material') ?? '').toString();
 

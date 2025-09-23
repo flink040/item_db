@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { createClient } from '@supabase/supabase-js'
-import { z } from 'zod'
+import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
 
 type Bindings = {
   SUPABASE_URL: string
@@ -12,11 +12,6 @@ type Bindings = {
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
 const MAX_STAR_RATING = 3
-const rarityStringSchema = z
-  .string()
-  .trim()
-  .min(1, { message: 'Seltenheit darf nicht leer sein.' })
-  .max(120, { message: 'Seltenheit ist zu lang.' })
 
 type RequestLike = {
   header(name: string): string | undefined
@@ -286,86 +281,6 @@ const resolveSupabaseAuthorizationHeader = (req: RequestLike) => {
   return null
 }
 
-const integerFromUnknown = (opts: { min?: number; max?: number; positive?: boolean; nonNegative?: boolean } = {}) =>
-  z.preprocess((value) => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value
-    }
-
-    if (typeof value === 'string') {
-      const trimmed = value.trim()
-      if (!trimmed) {
-        return undefined
-      }
-      const parsed = Number.parseInt(trimmed, 10)
-      if (Number.isFinite(parsed)) {
-        return parsed
-      }
-    }
-
-    return value
-  }, (() => {
-    let schema = z.number().int()
-    if (opts.positive) {
-      schema = schema.positive()
-    }
-    if (opts.nonNegative) {
-      schema = schema.min(0)
-    }
-    if (typeof opts.min === 'number') {
-      schema = schema.min(opts.min)
-    }
-    if (typeof opts.max === 'number') {
-      schema = schema.max(opts.max)
-    }
-    return schema
-  })())
-
-const enchantmentSchema = z
-  .object({
-    id: integerFromUnknown({ positive: true }),
-    level: integerFromUnknown({ min: 1, max: 10 }),
-  })
-  .strict()
-
-const itemSchema = z
-  .object({
-    name: z.string().trim().min(3).max(160).optional(),
-    title: z.string().trim().min(3).max(160).optional(),
-    description: z.string().trim().max(4000).optional(),
-    lore: z.string().trim().max(4000).optional(),
-    rarity: rarityStringSchema.optional(),
-    rarity_id: integerFromUnknown({ positive: true }).optional(),
-    item_type_id: integerFromUnknown({ positive: true }),
-    material_id: integerFromUnknown({ positive: true }),
-    star_level: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
-    stars: integerFromUnknown({ nonNegative: true, max: MAX_STAR_RATING }).optional(),
-    image_url: z.string().trim().url().max(2048).optional(),
-    lore_image_url: z.string().trim().url().max(2048).optional(),
-    item_image: z.string().trim().url().max(2048).optional(),
-    item_lore_image: z.string().trim().url().max(2048).optional(),
-    enchantments: z.array(enchantmentSchema).max(64).optional(),
-    is_published: z.boolean().optional(),
-  })
-  .superRefine((data, ctx) => {
-    const resolvedName = (data.name ?? data.title)?.trim()
-    if (!resolvedName) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['name'],
-        message: 'Name (oder Titel) wird benötigt.',
-      })
-    }
-
-    if (!data.rarity && typeof data.rarity_id !== 'number') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['rarity'],
-        message: 'Seltenheit muss angegeben werden.',
-      })
-    }
-  })
-
 function createSupabaseAdminClient(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -385,40 +300,102 @@ async function verifyUser(client: SupabaseClient, token: string) {
   return data.user
 }
 
-function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
-  const name = (payload.name ?? payload.title ?? '').trim()
-  const starLevel =
-    typeof payload.star_level === 'number'
-      ? payload.star_level
-      : typeof payload.stars === 'number'
-        ? payload.stars
-        : 0
-  const normalizedStarLevel = Math.max(0, Math.min(starLevel, MAX_STAR_RATING))
+const pickFirstString = (...candidates: Array<unknown>) => {
+  for (const candidate of candidates) {
+    if (typeof candidate !== 'string') {
+      continue
+    }
 
-  const itemImage = payload.item_image ?? payload.image_url ?? null
-  const itemLoreImage = payload.item_lore_image ?? payload.lore_image_url ?? null
+    const trimmed = candidate.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+
+  return null
+}
+
+const normalizeStarLevel = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return 0
+  }
+
+  const rounded = Math.round(value)
+  if (!Number.isFinite(rounded)) {
+    return 0
+  }
+
+  return Math.max(0, Math.min(MAX_STAR_RATING, rounded))
+}
+
+const normalizeEnchantments = (
+  enchantments: ItemInsert['enchantments']
+): Array<{ enchantment_id: number; level: number }> => {
+  if (!Array.isArray(enchantments)) {
+    return []
+  }
+
+  return enchantments
+    .map((entry) => ({
+      enchantment_id: entry.enchantment_id,
+      level: entry.level,
+    }))
+    .filter(
+      (entry) =>
+        Number.isInteger(entry.enchantment_id) &&
+        entry.enchantment_id > 0 &&
+        Number.isInteger(entry.level) &&
+        entry.level > 0
+    )
+}
+
+function normaliseItemPayload(payload: ItemInsert, rawBody: Record<string, unknown>) {
+  const name = payload.name.trim()
+  const starLevel = normalizeStarLevel(payload.star_level)
+  const description = pickFirstString(
+    payload.description ?? undefined,
+    rawBody.description,
+    rawBody.lore,
+    rawBody.item_description,
+    rawBody.itemDescription
+  )
+
+  const itemImage =
+    pickFirstString(
+      payload.image_url ?? undefined,
+      rawBody.image_url,
+      rawBody.imageUrl,
+      rawBody.item_image,
+      rawBody.itemImage,
+      rawBody.image
+    ) ?? null
+
+  const itemLoreImage =
+    pickFirstString(
+      rawBody.lore_image_url,
+      rawBody.loreImageUrl,
+      rawBody.item_lore_image,
+      rawBody.itemLoreImage
+    ) ?? null
 
   return {
     name,
-    description: (payload.description ?? payload.lore ?? '').trim() || null,
-    rarity_id: typeof payload.rarity_id === 'number' ? payload.rarity_id : null,
-    rarity:
-      typeof payload.rarity === 'string' && payload.rarity.trim()
-        ? payload.rarity.trim()
-        : null,
+    description: description ?? null,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
-    star_level: normalizedStarLevel,
+    rarity_id: payload.rarity_id,
+    star_level: starLevel,
     item_image: itemImage,
+    image_url: itemImage,
     item_lore_image: itemLoreImage,
-    enchantments: payload.enchantments ?? [],
-    is_published: payload.is_published === true,
+    enchantments: normalizeEnchantments(payload.enchantments),
+    is_published: rawBody.is_published === true,
   }
 }
 
 async function validateEnchantments(
   client: SupabaseClient,
-  enchantments: Array<{ id: number; level: number }>
+  enchantments: Array<{ enchantment_id: number; level: number }>
 ) {
   if (!enchantments.length) {
     return []
@@ -428,11 +405,22 @@ async function validateEnchantments(
   const duplicates = new Set<number>()
 
   enchantments.forEach((entry) => {
-    const current = uniqueIds.get(entry.id)
-    if (typeof current === 'number') {
-      duplicates.add(entry.id)
+    const id = entry.enchantment_id
+    const level = entry.level
+
+    if (!Number.isInteger(id) || id <= 0) {
+      return
     }
-    uniqueIds.set(entry.id, entry.level)
+
+    if (!Number.isInteger(level) || level <= 0) {
+      return
+    }
+
+    const current = uniqueIds.get(id)
+    if (typeof current === 'number') {
+      duplicates.add(id)
+    }
+    uniqueIds.set(id, level)
   })
 
   if (duplicates.size > 0) {
@@ -493,10 +481,12 @@ async function validateEnchantments(
     )
   }
 
-  return enchantments.map((entry) => ({
-    enchantment_id: entry.id,
-    level: entry.level,
-  }))
+  return enchantments
+    .filter((entry) => uniqueIds.has(entry.enchantment_id))
+    .map((entry) => ({
+      enchantment_id: entry.enchantment_id,
+      level: entry.level,
+    }))
 }
 
 async function insertItemWithEnchantments(
@@ -508,7 +498,6 @@ async function insertItemWithEnchantments(
     item_type_id: number
     material_id: number
     rarity_id: number | null
-    rarity?: string | null
     stars?: number
     star_level?: number
     created_by: string
@@ -568,9 +557,6 @@ async function insertItemWithEnchantments(
       payload.created_by = item.created_by
       if (item.name) {
         payload.name = item.name
-      }
-      if (item.rarity) {
-        payload.rarity = item.rarity
       }
     }
 
@@ -687,8 +673,20 @@ const extractPositiveIntegerFilter = (
   return null
 }
 
+const DEFAULT_CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+}
+
+const cors = (overrides: Record<string, string> = {}) => ({
+  ...DEFAULT_CORS_HEADERS,
+  'content-type': 'application/json',
+  ...overrides,
+})
+
 // Healthcheck
-app.get('/api/health', (c) => c.json({ ok: true }))
+app.get('/api/health', (c) => c.json({ ok: true }, 200, cors()))
 
 // Debug echo endpoint
 app.all('/api/debug/echo', async (c) => {
@@ -704,7 +702,8 @@ app.all('/api/debug/echo', async (c) => {
         message: 'Request-Body konnte nicht gelesen werden.',
         details: { reason },
       },
-      400
+      400,
+      cors()
     )
   }
 
@@ -752,7 +751,63 @@ app.all('/api/debug/echo', async (c) => {
     responsePayload.jsonParseError = jsonParseError
   }
 
-  return c.json(responsePayload)
+  return c.json(responsePayload, 200, cors())
+})
+
+app.options('*', (c) =>
+  c.text('', 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
+)
+
+app.get('/api/rarities', async (c) => {
+  const url = new URL(`${c.env.SUPABASE_URL}/rest/v1/rarities`)
+  url.searchParams.set('select', 'id,slug,label,sort')
+  url.searchParams.append('order', 'sort.asc')
+  url.searchParams.append('order', 'label.asc')
+
+  const res = await fetch(url.toString(), {
+    headers: {
+      apikey: c.env.SUPABASE_SERVICE_ROLE_KEY,
+      Authorization: `Bearer ${c.env.SUPABASE_SERVICE_ROLE_KEY}`,
+      Accept: 'application/json',
+    },
+  })
+
+  if (!res.ok) {
+    let detail: string | undefined
+    try {
+      detail = await res.text()
+    } catch {
+      detail = undefined
+    }
+
+    return c.json(
+      {
+        error: 'supabase_error',
+        message: 'Konnte Seltenheiten nicht laden.',
+        detail: detail && detail.trim() ? detail.trim() : undefined,
+      },
+      res.status as any,
+      cors()
+    )
+  }
+
+  let data: unknown
+  try {
+    data = await res.json()
+  } catch (error) {
+    return c.json(
+      {
+        error: 'invalid_response',
+        message: 'Antwort der Supabase-API konnte nicht gelesen werden.',
+        detail: error instanceof Error ? error.message : String(error),
+      },
+      502,
+      cors()
+    )
+  }
+
+  const payload = Array.isArray(data) ? data : []
+  return c.json(payload, 200, cors({ 'cache-control': 'public, max-age=300, stale-while-revalidate=900' }))
 })
 
 // GET /api/items
@@ -761,7 +816,6 @@ app.get('/api/items', async (c) => {
   const params = new URLSearchParams({ select: '*' })
 
   const search = sanitizeSearchValue(query.search ?? '')
-  const rarity = normalizeFilterValue(query.rarity)
   const itemTypeFilter = extractPositiveIntegerFilter(
     query['item_type_id'],
     query['type_id'],
@@ -793,8 +847,6 @@ app.get('/api/items', async (c) => {
 
   if (rarityIdFilter) {
     params.append('rarity_id', `eq.${rarityIdFilter}`)
-  } else if (rarity) {
-    params.append('rarity', `eq.${rarity}`)
   }
 
   params.append('order', 'name.asc')
@@ -809,11 +861,13 @@ app.get('/api/items', async (c) => {
     headers: supabaseHeaders,
   })
 
-  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any)
+  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any, cors())
 
-  return c.json(await res.json(), 200, {
-    'cache-control': 'public, max-age=60, stale-while-revalidate=120'
-  })
+  return c.json(
+    await res.json(),
+    200,
+    cors({ 'cache-control': 'public, max-age=60, stale-while-revalidate=120' })
+  )
 })
 
 // POST /api/items (validiert + Service-Role)
@@ -821,7 +875,11 @@ app.post('/api/items', async (c) => {
   const token = resolveSupabaseBearerToken(c.req)
 
   if (!token) {
-    return c.json({ error: 'auth_required', message: 'Bitte mit einem gültigen Supabase-Token anfragen.' }, 401)
+    return c.json(
+      { error: 'auth_required', message: 'Bitte mit einem gültigen Supabase-Token anfragen.' },
+      401,
+      cors()
+    )
   }
 
   const adminClient = createSupabaseAdminClient(c.env)
@@ -831,33 +889,96 @@ app.post('/api/items', async (c) => {
     user = await verifyUser(adminClient, token)
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'auth_failed'
-    return c.json({ error: 'auth_failed', reason }, 401)
+    return c.json({ error: 'auth_failed', reason }, 401, cors())
+  }
+
+  const contentType = readHeader(c.req, 'content-type') || ''
+  if (!/application\/json/i.test(contentType)) {
+    return c.json(
+      {
+        error: 'unsupported_media_type',
+        message: 'Content-Type must be application/json',
+      },
+      415,
+      cors()
+    )
   }
 
   const bodyResult = await parseJsonBody(c.req)
   if (!bodyResult.success) {
-    return c.json(bodyResult.body, bodyResult.status as any)
+    return c.json(bodyResult.body, bodyResult.status as any, cors())
   }
 
   const rawBody = bodyResult.data
-  const parsed = itemSchema.safeParse(rawBody)
-
-  if (!parsed.success) {
-    return c.json({ error: 'validation', issues: parsed.error.issues }, 400)
+  if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+    return c.json(
+      {
+        error: 'validation',
+        message: 'Request-Body muss ein JSON-Objekt sein.',
+      },
+      400,
+      cors()
+    )
   }
 
-  const normalized = normaliseItemPayload(parsed.data)
+  const workingBody: Record<string, unknown> = { ...(rawBody as Record<string, unknown>) }
+  coerceInts(workingBody, ['rarity_id', 'item_type_id', 'material_id', 'star_level'])
 
-  if (!normalized.rarity_id && !normalized.rarity) {
-    return c.json({
-      error: 'validation',
-      issues: [
-        {
-          path: ['rarity'],
-          message: 'Seltenheit konnte nicht bestimmt werden.',
+  if (Array.isArray(workingBody.enchantments)) {
+    workingBody.enchantments = workingBody.enchantments
+      .map((entry) => {
+        if (!entry || typeof entry !== 'object') {
+          return null
+        }
+
+        const copy: Record<string, unknown> = { ...entry }
+        coerceInts(copy, ['enchantment_id', 'level', 'id'])
+
+        if (typeof copy.enchantment_id !== 'number' && typeof copy.id === 'number') {
+          copy.enchantment_id = copy.id
+        }
+
+        if (typeof copy.enchantment_id === 'string') {
+          const trimmed = copy.enchantment_id.trim()
+          if (/^\d+$/.test(trimmed)) {
+            copy.enchantment_id = Number.parseInt(trimmed, 10)
+          }
+        }
+
+        if (typeof copy.level === 'string') {
+          const trimmed = copy.level.trim()
+          if (/^\d+$/.test(trimmed)) {
+            copy.level = Number.parseInt(trimmed, 10)
+          }
+        }
+
+        if (typeof copy.enchantment_id !== 'number' || typeof copy.level !== 'number') {
+          return null
+        }
+
+        return { enchantment_id: copy.enchantment_id, level: copy.level }
+      })
+      .filter((entry): entry is { enchantment_id: number; level: number } => Boolean(entry))
+  }
+
+  const parsed = ItemInsertSchema.safeParse(workingBody)
+  if (!parsed.success) {
+    return c.json({ error: 'validation', details: parsed.error.format() }, 400, cors())
+  }
+
+  const normalized = normaliseItemPayload(parsed.data, workingBody)
+
+  if (!Number.isInteger(normalized.rarity_id) || normalized.rarity_id <= 0) {
+    return c.json(
+      {
+        error: 'validation',
+        details: {
+          rarity_id: { _errors: ['Seltenheit muss angegeben werden.'] },
         },
-      ],
-    }, 400)
+      },
+      400,
+      cors()
+    )
   }
 
   const enchantments = await validateEnchantments(adminClient, normalized.enchantments)
@@ -870,8 +991,7 @@ app.post('/api/items', async (c) => {
     description: normalized.description,
     item_type_id: normalized.item_type_id,
     material_id: normalized.material_id,
-    rarity_id: normalized.rarity_id ?? null,
-    rarity: normalized.rarity ?? null,
+    rarity_id: normalized.rarity_id,
     stars: normalized.star_level,
     star_level: normalized.star_level,
     created_by: user.id,
@@ -889,22 +1009,23 @@ app.post('/api/items', async (c) => {
         enchantments,
         user: { id: user.id },
       },
-      200
+      200,
+      cors()
     )
   }
 
   try {
     const inserted = await insertItemWithEnchantments(adminClient, baseItem, enchantments)
-    return c.json({ ...inserted, owner: user.id, method: 'bff' }, 201)
+    return c.json({ ...inserted, owner: user.id, method: 'bff' }, 201, cors())
   } catch (error) {
     if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
       const status = error.status as number
       const message = error instanceof Error ? error.message : 'Speichern fehlgeschlagen.'
-      return c.json({ error: 'validation', message }, status as any)
+      return c.json({ error: 'validation', message }, status as any, cors())
     }
 
     const message = error instanceof Error ? error.message : 'Speichern fehlgeschlagen.'
-    return c.json({ error: 'supabase_error', message }, 500)
+    return c.json({ error: 'supabase_error', message }, 500, cors())
   }
 })
 
@@ -914,11 +1035,13 @@ app.get('/api/enchantments', async (c) => {
     headers: { apikey: c.env.SUPABASE_ANON_KEY }
   })
 
-  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any)
+  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any, cors())
 
-  return c.json(await res.json(), 200, {
-    'cache-control': 'public, max-age=3600, stale-while-revalidate=86400'
-  })
+  return c.json(
+    await res.json(),
+    200,
+    cors({ 'cache-control': 'public, max-age=3600, stale-while-revalidate=86400' })
+  )
 })
 
 export default app

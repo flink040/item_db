@@ -130,6 +130,31 @@ const insertDiagnostics = {
   lastUserId: null,
 }
 
+async function fetchRaritiesList() {
+  try {
+    const response = await fetch(`${API_BASE}/rarities`, {
+      headers: { Accept: 'application/json' },
+    })
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      const message = text && text.trim().length > 0 ? text.trim() : `HTTP ${response.status}`
+      const error = new Error(message)
+      error.status = response.status
+      throw error
+    }
+
+    const data = await response.json()
+    if (!Array.isArray(data)) {
+      throw new Error('Ungültige Antwort für Seltenheiten erhalten.')
+    }
+
+    return { data, error: null }
+  } catch (error) {
+    return { data: [], error }
+  }
+}
+
 function formatFileSize(bytes) {
   const size = Number(bytes)
   if (!Number.isFinite(size) || size < 0) {
@@ -2733,7 +2758,7 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
   if (enchantments.length) {
     const enchantRows = enchantments.map((entry) => ({
       item_id: createdItem.id,
-      enchantment_id: entry.id,
+      enchantment_id: entry.enchantment_id ?? entry.id,
       level: entry.level,
     }))
     const { error: enchantError, data: enchantData, status } = await supabase
@@ -2820,7 +2845,8 @@ async function handleAddItemSubmit(event) {
   const title = (formData.get('title') || '').toString().trim()
   const typeId = formData.get('itemType')?.toString() ?? ''
   const materialId = formData.get('material')?.toString() ?? ''
-  const rarityId = formData.get('rarity')?.toString() ?? ''
+  const rarityValue = formData.get('rarity_id') ?? formData.get('rarity')
+  const rarityId = rarityValue != null ? rarityValue.toString() : ''
   const starsValue = formData.get('stars')?.toString() ?? ''
   const itemImageFile = normalizeFileValue(formData.get('itemImage'))
   const loreImageFile = normalizeFileValue(formData.get('itemLoreImage'))
@@ -2839,7 +2865,7 @@ async function handleAddItemSubmit(event) {
     hasError = true
   }
   if (!rarityId) {
-    showFieldError('rarity', 'Bitte eine Seltenheit auswählen.')
+    showFieldError('rarity_id', 'Bitte eine Seltenheit auswählen.')
     hasError = true
   }
   if (!starsValue) {
@@ -2965,7 +2991,7 @@ async function handleAddItemSubmit(event) {
     }
 
     const enchantmentPayload = selections.map((entry) => ({
-      id: entry.id,
+      enchantment_id: entry.id,
       level: entry.level,
     }))
 
@@ -3166,11 +3192,7 @@ async function loadFiltersAndLists() {
     const [itemTypesResult, materialsResult, raritiesResult, enchantmentsResult] = await Promise.all([
       supabase.from('item_types').select('id,label').order('label', { ascending: true }),
       supabase.from('materials').select('id,label').order('label', { ascending: true }),
-      supabase
-        .from('rarities')
-        .select('id,label,sort')
-        .order('sort', { ascending: true })
-        .order('label', { ascending: true }),
+      fetchRaritiesList(),
       supabase.from('enchantments').select('id,label,max_level').order('label', { ascending: true }),
     ])
 
@@ -3181,7 +3203,7 @@ async function loadFiltersAndLists() {
 
     state.itemTypes = itemTypesResult.data ?? []
     state.materials = materialsResult.data ?? []
-    state.rarities = raritiesResult.data ?? []
+    state.rarities = Array.isArray(raritiesResult.data) ? raritiesResult.data : []
     state.enchantments = enchantmentsResult.data ?? []
     state.enchantmentsLoaded = true
     state.enchantmentsError = false
@@ -3191,7 +3213,7 @@ async function loadFiltersAndLists() {
     populateSelect(elements.filterRarity, state.rarities)
     populateSelect(document.getElementById('itemTypeSelect'), state.itemTypes, 'Auswählen…')
     populateSelect(document.getElementById('itemMaterialSelect'), state.materials, 'Auswählen…')
-    populateSelect(document.getElementById('itemRaritySelect'), state.rarities, 'Auswählen…')
+    populateSelect(document.getElementById('item-rarity-select'), state.rarities, 'Auswählen…')
 
     renderEnchantmentsList()
 
