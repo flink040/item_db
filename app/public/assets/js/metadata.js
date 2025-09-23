@@ -1,7 +1,44 @@
+const DEFAULT_API_BASE = '/api'
+
+function sanitizeConfigString(value) {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    return trimmed.length > 0 ? trimmed : null
+  }
+
+  if (value === null || value === undefined) {
+    return null
+  }
+
+  return sanitizeConfigString(String(value))
+}
+
+function resolveApiBase() {
+  const runtime = typeof globalThis !== 'undefined' ? globalThis.APP_CONFIG : null
+
+  if (runtime && typeof runtime === 'object' && 'API_BASE' in runtime) {
+    const apiBase = sanitizeConfigString(runtime.API_BASE)
+    if (apiBase) {
+      return apiBase
+    }
+  }
+
+  return DEFAULT_API_BASE
+}
+
+const API_BASE = resolveApiBase()
+
+function buildMetaEndpoint(path) {
+  const base = typeof API_BASE === 'string' && API_BASE.length > 0 ? API_BASE : DEFAULT_API_BASE
+  const normalizedBase = base.endsWith('/') ? base.slice(0, -1) : base
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  return `${normalizedBase}${normalizedPath}`
+}
+
 const META_ENDPOINTS = {
-  item_types: '/api/item_types',
-  materials: '/api/materials',
-  rarities: '/api/rarities',
+  item_types: buildMetaEndpoint('/item_types'),
+  materials: buildMetaEndpoint('/materials'),
+  rarities: buildMetaEndpoint('/rarities'),
 }
 
 const DEFAULT_MAX_AGE = 60000
