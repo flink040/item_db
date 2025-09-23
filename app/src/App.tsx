@@ -16,6 +16,7 @@ type FilterOption = {
   value: string
   label: string
   supabaseValue?: string
+  supabaseTextValue?: string
 }
 
 type Item = {
@@ -37,6 +38,16 @@ type Item = {
   image_url?: string | null
   item_lore_image?: string | null
   lore_image_url?: string | null
+  item_types?: ReferenceLookup | null
+  materials?: ReferenceLookup | null
+  rarities?: ReferenceLookup | null
+}
+
+type ReferenceLookup = {
+  id?: number | null
+  label?: string | null
+  code?: string | null
+  slug?: string | null
 }
 
 type Enchantment = {
@@ -439,7 +450,7 @@ const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
     .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
-const typeOptions: FilterOption[] = [
+const fallbackTypeOptions: FilterOption[] = [
   { value: '', label: 'Alle Typen' },
   { value: 'helm', label: 'Helm' },
   { value: 'brustplatte', label: 'Brustplatte' },
@@ -462,7 +473,7 @@ const typeOptions: FilterOption[] = [
   { value: 'sonstiges', label: 'Sonstiges' }
 ]
 
-const materialOptions: FilterOption[] = [
+const fallbackMaterialOptions: FilterOption[] = [
   { value: '', label: 'Alle Materialien' },
   { value: 'netherite', label: 'Netherit' },
   { value: 'diamond', label: 'Diamant' },
@@ -474,7 +485,7 @@ const materialOptions: FilterOption[] = [
   { value: 'other', label: 'Sonstiges' }
 ]
 
-const rarityOptions: FilterOption[] = [
+const fallbackRarityOptions: FilterOption[] = [
   { value: '', label: 'Alle Seltenheiten' },
   { value: 'selten', label: 'Selten' },
   { value: 'episch', label: 'Episch' },
@@ -498,23 +509,117 @@ const createFilterLabelMap = (options: FilterOption[]) =>
 
     register(option.value)
     register(option.supabaseValue)
+    register(option.supabaseTextValue)
 
     return acc
   }, {})
 
-const typeLabelMap = createFilterLabelMap(typeOptions)
+const normalizeStringValue = (input: unknown) =>
+  typeof input === 'string' ? input.trim() : ''
 
-const materialLabelMap = createFilterLabelMap(materialOptions)
+const createReferenceOptionsFromRecords = (
+  entries: unknown[],
+  fallbackLabelPrefix: string
+) => {
+  if (!Array.isArray(entries)) {
+    return []
+  }
 
-const rarityLabelMap = createFilterLabelMap(rarityOptions)
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+
+      const record = entry as Record<string, unknown>
+      const id = Number(record.id)
+      if (!Number.isInteger(id) || id <= 0) {
+        return null
+      }
+
+      const labelCandidate = normalizeStringValue(record.label)
+      const label = labelCandidate || `${fallbackLabelPrefix} #${id}`
+
+      const rawValueCandidates = [
+        normalizeStringValue(record.slug),
+        normalizeStringValue(record.value),
+        normalizeStringValue(record.code)
+      ]
+
+      const resolvedValue = rawValueCandidates.find((candidate) => candidate) ?? String(id)
+
+      const option: FilterOption = {
+        value: resolvedValue,
+        label,
+        supabaseValue: String(id)
+      }
+
+      if (resolvedValue && resolvedValue !== option.supabaseValue) {
+        option.supabaseTextValue = resolvedValue
+      }
+
+      return option
+    })
+    .filter((option): option is FilterOption => option !== null)
+    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+}
+
+const createRarityOptionsFromRecords = (entries: unknown[]) => {
+  if (!Array.isArray(entries)) {
+    return []
+  }
+
+  return entries
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        return null
+      }
+
+      const record = entry as Record<string, unknown>
+      const id = Number(record.id)
+      if (!Number.isInteger(id) || id <= 0) {
+        return null
+      }
+
+      const labelCandidate = normalizeStringValue(record.label)
+      const label = labelCandidate || `Seltenheit #${id}`
+
+      const code = normalizeStringValue(record.code)
+      const slug = normalizeStringValue(record.slug)
+      const valueCandidate = slug || code || normalizeStringValue(record.value)
+      const resolvedValue = valueCandidate || String(id)
+
+      const option: FilterOption = {
+        value: resolvedValue,
+        label,
+        supabaseValue: String(id)
+      }
+
+      if (code) {
+        option.supabaseTextValue = code
+      } else if (resolvedValue && resolvedValue !== option.supabaseValue) {
+        option.supabaseTextValue = resolvedValue
+      }
+
+      return option
+    })
+    .filter((option): option is FilterOption => option !== null)
+    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+}
 
 const rarityBadgeClasses: Record<string, string> = {
+  common: 'border border-slate-700/60 bg-slate-900/40 text-slate-300',
   selten: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  rare: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
   episch: 'border border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
+  epic: 'border border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
   unbezahlbar: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
+  priceless: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
   legendär: 'border border-purple-500/40 bg-purple-500/10 text-purple-300',
+  legendary: 'border border-purple-500/40 bg-purple-500/10 text-purple-300',
   jackpot: 'border border-pink-500/40 bg-pink-500/10 text-pink-200',
-  mega_jackpot: 'border border-rose-500/40 bg-rose-500/10 text-rose-200'
+  mega_jackpot: 'border border-rose-500/40 bg-rose-500/10 text-rose-200',
+  'mega-jackpot': 'border border-rose-500/40 bg-rose-500/10 text-rose-200'
 }
 
 const MAX_RECENT_SEARCHES = 5
@@ -641,29 +746,23 @@ const sanitizeSearchValue = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim()
 
-const resolveSupabaseFilterValue = (
-  value: string,
-  options: FilterOption[]
-): string | null => {
-  const trimmed = value.trim()
-  if (!trimmed) {
-    return null
+type SupabaseFilterResolution = {
+  id: string | null
+  text: string | null
+}
+
+const extractSupabaseNumericCandidate = (value: unknown): string | null => {
+  if (typeof value === 'number' && Number.isInteger(value) && value > 0) {
+    return String(value)
   }
 
-  const selectedOption = options.find((option) => option.value === trimmed)
-  const candidateValues: string[] = []
-
-  if (selectedOption?.supabaseValue) {
-    const supabaseCandidate = selectedOption.supabaseValue.trim()
-    if (supabaseCandidate) {
-      candidateValues.push(supabaseCandidate)
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
     }
-  }
 
-  candidateValues.push(trimmed)
-
-  for (const candidate of candidateValues) {
-    const parsed = Number.parseInt(candidate, 10)
+    const parsed = Number.parseInt(trimmed, 10)
     if (Number.isInteger(parsed) && parsed > 0) {
       return String(parsed)
     }
@@ -672,10 +771,45 @@ const resolveSupabaseFilterValue = (
   return null
 }
 
+const resolveSupabaseFilterValue = (
+  value: string,
+  options: FilterOption[]
+): SupabaseFilterResolution => {
+  const trimmed = value.trim()
+  if (!trimmed) {
+    return { id: null, text: null }
+  }
+
+  const selectedOption = options.find((option) => option.value === trimmed)
+
+  const numericFromOption = extractSupabaseNumericCandidate(selectedOption?.supabaseValue)
+  const numericValue = numericFromOption ?? extractSupabaseNumericCandidate(trimmed)
+
+  const textFromOption = (() => {
+    const candidate = selectedOption?.supabaseTextValue
+    if (typeof candidate === 'string') {
+      const normalized = candidate.trim()
+      if (normalized) {
+        return normalized
+      }
+    }
+    return null
+  })()
+
+  let textValue: string | null = null
+  if (textFromOption) {
+    textValue = textFromOption
+  } else if (!numericValue) {
+    textValue = trimmed
+  }
+
+  return { id: numericValue, text: textValue }
+}
+
 const resolveNumericOptionValue = (value: string, options: FilterOption[]) => {
-  const supabaseValue = resolveSupabaseFilterValue(value, options)
-  if (supabaseValue) {
-    const parsedSupabaseValue = Number.parseInt(supabaseValue, 10)
+  const { id } = resolveSupabaseFilterValue(value, options)
+  if (id) {
+    const parsedSupabaseValue = Number.parseInt(id, 10)
     if (Number.isInteger(parsedSupabaseValue) && parsedSupabaseValue > 0) {
       return parsedSupabaseValue
     }
@@ -689,43 +823,96 @@ const resolveNumericOptionValue = (value: string, options: FilterOption[]) => {
   return null
 }
 
-function getRarityMeta(value?: string | null, rarityId?: number | null) {
+function getRarityMeta(
+  values: Array<string | null | undefined>,
+  rarityId: number | null | undefined,
+  options: FilterOption[],
+  rarityLabelMap: Record<string, string>
+) {
   const fallback = {
     label: 'Unbekannt',
     badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
   }
 
-  const normalizedValue = typeof value === 'string' ? value.trim() : ''
+  const resolveBadgeClass = (option: FilterOption | null | undefined, candidate?: string) => {
+    if (option) {
+      if (option.value && rarityBadgeClasses[option.value]) {
+        return rarityBadgeClasses[option.value]
+      }
+      if (option.supabaseTextValue && rarityBadgeClasses[option.supabaseTextValue]) {
+        return rarityBadgeClasses[option.supabaseTextValue]
+      }
+    }
 
-  if (normalizedValue) {
-    const option = rarityOptions.find((entry) => entry.value === normalizedValue)
-    return {
-      label: option?.label ?? rarityLabelMap[normalizedValue] ?? normalizedValue,
-      badgeClass:
-        rarityBadgeClasses[option?.value ?? normalizedValue] ?? fallback.badgeClass,
+    if (candidate && rarityBadgeClasses[candidate]) {
+      return rarityBadgeClasses[candidate]
+    }
+
+    return fallback.badgeClass
+  }
+
+  const normalizedValues = values
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+    .filter((entry) => entry.length > 0)
+
+  const findOption = (candidate: string) => {
+    const lowerCandidate = candidate.toLowerCase()
+    return options.find((option) => {
+      if (option.value.trim().toLowerCase() === lowerCandidate) {
+        return true
+      }
+      if (option.supabaseValue && option.supabaseValue.trim() === candidate) {
+        return true
+      }
+      if (
+        option.supabaseTextValue &&
+        option.supabaseTextValue.trim().toLowerCase() === lowerCandidate
+      ) {
+        return true
+      }
+      return option.label.trim().toLowerCase() === lowerCandidate
+    })
+  }
+
+  for (const candidate of normalizedValues) {
+    const option = findOption(candidate)
+    if (option) {
+      return {
+        label: option.label,
+        badgeClass: resolveBadgeClass(option)
+      }
+    }
+
+    const mappedLabel = rarityLabelMap[candidate]
+    if (mappedLabel) {
+      return {
+        label: mappedLabel,
+        badgeClass: resolveBadgeClass(null, candidate)
+      }
     }
   }
 
   if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
     const rarityKey = String(rarityId)
-    const option = rarityOptions.find(
+    const option = options.find(
       (entry) => entry.supabaseValue === rarityKey || entry.value === rarityKey
     )
 
     if (option) {
       return {
         label: option.label,
-        badgeClass: rarityBadgeClasses[option.value] ?? fallback.badgeClass,
+        badgeClass: resolveBadgeClass(option)
       }
     }
 
-    if (rarityLabelMap[rarityKey]) {
-      return { label: rarityLabelMap[rarityKey], badgeClass: fallback.badgeClass }
+    const mappedLabel = rarityLabelMap[rarityKey]
+    if (mappedLabel) {
+      return { label: mappedLabel, badgeClass: fallback.badgeClass }
     }
 
     return {
       label: `Seltenheit #${rarityKey}`,
-      badgeClass: fallback.badgeClass,
+      badgeClass: fallback.badgeClass
     }
   }
 
@@ -733,6 +920,9 @@ function getRarityMeta(value?: string | null, rarityId?: number | null) {
 }
 
 export default function App() {
+  const [typeOptions, setTypeOptions] = useState<FilterOption[]>(fallbackTypeOptions)
+  const [materialOptions, setMaterialOptions] = useState<FilterOption[]>(fallbackMaterialOptions)
+  const [rarityOptions, setRarityOptions] = useState<FilterOption[]>(fallbackRarityOptions)
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -750,7 +940,66 @@ export default function App() {
   )
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
+  const typeLabelMap = useMemo(() => createFilterLabelMap(typeOptions), [typeOptions])
+  const materialLabelMap = useMemo(
+    () => createFilterLabelMap(materialOptions),
+    [materialOptions]
+  )
+  const rarityLabelMap = useMemo(() => createFilterLabelMap(rarityOptions), [rarityOptions])
+
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
+      return
+    }
+
+    let isCancelled = false
+
+    const loadReferenceData = async () => {
+      try {
+        const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
+          supabase.from('item_types').select('*').order('label', { ascending: true }),
+          supabase.from('materials').select('*').order('label', { ascending: true }),
+          supabase.from('rarities').select('*').order('label', { ascending: true })
+        ])
+
+        if (isCancelled) {
+          return
+        }
+
+        if (!itemTypesResult.error && Array.isArray(itemTypesResult.data)) {
+          const options = createReferenceOptionsFromRecords(itemTypesResult.data, 'Typ')
+          if (options.length > 0) {
+            setTypeOptions([{ value: '', label: 'Alle Typen' }, ...options])
+          }
+        }
+
+        if (!materialsResult.error && Array.isArray(materialsResult.data)) {
+          const options = createReferenceOptionsFromRecords(materialsResult.data, 'Material')
+          if (options.length > 0) {
+            setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...options])
+          }
+        }
+
+        if (!raritiesResult.error && Array.isArray(raritiesResult.data)) {
+          const options = createRarityOptionsFromRecords(raritiesResult.data)
+          if (options.length > 0) {
+            setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...options])
+          }
+        }
+      } catch (error) {
+        console.warn('Referenzdaten konnten nicht geladen werden.', error)
+      }
+    }
+
+    void loadReferenceData()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [])
 
   const buildFetchParams = useCallback(
     (overrides: Partial<FetchItemsParams> = {}): FetchItemsParams => ({
@@ -791,24 +1040,21 @@ export default function App() {
         params.set('search', sanitizedSearch)
       }
 
-      const typeFilterValue = resolveSupabaseFilterValue(type, typeOptions)
-      if (typeFilterValue) {
-        params.set('item_type_id', typeFilterValue)
+      const typeResolution = resolveSupabaseFilterValue(type, typeOptions)
+      if (typeResolution.id) {
+        params.set('item_type_id', typeResolution.id)
       }
 
-      const materialFilterValue = resolveSupabaseFilterValue(material, materialOptions)
-      if (materialFilterValue) {
-        params.set('material_id', materialFilterValue)
+      const materialResolution = resolveSupabaseFilterValue(material, materialOptions)
+      if (materialResolution.id) {
+        params.set('material_id', materialResolution.id)
       }
 
-      const rarityFilterValue = resolveSupabaseFilterValue(rarity, rarityOptions)
-      if (rarityFilterValue) {
-        params.set('rarity_id', rarityFilterValue)
-      } else {
-        const normalizedRarity = rarity.trim()
-        if (normalizedRarity) {
-          params.set('rarity', normalizedRarity)
-        }
+      const rarityResolution = resolveSupabaseFilterValue(rarity, rarityOptions)
+      if (rarityResolution.id) {
+        params.set('rarity_id', rarityResolution.id)
+      } else if (rarityResolution.text) {
+        params.set('rarity', rarityResolution.text)
       }
 
       abortControllerRef.current?.abort()
@@ -969,6 +1215,61 @@ export default function App() {
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = sanitizeSearchValue(search).toLowerCase()
+    const typeResolution = resolveSupabaseFilterValue(typeFilter, typeOptions)
+    const materialResolution = resolveSupabaseFilterValue(materialFilter, materialOptions)
+    const rarityResolution = resolveSupabaseFilterValue(rarityFilter, rarityOptions)
+
+    const matchesResolution = (
+      resolution: SupabaseFilterResolution,
+      numericCandidates: Array<number | string | null | undefined>,
+      stringCandidates: Array<string | null | undefined>,
+      labelMap: Record<string, string>
+    ) => {
+      if (resolution.id) {
+        for (const candidate of numericCandidates) {
+          const numericCandidate = extractSupabaseNumericCandidate(candidate)
+          if (numericCandidate && numericCandidate === resolution.id) {
+            return true
+          }
+        }
+        return false
+      }
+
+      if (resolution.text) {
+        const normalizedFilter = resolution.text.trim().toLowerCase()
+        if (!normalizedFilter) {
+          return true
+        }
+
+        const candidates: string[] = []
+
+        for (const candidate of stringCandidates) {
+          if (typeof candidate === 'string') {
+            const normalized = candidate.trim()
+            if (normalized) {
+              candidates.push(normalized.toLowerCase())
+            }
+          }
+        }
+
+        for (const candidate of numericCandidates) {
+          const numericCandidate = extractSupabaseNumericCandidate(candidate)
+          if (numericCandidate) {
+            const mapped = labelMap[numericCandidate]
+            if (mapped) {
+              const normalizedMapped = mapped.trim().toLowerCase()
+              if (normalizedMapped) {
+                candidates.push(normalizedMapped)
+              }
+            }
+          }
+        }
+
+        return candidates.some((candidate) => candidate === normalizedFilter)
+      }
+
+      return true
+    }
 
     return items
       .filter((item) => {
@@ -978,14 +1279,75 @@ export default function App() {
             field?.toLowerCase().includes(normalizedSearch)
           )
 
-        const matchesType = !typeFilter || (item.type ?? '') === typeFilter
-        const matchesMaterial = !materialFilter || (item.material ?? '') === materialFilter
-        const matchesRarity = !rarityFilter || (item.rarity ?? '') === rarityFilter
+        const typeNumericCandidates = [
+          item.item_type_id,
+          item.itemTypeId,
+          item.item_types?.id
+        ]
+        const typeStringCandidates = [
+          item.type,
+          item.item_types?.label,
+          item.item_types?.code,
+          item.item_types?.slug
+        ]
+        const matchesType = matchesResolution(
+          typeResolution,
+          typeNumericCandidates,
+          typeStringCandidates,
+          typeLabelMap
+        )
+
+        const materialNumericCandidates = [
+          item.material_id,
+          item.materialId,
+          item.materials?.id
+        ]
+        const materialStringCandidates = [
+          item.material,
+          item.materials?.label,
+          item.materials?.code,
+          item.materials?.slug
+        ]
+        const matchesMaterial = matchesResolution(
+          materialResolution,
+          materialNumericCandidates,
+          materialStringCandidates,
+          materialLabelMap
+        )
+
+        const rarityNumericCandidates = [
+          item.rarity_id,
+          item.rarityId,
+          item.rarities?.id
+        ]
+        const rarityStringCandidates = [
+          item.rarity,
+          item.rarities?.label,
+          item.rarities?.code
+        ]
+        const matchesRarity = matchesResolution(
+          rarityResolution,
+          rarityNumericCandidates,
+          rarityStringCandidates,
+          rarityLabelMap
+        )
 
         return matchesSearch && matchesType && matchesMaterial && matchesRarity
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
-  }, [items, search, typeFilter, materialFilter, rarityFilter])
+  }, [
+    items,
+    search,
+    typeFilter,
+    materialFilter,
+    rarityFilter,
+    typeOptions,
+    materialOptions,
+    rarityOptions,
+    typeLabelMap,
+    materialLabelMap,
+    rarityLabelMap
+  ])
 
   const normalizedSearchTerm = sanitizeSearchValue(search)
   const activeFilterCount = [typeFilter, materialFilter, rarityFilter].filter(Boolean).length
@@ -1379,7 +1741,14 @@ export default function App() {
                 ) : (
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {filteredItems.map((item) => (
-                      <ItemCard key={item.id} item={item} />
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        typeLabelMap={typeLabelMap}
+                        materialLabelMap={materialLabelMap}
+                        rarityLabelMap={rarityLabelMap}
+                        rarityOptions={rarityOptions}
+                      />
                     ))}
                   </div>
                 )}
@@ -2479,14 +2848,34 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     </div>
   )
 }
-function ItemCard({ item }: { item: Item }) {
+function ItemCard({
+  item,
+  typeLabelMap,
+  materialLabelMap,
+  rarityLabelMap,
+  rarityOptions
+}: {
+  item: Item
+  typeLabelMap: Record<string, string>
+  materialLabelMap: Record<string, string>
+  rarityLabelMap: Record<string, string>
+  rarityOptions: FilterOption[]
+}) {
   const rarityId =
     typeof item.rarity_id === 'number'
       ? item.rarity_id
       : typeof item.rarityId === 'number'
         ? item.rarityId
-        : null
-  const { label, badgeClass } = getRarityMeta(item.rarity ?? undefined, rarityId)
+        : typeof item.rarities?.id === 'number'
+          ? item.rarities?.id ?? null
+          : null
+  const rarityValues = [item.rarity, item.rarities?.code, item.rarities?.label, item.rarities?.slug]
+  const { label, badgeClass } = getRarityMeta(
+    rarityValues,
+    rarityId,
+    rarityOptions,
+    rarityLabelMap
+  )
 
   const itemImageUrl = (() => {
     const candidates = [item.item_image, item.image_url]
@@ -2502,41 +2891,75 @@ function ItemCard({ item }: { item: Item }) {
     return null
   })()
 
-  const resolveFilterKey = (value: unknown, fallback?: unknown) => {
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return String(value)
-    }
-
-    if (typeof value === 'string') {
-      const normalized = value.trim()
-      if (normalized) {
-        return normalized
+  const resolveAttributeLabel = (
+    numericCandidates: Array<number | string | null | undefined>,
+    stringCandidates: Array<string | null | undefined>,
+    labelMap: Record<string, string>,
+    fallbackPrefix: string,
+    unknownFallback: string
+  ) => {
+    for (const candidate of numericCandidates) {
+      const numericCandidate = extractSupabaseNumericCandidate(candidate)
+      if (numericCandidate) {
+        const mapped = labelMap[numericCandidate]
+        if (mapped) {
+          return mapped
+        }
       }
     }
 
-    if (typeof fallback === 'number' && Number.isFinite(fallback)) {
-      return String(fallback)
-    }
+    for (const candidate of stringCandidates) {
+      if (typeof candidate === 'string') {
+        const normalized = candidate.trim()
+        if (!normalized) {
+          continue
+        }
 
-    if (typeof fallback === 'string') {
-      const normalizedFallback = fallback.trim()
-      if (normalizedFallback) {
-        return normalizedFallback
+        if (labelMap[normalized]) {
+          return labelMap[normalized]
+        }
       }
     }
 
-    return ''
+    for (const candidate of stringCandidates) {
+      if (typeof candidate === 'string') {
+        const normalized = candidate.trim()
+        if (normalized) {
+          return normalized
+        }
+      }
+    }
+
+    for (const candidate of numericCandidates) {
+      const numericCandidate = extractSupabaseNumericCandidate(candidate)
+      if (numericCandidate) {
+        return `${fallbackPrefix} #${numericCandidate}`
+      }
+    }
+
+    return unknownFallback
   }
 
-  const typeKey = resolveFilterKey(item.item_type_id, item.type ?? item.itemTypeId)
-  const materialKey = resolveFilterKey(item.material_id, item.material ?? item.materialId)
+  const typeLabel = resolveAttributeLabel(
+    [item.item_type_id, item.itemTypeId, item.item_types?.id],
+    [item.type, item.item_types?.label, item.item_types?.code, item.item_types?.slug],
+    typeLabelMap,
+    'Typ',
+    'Unbekannter Typ'
+  )
 
-  const typeLabel =
-    typeKey ? typeLabelMap[typeKey] ?? `Typ #${typeKey}` : 'Unbekannter Typ'
-  const materialLabel =
-    materialKey
-      ? materialLabelMap[materialKey] ?? `Material #${materialKey}`
-      : 'Unbekanntes Material'
+  const materialLabel = resolveAttributeLabel(
+    [item.material_id, item.materialId, item.materials?.id],
+    [
+      item.material,
+      item.materials?.label,
+      item.materials?.code,
+      item.materials?.slug
+    ],
+    materialLabelMap,
+    'Material',
+    'Unbekanntes Material'
+  )
   const starLevel =
     typeof item.star_level === 'number'
       ? Math.max(0, Math.min(MAX_STAR_LEVEL, item.star_level))
