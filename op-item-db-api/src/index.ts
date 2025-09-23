@@ -1,5 +1,15 @@
-import { Hono } from "hono"
+import { Hono } from 'hono'
+import meta from './routes/meta'
 
+const app = new Hono()
+
+// temporärer Healthcheck
+app.get('/api/health', c => c.text('ok'))
+
+// WICHTIG: meta direkt unter /api mounten
+app.route('/api', meta)
+
+export default app
 
 import { registerMetaRoutes, type MetaEnv } from "./routes/meta"
 
