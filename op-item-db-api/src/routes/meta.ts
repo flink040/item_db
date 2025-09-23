@@ -2,16 +2,14 @@ import { Hono, type Context } from "hono"
 import { createClient } from "@supabase/supabase-js"
 
 import type { Bindings } from "../types"
+type SupabaseClient = ReturnType<typeof createClient>
 
-type MetaEnv = {
+export type MetaEnv = {
   Bindings: Bindings
   Variables: {
-    supabase?: ReturnType<typeof createClient>
+    supabase?: SupabaseClient
   }
 }
-
-const meta = new Hono<MetaEnv>()
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "content-type": "application/json",
@@ -21,7 +19,7 @@ const withCors = <T>(context: Context<MetaEnv>, payload: T, status = 200) =>
   context.json(payload, status, corsHeaders)
 
 const resolveSupabaseClient = (c: Context<MetaEnv>) => {
-  const cached = c.get("supabase")
+  const cached = c.get("supabase") as SupabaseClient | undefined
   if (cached) {
     return cached
   }
@@ -40,8 +38,8 @@ const resolveSupabaseClient = (c: Context<MetaEnv>) => {
   return client
 }
 
-const list = async (c: Context<MetaEnv>, table: string) => {
-  let client
+const createListHandler = (table: string) => async (c: Context<MetaEnv>) => {
+  let client: SupabaseClient
   try {
     client = resolveSupabaseClient(c)
   } catch (error) {
@@ -66,8 +64,15 @@ const list = async (c: Context<MetaEnv>, table: string) => {
   }
 }
 
-meta.get("/rarities", (c) => list(c, "rarities"))
-meta.get("/item_types", (c) => list(c, "item_types"))
-meta.get("/materials", (c) => list(c, "materials"))
+export const registerMetaRoutes = (app: Hono<MetaEnv>, options?: { prefix?: string }) => {
+  const prefix = options?.prefix ?? ""
+  const path = (segment: string) => `${prefix}${segment}`
 
+  app.get(path("/rarities"), createListHandler("rarities"))
+  app.get(path("/item_types"), createListHandler("item_types"))
+  app.get(path("/materials"), createListHandler("materials"))
+}
+
+const meta = new Hono<MetaEnv>()
+registerMetaRoutes(meta)
 export default meta

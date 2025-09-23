@@ -1,7 +1,8 @@
 import { Hono } from "hono"
 
-import meta from "./routes/meta"
-import type { Bindings } from "./types"
+
+import { registerMetaRoutes, type MetaEnv } from "./routes/meta"
+
 
 const DEFAULT_CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -15,18 +16,15 @@ const cors = (overrides: Record<string, string> = {}) => ({
   ...overrides,
 })
 
-const app = new Hono<{ Bindings: Bindings }>()
-
+const app = new Hono<MetaEnv>()
 app.get("/api/health", (c) => c.json({ ok: true }, 200, cors()))
-
-app.route("/api", meta)
-
+registerMetaRoutes(app, { prefix: "/api" })
 app.options("*", (c) =>
   c.text("", 204, cors({ "content-type": "text/plain; charset=UTF-8", "Access-Control-Max-Age": "600" }))
 )
 
 app.notFound((c) => {
-  if (c.req.path.startsWith("/api/")) {
+  if (c.req.path === "/api" || c.req.path.startsWith("/api/")) {
     return c.json({ error: "not_found" }, 404, cors())
   }
 
