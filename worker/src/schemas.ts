@@ -21,6 +21,21 @@ export const ItemInsertSchema = z.object({
 
 export type ItemInsert = z.infer<typeof ItemInsertSchema>
 
+export const MetaRow = z
+  .object({
+    id: z.number(),
+    slug: z.string(),
+    label: z.string(),
+  })
+  .strict()
+
+export const RarityRow = MetaRow.extend({
+  sort: z.number().optional(),
+})
+
+export type TMetaRow = z.infer<typeof MetaRow>
+export type TRarityRow = z.infer<typeof RarityRow>
+
 export function coerceInts(record: any, keys: string[]) {
   if (!record || typeof record !== 'object') {
     return record
