@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { createClient } from '@supabase/supabase-js'
+import { meta } from './routes/meta'
 import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
 
 type Bindings = {
@@ -285,6 +286,17 @@ function createSupabaseAdminClient(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   })
+}
+
+const supabaseAdminClientCache = new WeakMap<Bindings, SupabaseClient>()
+
+function getCachedSupabaseAdminClient(env: Bindings): SupabaseClient {
+  let client = supabaseAdminClientCache.get(env)
+  if (!client) {
+    client = createSupabaseAdminClient(env)
+    supabaseAdminClientCache.set(env, client)
+  }
+  return client
 }
 
 async function verifyUser(client: SupabaseClient, token: string) {
@@ -645,6 +657,16 @@ async function insertItemWithEnchantments(
 
 const app = new Hono<{ Bindings: Bindings }>()
 
+app.use('/api/*', async (c, next) => {
+  try {
+    const supabase = getCachedSupabaseAdminClient(c.env)
+    c.set('supabase', supabase)
+  } catch (error) {
+    console.error('[meta] failed to initialise supabase client', error)
+  }
+  return next()
+})
+
 const sanitizeSearchValue = (value: string) =>
   value
     .trim()
@@ -758,57 +780,7 @@ app.options('*', (c) =>
   c.text('', 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
 )
 
-app.get('/api/rarities', async (c) => {
-  const url = new URL(`${c.env.SUPABASE_URL}/rest/v1/rarities`)
-  url.searchParams.set('select', 'id,slug,label,sort')
-  url.searchParams.append('order', 'sort.asc')
-  url.searchParams.append('order', 'label.asc')
-
-  const res = await fetch(url.toString(), {
-    headers: {
-      apikey: c.env.SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${c.env.SUPABASE_SERVICE_ROLE_KEY}`,
-      Accept: 'application/json',
-    },
-  })
-
-  if (!res.ok) {
-    let detail: string | undefined
-    try {
-      detail = await res.text()
-    } catch {
-      detail = undefined
-    }
-
-    return c.json(
-      {
-        error: 'supabase_error',
-        message: 'Konnte Seltenheiten nicht laden.',
-        detail: detail && detail.trim() ? detail.trim() : undefined,
-      },
-      res.status as any,
-      cors()
-    )
-  }
-
-  let data: unknown
-  try {
-    data = await res.json()
-  } catch (error) {
-    return c.json(
-      {
-        error: 'invalid_response',
-        message: 'Antwort der Supabase-API konnte nicht gelesen werden.',
-        detail: error instanceof Error ? error.message : String(error),
-      },
-      502,
-      cors()
-    )
-  }
-
-  const payload = Array.isArray(data) ? data : []
-  return c.json(payload, 200, cors({ 'cache-control': 'public, max-age=300, stale-while-revalidate=900' }))
-})
+app.route('/api', meta)
 
 // GET /api/items
 app.get('/api/items', async (c) => {
