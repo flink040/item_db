@@ -58,3 +58,5 @@ async function list(c: any, table: string) {
 meta.get('/rarities', (c) => list(c, 'rarities'))
 meta.get('/item_types', (c) => list(c, 'item_types'))
 meta.get('/materials', (c) => list(c, 'materials'))
+
+export default meta

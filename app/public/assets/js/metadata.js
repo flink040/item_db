@@ -138,13 +138,24 @@ async function hydrateSelect(selectId, endpointKey, opts) {
   const el = document.getElementById(selectId)
   if (!el) return
   el.disabled = true
+  let disableAfterError = false
   try {
     const list = await getList(endpointKey)
     fillSelect(el, Array.isArray(list) ? list : [], opts)
   } catch (error) {
     console.error(`[metadata] init failed for ${endpointKey}`, error)
+    const sel = document.getElementById(selectId)
+    if (sel) {
+      const first = sel.querySelector('option[value=""]')
+      sel.innerHTML = ''
+      if (first) sel.appendChild(first)
+      sel.disabled = true
+      disableAfterError = true
+    }
   } finally {
-    el.disabled = false
+    if (!disableAfterError) {
+      el.disabled = false
+    }
   }
 }
 
