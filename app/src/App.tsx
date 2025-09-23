@@ -305,80 +305,382 @@ const parseEnchantmentsResponse = (input: unknown): Enchantment[] => {
     .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
 }
 
-const typeOptions: FilterOption[] = [
-  { value: '', label: 'Alle Typen' },
-  { value: 'helm', label: 'Helm' },
-  { value: 'brustplatte', label: 'Brustplatte' },
-  { value: 'hose', label: 'Hose' },
-  { value: 'stiefel', label: 'Stiefel' },
-  { value: 'schildkroetenpanzer', label: 'Schildkrötenpanzer' },
-  { value: 'schwert', label: 'Schwert' },
-  { value: 'spitzhacke', label: 'Spitzhacke' },
-  { value: 'schaufel', label: 'Schaufel' },
-  { value: 'axt', label: 'Axt' },
-  { value: 'hacke', label: 'Hacke' },
-  { value: 'streitkolben', label: 'Streitkolben' },
-  { value: 'bogen', label: 'Bogen' },
-  { value: 'armbrust', label: 'Armbrust' },
-  { value: 'dreizack', label: 'Dreizack' },
-  { value: 'schild', label: 'Schild' },
-  { value: 'totem_der_unsterblichkeit', label: 'Totem der Unsterblichkeit' },
-  { value: 'angel', label: 'Angel' },
-  { value: 'elytra', label: 'Elytra' },
-  { value: 'sonstiges', label: 'Sonstiges' }
-]
+type LoadedFilterOption = FilterOption & {
+  id: number
+  aliases: string[]
+}
 
-const materialOptions: FilterOption[] = [
-  { value: '', label: 'Alle Materialien' },
-  { value: 'netherite', label: 'Netherit' },
-  { value: 'diamond', label: 'Diamant' },
-  { value: 'gold', label: 'Gold' },
-  { value: 'iron', label: 'Eisen' },
-  { value: 'leather', label: 'Leder' },
-  { value: 'wood', label: 'Holz' },
-  { value: 'stone', label: 'Stein' },
-  { value: 'other', label: 'Sonstiges' }
-]
+type LoadedRarityOption = LoadedFilterOption & {
+  code: string
+}
 
-const rarityOptions: FilterOption[] = [
-  { value: '', label: 'Alle Seltenheiten' },
-  { value: 'selten', label: 'Selten' },
-  { value: 'episch', label: 'Episch' },
-  { value: 'unbezahlbar', label: 'Unbezahlbar' },
-  { value: 'legendär', label: 'Legendär' },
-  { value: 'jackpot', label: 'Jackpot' },
-  { value: 'mega_jackpot', label: 'Mega Jackpot' }
-]
-const createFilterLabelMap = (options: FilterOption[]) =>
+type SupabaseConfig = {
+  url: string | null
+  anonKey: string | null
+}
+
+declare global {
+  interface Window {
+    __ENV?: {
+      VITE_SUPABASE_URL?: string
+      VITE_SUPABASE_ANON_KEY?: string
+    }
+  }
+}
+
+const COLLATOR = new Intl.Collator('de', { sensitivity: 'base' })
+
+const normalizePositiveInteger = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value)
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+  }
+
+  return null
+}
+
+const normalizeLabel = (value: unknown, fallback: string): string => {
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+
+  return fallback
+}
+
+const canonicalizeValue = (value: string) =>
+  value
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_|_$/g, '')
+
+const createAliasCandidates = (...values: unknown[]): string[] => {
+  const aliases = new Set<string>()
+
+  const register = (input: unknown): void => {
+    if (Array.isArray(input)) {
+      input.forEach(register)
+      return
+    }
+
+    if (typeof input === 'number' && Number.isFinite(input)) {
+      aliases.add(String(Math.trunc(input)))
+      return
+    }
+
+    if (typeof input !== 'string') {
+      return
+    }
+
+    const trimmed = input.trim()
+    if (!trimmed) {
+      return
+    }
+
+    aliases.add(trimmed)
+
+    const lower = trimmed.toLowerCase()
+    aliases.add(lower)
+
+    const normalized = lower.normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    if (normalized) {
+      aliases.add(normalized)
+
+      const underscore = normalized
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '')
+      if (underscore) {
+        aliases.add(underscore)
+      }
+
+      const hyphen = normalized
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-+|-+$/g, '')
+      if (hyphen) {
+        aliases.add(hyphen)
+      }
+    }
+  }
+
+  values.forEach(register)
+
+  return Array.from(aliases)
+}
+
+const parseReferenceOptions = (
+  data: unknown,
+  fallbackLabel: (id: number) => string
+): LoadedFilterOption[] => {
+  if (!Array.isArray(data)) {
+    return []
+  }
+
+  const parsed: Array<{ option: LoadedFilterOption; sortOrder: number | null }> = []
+
+  data.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return
+    }
+
+    const candidate = entry as Record<string, unknown>
+    const id = normalizePositiveInteger(candidate['id'])
+    if (id === null) {
+      return
+    }
+
+    const label = normalizeLabel(
+      candidate['label'] ?? candidate['name'] ?? candidate['title'],
+      fallbackLabel(id)
+    )
+
+    const option: LoadedFilterOption = {
+      id,
+      label,
+      value: String(id),
+      supabaseValue: String(id),
+      aliases: createAliasCandidates([
+        id,
+        label,
+        candidate['value'],
+        candidate['code'],
+        candidate['slug'],
+        candidate['key'],
+        candidate['identifier'],
+        candidate['name'],
+        candidate['title'],
+      ]),
+    }
+
+    const sortOrder = normalizePositiveInteger(
+      candidate['sort'] ?? candidate['order'] ?? candidate['position'] ?? candidate['index'] ?? null
+    )
+
+    parsed.push({ option, sortOrder })
+  })
+
+  return parsed
+    .sort((a, b) => {
+      if (a.sortOrder !== null && b.sortOrder !== null && a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder
+      }
+      return COLLATOR.compare(a.option.label, b.option.label)
+    })
+    .map((entry) => entry.option)
+}
+
+const parseRarityOptions = (data: unknown): LoadedRarityOption[] => {
+  if (!Array.isArray(data)) {
+    return []
+  }
+
+  const parsed: Array<{ option: LoadedRarityOption; sortOrder: number | null }> = []
+
+  data.forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      return
+    }
+
+    const candidate = entry as Record<string, unknown>
+    const id = normalizePositiveInteger(candidate['id'])
+    if (id === null) {
+      return
+    }
+
+    const label = normalizeLabel(
+      candidate['label'] ?? candidate['name'] ?? candidate['title'],
+      `Seltenheit #${id}`
+    )
+
+    const codeCandidates = [
+      candidate['value'],
+      candidate['code'],
+      candidate['key'],
+      candidate['identifier'],
+      candidate['slug'],
+      candidate['name'],
+      candidate['title'],
+    ]
+
+    let canonicalCode = ''
+    for (const raw of codeCandidates) {
+      if (typeof raw !== 'string') {
+        continue
+      }
+      const normalized = canonicalizeValue(raw)
+      if (normalized) {
+        canonicalCode = normalized
+        break
+      }
+    }
+
+    if (!canonicalCode) {
+      const fallbackCode = canonicalizeValue(label)
+      canonicalCode = fallbackCode || `rarity_${id}`
+    }
+
+    const option: LoadedRarityOption = {
+      id,
+      label,
+      value: canonicalCode,
+      code: canonicalCode,
+      supabaseValue: String(id),
+      aliases: createAliasCandidates([
+        id,
+        label,
+        canonicalCode,
+        `rarity_${id}`,
+        codeCandidates,
+      ]),
+    }
+
+    const sortOrder = normalizePositiveInteger(
+      candidate['sort'] ?? candidate['order'] ?? candidate['position'] ?? candidate['index'] ?? null
+    )
+
+    parsed.push({ option, sortOrder })
+  })
+
+  return parsed
+    .sort((a, b) => {
+      if (a.sortOrder !== null && b.sortOrder !== null && a.sortOrder !== b.sortOrder) {
+        return a.sortOrder - b.sortOrder
+      }
+      return COLLATOR.compare(a.option.label, b.option.label)
+    })
+    .map((entry) => entry.option)
+}
+
+const createOptionLabelMap = <T extends LoadedFilterOption>(options: T[]) =>
   options.reduce<Record<string, string>>((acc, option) => {
-    const register = (value: unknown) => {
-      if (typeof value === 'number' && Number.isFinite(value)) {
-        acc[String(value)] = option.label
-      } else if (typeof value === 'string') {
-        const normalized = value.trim()
-        if (normalized) {
-          acc[normalized] = option.label
+    const register = (candidate: unknown) => {
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+        acc[String(candidate)] = option.label
+      } else if (typeof candidate === 'string') {
+        const trimmed = candidate.trim()
+        if (trimmed) {
+          acc[trimmed] = option.label
         }
       }
     }
 
     register(option.value)
     register(option.supabaseValue)
+    register(option.id)
+    option.aliases.forEach(register)
 
     return acc
   }, {})
 
-const typeLabelMap = createFilterLabelMap(typeOptions)
+const createOptionLookupMap = <T extends LoadedFilterOption>(options: T[]) => {
+  const map = new Map<string, T>()
 
-const materialLabelMap = createFilterLabelMap(materialOptions)
+  options.forEach((option) => {
+    const aliases = createAliasCandidates(option.value, option.supabaseValue, option.id, option.aliases)
+    aliases.forEach((alias) => {
+      const key = alias.trim().toLowerCase()
+      if (!key || map.has(key)) {
+        return
+      }
+      map.set(key, option)
+    })
+  })
 
-const rarityLabelMap = createFilterLabelMap(rarityOptions)
+  return map
+}
+
+const resolveOptionFromCandidates = <T extends LoadedFilterOption>(
+  lookup: Map<string, T>,
+  ...candidates: unknown[]
+): T | null => {
+  for (const candidate of candidates) {
+    const aliases = createAliasCandidates(candidate)
+    for (const alias of aliases) {
+      const key = alias.trim().toLowerCase()
+      if (!key) {
+        continue
+      }
+      const option = lookup.get(key)
+      if (option) {
+        return option
+      }
+    }
+  }
+
+  return null
+}
+
+const getSupabaseConfig = (): SupabaseConfig => {
+  let url: string | null = null
+  let anonKey: string | null = null
+
+  if (typeof import.meta !== 'undefined' && import.meta.env) {
+    const envUrl = import.meta.env.VITE_SUPABASE_URL
+    const envAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+    if (typeof envUrl === 'string' && envUrl.trim()) {
+      url = envUrl.trim()
+    }
+
+    if (typeof envAnonKey === 'string' && envAnonKey.trim()) {
+      anonKey = envAnonKey.trim()
+    }
+  }
+
+  if (!url || !anonKey) {
+    const fallbackEnv = typeof window !== 'undefined' ? window.__ENV : undefined
+    if (!url && fallbackEnv && typeof fallbackEnv.VITE_SUPABASE_URL === 'string') {
+      const trimmed = fallbackEnv.VITE_SUPABASE_URL.trim()
+      if (trimmed) {
+        url = trimmed
+      }
+    }
+
+    if (!anonKey && fallbackEnv && typeof fallbackEnv.VITE_SUPABASE_ANON_KEY === 'string') {
+      const trimmed = fallbackEnv.VITE_SUPABASE_ANON_KEY.trim()
+      if (trimmed) {
+        anonKey = trimmed
+      }
+    }
+  }
+
+  return {
+    url: url ?? null,
+    anonKey: anonKey ?? null,
+  }
+}
 
 const rarityBadgeClasses: Record<string, string> = {
+  gewöhnlich: 'border border-slate-700/70 bg-slate-800/60 text-slate-200',
+  common: 'border border-slate-700/70 bg-slate-800/60 text-slate-200',
+  ungewöhnlich: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  uncommon: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
   selten: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
+  rare: 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-300',
   episch: 'border border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
-  unbezahlbar: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
+  epic: 'border border-indigo-500/40 bg-indigo-500/10 text-indigo-300',
   legendär: 'border border-purple-500/40 bg-purple-500/10 text-purple-300',
+  legendary: 'border border-purple-500/40 bg-purple-500/10 text-purple-300',
+  mythisch: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
+  mythic: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
+  unbezahlbar: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
+  exotic: 'border border-amber-500/40 bg-amber-500/10 text-amber-200',
   jackpot: 'border border-pink-500/40 bg-pink-500/10 text-pink-200',
   mega_jackpot: 'border border-rose-500/40 bg-rose-500/10 text-rose-200'
 }
@@ -398,6 +700,8 @@ type ItemFormValues = {
   rarity: string
   price: string
   starLevel: string
+  itemImageUrl: string
+  itemLoreImageUrl: string
 }
 
 type ItemFormFileValues = {
@@ -411,7 +715,9 @@ const initialItemFormValues: ItemFormValues = {
   material: '',
   rarity: '',
   price: '',
-  starLevel: '0'
+  starLevel: '0',
+  itemImageUrl: '',
+  itemLoreImageUrl: ''
 }
 
 const initialItemFormFileValues: ItemFormFileValues = {
@@ -475,49 +781,6 @@ const resolveSupabaseFilterValue = (
   return null
 }
 
-function getRarityMeta(value?: string | null, rarityId?: number | null) {
-  const fallback = {
-    label: 'Unbekannt',
-    badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
-  }
-
-  const normalizedValue = typeof value === 'string' ? value.trim() : ''
-
-  if (normalizedValue) {
-    const option = rarityOptions.find((entry) => entry.value === normalizedValue)
-    return {
-      label: option?.label ?? rarityLabelMap[normalizedValue] ?? normalizedValue,
-      badgeClass:
-        rarityBadgeClasses[option?.value ?? normalizedValue] ?? fallback.badgeClass,
-    }
-  }
-
-  if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
-    const rarityKey = String(rarityId)
-    const option = rarityOptions.find(
-      (entry) => entry.supabaseValue === rarityKey || entry.value === rarityKey
-    )
-
-    if (option) {
-      return {
-        label: option.label,
-        badgeClass: rarityBadgeClasses[option.value] ?? fallback.badgeClass,
-      }
-    }
-
-    if (rarityLabelMap[rarityKey]) {
-      return { label: rarityLabelMap[rarityKey], badgeClass: fallback.badgeClass }
-    }
-
-    return {
-      label: `Seltenheit #${rarityKey}`,
-      badgeClass: fallback.badgeClass,
-    }
-  }
-
-  return fallback
-}
-
 export default function App() {
   const [items, setItems] = useState<Item[]>([])
   const [loading, setLoading] = useState(false)
@@ -536,7 +799,15 @@ export default function App() {
   )
   const [toasts, setToasts] = useState<ToastMessage[]>([])
 
+  const [itemTypeOptionsState, setItemTypeOptionsState] = useState<LoadedFilterOption[]>([])
+  const [materialOptionsState, setMaterialOptionsState] = useState<LoadedFilterOption[]>([])
+  const [rarityOptionsState, setRarityOptionsState] = useState<LoadedRarityOption[]>([])
+  const [referenceLoading, setReferenceLoading] = useState(false)
+  const [referenceError, setReferenceError] = useState<string | null>(null)
+  const [referenceLoaded, setReferenceLoaded] = useState(false)
+
   const abortControllerRef = useRef<AbortController | null>(null)
+  const metadataAbortControllerRef = useRef<AbortController | null>(null)
 
   const buildFetchParams = useCallback(
     (overrides: Partial<FetchItemsParams> = {}): FetchItemsParams => ({
@@ -568,6 +839,272 @@ export default function App() {
     setHasSearched(false)
   }, [])
 
+  useEffect(() => {
+    if (!showItemModal) {
+      return
+    }
+
+    if (referenceLoading || referenceLoaded || referenceError) {
+      return
+    }
+
+    const { url, anonKey } = getSupabaseConfig()
+    if (!url || !anonKey) {
+      setReferenceError('Supabase-Konfiguration fehlt.')
+      setReferenceLoaded(false)
+      return
+    }
+
+    const controller = new AbortController()
+    metadataAbortControllerRef.current = controller
+
+    const loadMetadata = async () => {
+      setReferenceLoading(true)
+
+      try {
+        const sessionToken = getSupabaseAccessToken()
+        const headers: HeadersInit = {
+          apikey: anonKey,
+          accept: 'application/json',
+        }
+
+        if (sessionToken) {
+          headers.Authorization = `Bearer ${sessionToken}`
+        }
+
+        const [itemTypesResponse, materialsResponse, raritiesResponse] = await Promise.all([
+          fetch(`${url}/rest/v1/item_types?select=*`, { headers, signal: controller.signal }),
+          fetch(`${url}/rest/v1/materials?select=*`, { headers, signal: controller.signal }),
+          fetch(`${url}/rest/v1/rarities?select=*`, { headers, signal: controller.signal }),
+        ])
+
+        if (!itemTypesResponse.ok || !materialsResponse.ok || !raritiesResponse.ok) {
+          throw new Error('Stammdaten konnten nicht geladen werden.')
+        }
+
+        const [itemTypesJson, materialsJson, raritiesJson] = await Promise.all([
+          itemTypesResponse.json(),
+          materialsResponse.json(),
+          raritiesResponse.json(),
+        ])
+
+        if (controller.signal.aborted) {
+          return
+        }
+
+        setItemTypeOptionsState(parseReferenceOptions(itemTypesJson, (id) => `Item-Typ #${id}`))
+        setMaterialOptionsState(parseReferenceOptions(materialsJson, (id) => `Material #${id}`))
+        setRarityOptionsState(parseRarityOptions(raritiesJson))
+        setReferenceLoaded(true)
+        setReferenceError(null)
+      } catch (error) {
+        if (controller.signal.aborted) {
+          return
+        }
+
+        const message =
+          error instanceof Error ? error.message : 'Stammdaten konnten nicht geladen werden.'
+        setReferenceError(message)
+        setReferenceLoaded(false)
+      } finally {
+        if (!controller.signal.aborted) {
+          setReferenceLoading(false)
+          metadataAbortControllerRef.current = null
+        }
+      }
+    }
+
+    void loadMetadata()
+
+    return () => {
+      controller.abort()
+      metadataAbortControllerRef.current = null
+      setReferenceLoading(false)
+    }
+  }, [showItemModal, referenceLoading, referenceLoaded, referenceError])
+
+  const handleMetadataReload = useCallback(() => {
+    if (referenceLoading) {
+      return
+    }
+
+    setReferenceError(null)
+    setReferenceLoaded(false)
+  }, [referenceLoading])
+
+  const itemTypeLabelMap = useMemo(
+    () => createOptionLabelMap(itemTypeOptionsState),
+    [itemTypeOptionsState]
+  )
+  const materialLabelMap = useMemo(
+    () => createOptionLabelMap(materialOptionsState),
+    [materialOptionsState]
+  )
+  const rarityLabelMap = useMemo(
+    () => createOptionLabelMap(rarityOptionsState),
+    [rarityOptionsState]
+  )
+
+  const itemTypeLookupMap = useMemo(
+    () => createOptionLookupMap(itemTypeOptionsState),
+    [itemTypeOptionsState]
+  )
+  const materialLookupMap = useMemo(
+    () => createOptionLookupMap(materialOptionsState),
+    [materialOptionsState]
+  )
+  const rarityLookupMap = useMemo(
+    () => createOptionLookupMap(rarityOptionsState),
+    [rarityOptionsState]
+  )
+
+  const rarityOptionByCode = useMemo(() => {
+    const map: Record<string, LoadedRarityOption> = {}
+    rarityOptionsState.forEach((option) => {
+      map[option.value] = option
+    })
+    return map
+  }, [rarityOptionsState])
+
+  const rarityOptionById = useMemo(() => {
+    const map: Record<string, LoadedRarityOption> = {}
+    rarityOptionsState.forEach((option) => {
+      map[String(option.id)] = option
+      if (option.supabaseValue) {
+        map[option.supabaseValue] = option
+      }
+    })
+    return map
+  }, [rarityOptionsState])
+
+  const resolveRarityMeta = useCallback(
+    (value?: string | null, rarityId?: number | null) => {
+      const fallback = {
+        label: 'Unbekannt',
+        badgeClass: 'border border-slate-800 bg-slate-900/60 text-slate-300'
+      }
+
+      const optionFromLookup = resolveOptionFromCandidates(
+        rarityLookupMap,
+        rarityId,
+        value
+      )
+
+      const normalizedOption = (() => {
+        if (optionFromLookup) {
+          return optionFromLookup
+        }
+
+        if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
+          const key = String(rarityId)
+          if (rarityOptionById[key]) {
+            return rarityOptionById[key]
+          }
+        }
+
+        if (typeof value === 'string' && value.trim()) {
+          const trimmed = value.trim()
+          if (rarityOptionByCode[trimmed]) {
+            return rarityOptionByCode[trimmed]
+          }
+
+          const canonical = canonicalizeValue(trimmed)
+          if (canonical && rarityOptionByCode[canonical]) {
+            return rarityOptionByCode[canonical]
+          }
+        }
+
+        return null
+      })()
+
+      if (normalizedOption) {
+        const badgeKeys = [
+          normalizedOption.code,
+          normalizedOption.value,
+          canonicalizeValue(normalizedOption.label),
+        ]
+
+        const badgeClass = badgeKeys.reduce<string | null>((acc, key) => {
+          if (acc) {
+            return acc
+          }
+          if (!key) {
+            return null
+          }
+          return rarityBadgeClasses[key] ?? null
+        }, null)
+
+        return {
+          label: normalizedOption.label,
+          badgeClass: badgeClass ?? fallback.badgeClass,
+        }
+      }
+
+      if (typeof rarityId === 'number' && Number.isFinite(rarityId)) {
+        const key = String(rarityId)
+        if (rarityLabelMap[key]) {
+          return { label: rarityLabelMap[key], badgeClass: fallback.badgeClass }
+        }
+        return {
+          label: `Seltenheit #${key}`,
+          badgeClass: fallback.badgeClass,
+        }
+      }
+
+      if (typeof value === 'string') {
+        const trimmed = value.trim()
+        if (trimmed) {
+          const canonical = canonicalizeValue(trimmed)
+          const label =
+            rarityLabelMap[trimmed] ??
+            (canonical ? rarityLabelMap[canonical] : undefined) ??
+            trimmed
+          const badgeClass =
+            (canonical && rarityBadgeClasses[canonical]) ??
+            rarityBadgeClasses[trimmed.toLowerCase()] ??
+            fallback.badgeClass
+          return { label, badgeClass }
+        }
+      }
+
+      return fallback
+    },
+    [rarityLookupMap, rarityOptionById, rarityOptionByCode, rarityLabelMap]
+  )
+
+  const filterTypeOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Alle Item-Typen' },
+      ...itemTypeOptionsState.map((option) => ({
+        value: option.value,
+        label: option.label,
+        supabaseValue: option.supabaseValue,
+      })),
+    ] satisfies FilterOption[]
+  }, [itemTypeOptionsState])
+
+  const filterMaterialOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Alle Materialien' },
+      ...materialOptionsState.map((option) => ({
+        value: option.value,
+        label: option.label,
+        supabaseValue: option.supabaseValue,
+      })),
+    ] satisfies FilterOption[]
+  }, [materialOptionsState])
+
+  const filterRarityOptions = useMemo(() => {
+    return [
+      { value: '', label: 'Alle Seltenheiten' },
+      ...rarityOptionsState.map((option) => ({
+        value: option.value,
+        label: option.label,
+        supabaseValue: option.supabaseValue,
+      })),
+    ] satisfies FilterOption[]
+  }, [rarityOptionsState])
+
   const fetchItems = useCallback(
     async ({ search, type, material, rarity }: FetchItemsParams) => {
       const sanitizedSearch = sanitizeSearchValue(search)
@@ -577,17 +1114,17 @@ export default function App() {
         params.set('search', sanitizedSearch)
       }
 
-      const typeFilterValue = resolveSupabaseFilterValue(type, typeOptions)
+      const typeFilterValue = resolveSupabaseFilterValue(type, itemTypeOptionsState)
       if (typeFilterValue) {
         params.set('item_type_id', typeFilterValue)
       }
 
-      const materialFilterValue = resolveSupabaseFilterValue(material, materialOptions)
+      const materialFilterValue = resolveSupabaseFilterValue(material, materialOptionsState)
       if (materialFilterValue) {
         params.set('material_id', materialFilterValue)
       }
 
-      const rarityFilterValue = resolveSupabaseFilterValue(rarity, rarityOptions)
+      const rarityFilterValue = resolveSupabaseFilterValue(rarity, rarityOptionsState)
       if (rarityFilterValue) {
         params.set('rarity_id', rarityFilterValue)
       } else {
@@ -652,7 +1189,7 @@ export default function App() {
         }
       }
     },
-    []
+    [itemTypeOptionsState, materialOptionsState, rarityOptionsState]
   )
 
   const dismissToast = useCallback((id: number) => {
@@ -755,6 +1292,7 @@ export default function App() {
 
   const filteredItems = useMemo(() => {
     const normalizedSearch = sanitizeSearchValue(search).toLowerCase()
+    const normalizedRarityFilter = rarityFilter.trim().toLowerCase()
 
     return items
       .filter((item) => {
@@ -764,14 +1302,58 @@ export default function App() {
             field?.toLowerCase().includes(normalizedSearch)
           )
 
-        const matchesType = !typeFilter || (item.type ?? '') === typeFilter
-        const matchesMaterial = !materialFilter || (item.material ?? '') === materialFilter
-        const matchesRarity = !rarityFilter || (item.rarity ?? '') === rarityFilter
+        const typeOption = resolveOptionFromCandidates(
+          itemTypeLookupMap,
+          item.item_type_id,
+          item.itemTypeId,
+          item.type
+        )
+        const itemTypeValue = typeOption?.value ??
+          (typeof item.item_type_id === 'number' ? String(item.item_type_id) : '')
+        const matchesType = !typeFilter || itemTypeValue === typeFilter
+
+        const materialOption = resolveOptionFromCandidates(
+          materialLookupMap,
+          item.material_id,
+          item.materialId,
+          item.material
+        )
+        const itemMaterialValue = materialOption?.value ??
+          (typeof item.material_id === 'number' ? String(item.material_id) : '')
+        const matchesMaterial = !materialFilter || itemMaterialValue === materialFilter
+
+        let matchesRarity = true
+        if (normalizedRarityFilter) {
+          const rarityOption = resolveOptionFromCandidates(
+            rarityLookupMap,
+            item.rarity_id,
+            item.rarityId,
+            item.rarity
+          )
+
+          if (rarityOption) {
+            matchesRarity = rarityOption.value === rarityFilter
+          } else {
+            const rarityAliases = createAliasCandidates(item.rarity)
+            matchesRarity = rarityAliases.some(
+              (alias) => alias.trim().toLowerCase() === normalizedRarityFilter
+            )
+          }
+        }
 
         return matchesSearch && matchesType && matchesMaterial && matchesRarity
       })
       .sort((a, b) => a.name.localeCompare(b.name, 'de', { sensitivity: 'base' }))
-  }, [items, search, typeFilter, materialFilter, rarityFilter])
+  }, [
+    items,
+    search,
+    typeFilter,
+    materialFilter,
+    rarityFilter,
+    itemTypeLookupMap,
+    materialLookupMap,
+    rarityLookupMap,
+  ])
 
   const normalizedSearchTerm = sanitizeSearchValue(search)
   const activeFilterCount = [typeFilter, materialFilter, rarityFilter].filter(Boolean).length
@@ -1036,7 +1618,7 @@ export default function App() {
                       value={typeFilter}
                       onChange={handleTypeFilterChange}
                     >
-                      {typeOptions.map((option) => (
+                      {filterTypeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1053,7 +1635,7 @@ export default function App() {
                       value={materialFilter}
                       onChange={handleMaterialFilterChange}
                     >
-                      {materialOptions.map((option) => (
+                      {filterMaterialOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1070,7 +1652,7 @@ export default function App() {
                       value={rarityFilter}
                       onChange={handleRarityFilterChange}
                     >
-                      {rarityOptions.map((option) => (
+                      {filterRarityOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -1165,7 +1747,15 @@ export default function App() {
                 ) : (
                   <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                     {filteredItems.map((item) => (
-                      <ItemCard key={item.id} item={item} />
+                      <ItemCard
+                        key={item.id}
+                        item={item}
+                        itemTypeLookupMap={itemTypeLookupMap}
+                        materialLookupMap={materialLookupMap}
+                        itemTypeLabelMap={itemTypeLabelMap}
+                        materialLabelMap={materialLabelMap}
+                        resolveRarityMeta={resolveRarityMeta}
+                      />
                     ))}
                   </div>
                 )}
@@ -1181,6 +1771,12 @@ export default function App() {
           onClose={() => setShowItemModal(false)}
           onSuccess={handleModalSuccess}
           onError={handleModalError}
+          itemTypeOptions={itemTypeOptionsState}
+          materialOptions={materialOptionsState}
+          rarityOptions={rarityOptionsState}
+          referenceLoading={referenceLoading}
+          referenceError={referenceError}
+          onReloadMetadata={handleMetadataReload}
         />
       )}
     </div>
@@ -1194,6 +1790,12 @@ type ModalProps = {
 type ItemModalProps = ModalProps & {
   onSuccess: (message: string) => void
   onError: (message: string) => void
+  itemTypeOptions: LoadedFilterOption[]
+  materialOptions: LoadedFilterOption[]
+  rarityOptions: LoadedRarityOption[]
+  referenceLoading: boolean
+  referenceError: string | null
+  onReloadMetadata: () => void
 }
 
 function ProfileModal({ onClose }: ModalProps) {
@@ -1272,7 +1874,17 @@ function ProfileModal({ onClose }: ModalProps) {
   )
 }
 
-function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
+function ItemModal({
+  onClose,
+  onSuccess,
+  onError,
+  itemTypeOptions,
+  materialOptions,
+  rarityOptions,
+  referenceLoading,
+  referenceError,
+  onReloadMetadata,
+}: ItemModalProps) {
   const [formValues, setFormValues] = useState<ItemFormValues>(() => createInitialItemFormValues())
   const [fileValues, setFileValues] = useState<ItemFormFileValues>(() => createInitialItemFormFileValues())
   const [errors, setErrors] = useState<ItemFormErrors>({})
@@ -1287,6 +1899,17 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
   const [enchantmentError, setEnchantmentError] = useState<string | null>(null)
   const nameInputRef = useRef<HTMLInputElement | null>(null)
   const enchantmentsAbortControllerRef = useRef<AbortController | null>(null)
+
+  const metadataLoaded =
+    itemTypeOptions.length > 0 && materialOptions.length > 0 && rarityOptions.length > 0
+  const metadataLoadingActive = referenceLoading && !metadataLoaded
+  const metadataErrorActive = Boolean(referenceError) && !metadataLoaded
+  const metadataSelectDisabled = metadataLoadingActive || metadataErrorActive
+  const metadataPlaceholderLabel = metadataLoadingActive
+    ? 'Stammdaten werden geladen…'
+    : metadataErrorActive
+      ? 'Stammdaten nicht verfügbar'
+      : 'Bitte auswählen'
 
   const starLevelValue = Math.max(
     0,
@@ -1592,33 +2215,69 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
     const trimmedName = formValues.name.trim()
     const priceValue = formValues.price.trim()
+    const itemImageUrlValue = formValues.itemImageUrl.trim()
+    const itemLoreImageUrlValue = formValues.itemLoreImageUrl.trim()
     const nextErrors: ItemFormErrors = {}
 
     if (!trimmedName) {
       nextErrors.name = 'Name ist erforderlich.'
     }
 
-    if (!formValues.itemType) {
-      nextErrors.itemType = 'Item-Typ ist erforderlich.'
+    const selectedItemType = itemTypeOptions.find((option) => option.value === formValues.itemType)
+    if (!selectedItemType) {
+      nextErrors.itemType = itemTypeOptions.length === 0
+        ? 'Item-Typen konnten nicht geladen werden. Bitte lade die Stammdaten neu.'
+        : 'Bitte wähle einen gültigen Item-Typ.'
     }
 
-    if (!formValues.material) {
-      nextErrors.material = 'Material ist erforderlich.'
+    const selectedMaterial = materialOptions.find((option) => option.value === formValues.material)
+    if (!selectedMaterial) {
+      nextErrors.material = materialOptions.length === 0
+        ? 'Materialien konnten nicht geladen werden. Bitte lade die Stammdaten neu.'
+        : 'Bitte wähle ein gültiges Material.'
     }
 
-    if (!formValues.rarity) {
-      nextErrors.rarity = 'Seltenheit ist erforderlich.'
+    const selectedRarity = rarityOptions.find((option) => option.value === formValues.rarity)
+    if (!selectedRarity) {
+      nextErrors.rarity = rarityOptions.length === 0
+        ? 'Seltenheiten konnten nicht geladen werden. Bitte lade die Stammdaten neu.'
+        : 'Bitte wähle eine gültige Seltenheit.'
     }
 
-    let normalizedPrice: number | null = null
     if (priceValue) {
       const parsedPrice = Number(priceValue.replace(',', '.'))
       if (!Number.isFinite(parsedPrice)) {
         nextErrors.price = 'Preis muss eine gültige Zahl sein.'
       } else if (parsedPrice < 0) {
         nextErrors.price = 'Preis darf nicht negativ sein.'
-      } else {
-        normalizedPrice = Math.round(parsedPrice * 100) / 100
+      }
+    }
+
+    let normalizedItemImageUrl: string | null = null
+    if (itemImageUrlValue) {
+      try {
+        const parsed = new URL(itemImageUrlValue)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('invalid')
+        }
+        normalizedItemImageUrl = parsed.toString()
+      } catch (error) {
+        void error
+        nextErrors.itemImageUrl = 'Bitte gib eine gültige Bild-URL (http/https) ein.'
+      }
+    }
+
+    let normalizedItemLoreImageUrl: string | null = null
+    if (itemLoreImageUrlValue) {
+      try {
+        const parsed = new URL(itemLoreImageUrlValue)
+        if (!['http:', 'https:'].includes(parsed.protocol)) {
+          throw new Error('invalid')
+        }
+        normalizedItemLoreImageUrl = parsed.toString()
+      } catch (error) {
+        void error
+        nextErrors.itemLoreImageUrl = 'Bitte gib eine gültige Lore-Bild-URL (http/https) ein.'
       }
     }
 
@@ -1635,6 +2294,10 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       return
     }
 
+    if (!selectedItemType || !selectedMaterial || !selectedRarity) {
+      return
+    }
+
     const { selections, error: enchantmentsValidationError } = collectSelectedEnchantments()
     if (enchantmentsValidationError) {
       setEnchantmentError(enchantmentsValidationError)
@@ -1645,52 +2308,112 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     setSubmitting(true)
 
     try {
-      const formData = new FormData()
-      formData.append('name', trimmedName)
-      formData.append('itemType', formValues.itemType)
-      formData.append('material', formValues.material)
-      formData.append('rarity', formValues.rarity)
-      formData.append('starLevel', normalizedStarLevel.toString())
-
-      if (priceValue && normalizedPrice !== null) {
-        formData.append('price', normalizedPrice.toString())
-      }
-
-      if (fileValues.itemImage) {
-        formData.append('itemImage', fileValues.itemImage)
-      }
-
-      if (fileValues.itemLoreImage) {
-        formData.append('itemLoreImage', fileValues.itemLoreImage)
-      }
-
-      if (selections.length > 0) {
-        formData.append('enchantments', JSON.stringify(selections))
-      }
-
       const sessionToken = getSupabaseAccessToken()
+      const payload: Record<string, unknown> = {
+        name: trimmedName,
+        item_type_id: selectedItemType.id,
+        material_id: selectedMaterial.id,
+        star_level: normalizedStarLevel,
+        enchantments: selections,
+      }
+
+      if (selectedRarity.id) {
+        payload.rarity_id = selectedRarity.id
+      }
+
+      const rarityCode = selectedRarity.code || canonicalizeValue(selectedRarity.value)
+      if (rarityCode) {
+        payload.rarity = rarityCode
+      }
+
+      if (normalizedItemImageUrl) {
+        payload.item_image = normalizedItemImageUrl
+        payload.image_url = normalizedItemImageUrl
+      }
+
+      if (normalizedItemLoreImageUrl) {
+        payload.item_lore_image = normalizedItemLoreImageUrl
+        payload.lore_image_url = normalizedItemLoreImageUrl
+      }
+
       const requestInit: RequestInit = {
         method: 'POST',
-        body: formData,
+        headers: {
+          'Content-Type': 'application/json',
+        },
         credentials: 'include',
+        body: JSON.stringify(payload),
       }
 
       if (sessionToken) {
         requestInit.headers = {
+          ...requestInit.headers,
           Authorization: `Bearer ${sessionToken}`,
         }
       }
 
       const response = await fetch('/api/items', requestInit)
-
-      if (!response.ok) {
-        throw new Error('Request failed')
-      }
-
       const result = await response.json().catch(() => null)
 
-      if (!result || result.ok !== true) {
-        throw new Error('Invalid response')
+      if (!response.ok) {
+        if (result && typeof result === 'object' && Array.isArray(result['issues'])) {
+          const issues = result['issues'] as Array<{ path?: unknown; message?: unknown }>
+          const fieldMap: Record<string, keyof ItemFormValues | 'enchantments'> = {
+            item_type_id: 'itemType',
+            itemType: 'itemType',
+            material_id: 'material',
+            material: 'material',
+            rarity: 'rarity',
+            rarity_id: 'rarity',
+            name: 'name',
+            title: 'name',
+            star_level: 'starLevel',
+            stars: 'starLevel',
+            item_image: 'itemImageUrl',
+            image_url: 'itemImageUrl',
+            item_lore_image: 'itemLoreImageUrl',
+            lore_image_url: 'itemLoreImageUrl',
+            enchantments: 'enchantments',
+          }
+
+          const serverErrors: ItemFormErrors = {}
+          let enchantmentIssue: string | null = null
+
+          issues.forEach((issue) => {
+            if (!issue || typeof issue !== 'object') {
+              return
+            }
+
+            const path = Array.isArray(issue.path) ? issue.path[0] : null
+            const message =
+              typeof issue.message === 'string' && issue.message.trim()
+                ? issue.message.trim()
+                : 'Ungültige Eingabe.'
+
+            if (typeof path === 'string' && fieldMap[path]) {
+              const target = fieldMap[path]
+              if (target === 'enchantments') {
+                enchantmentIssue = message
+              } else {
+                serverErrors[target] = message
+              }
+            }
+          })
+
+          if (Object.keys(serverErrors).length > 0) {
+            setErrors((prev) => ({ ...prev, ...serverErrors }))
+          }
+
+          if (enchantmentIssue) {
+            setEnchantmentError(enchantmentIssue)
+          }
+        }
+
+        const errorMessage =
+          (result && typeof result === 'object' && typeof result['message'] === 'string'
+            ? result['message']
+            : null) ?? 'Fehler beim Speichern ❌'
+        throw new Error(errorMessage)
       }
 
       onSuccess('Item gespeichert ✅')
@@ -1702,7 +2425,9 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
       setEnchantmentError(null)
       onClose()
     } catch (error) {
-      onError('Fehler beim Speichern ❌')
+      const message =
+        error instanceof Error && error.message ? error.message : 'Fehler beim Speichern ❌'
+      onError(message)
     } finally {
       setSubmitting(false)
     }
@@ -1739,6 +2464,28 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
 
           <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 sm:px-8 sm:py-8">
             <form className="space-y-6" aria-label="Item hinzufügen" onSubmit={handleSubmit}>
+              {metadataLoadingActive && (
+                <div className="rounded-lg border border-slate-800/70 bg-slate-900/60 px-4 py-3 text-sm text-slate-300" aria-live="polite">
+                  Stammdaten werden geladen …
+                </div>
+              )}
+
+              {metadataErrorActive && (
+                <div className="flex flex-col gap-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200" role="alert">
+                  <p>{referenceError ?? 'Stammdaten konnten nicht geladen werden.'}</p>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={onReloadMetadata}
+                      disabled={referenceLoading}
+                      className="inline-flex items-center gap-2 rounded-md border border-rose-500/50 bg-transparent px-3 py-1 text-xs font-semibold text-rose-100 transition hover:border-rose-300 hover:text-rose-50 focus:outline-none focus-visible:ring focus-visible:ring-rose-400/60 disabled:cursor-not-allowed disabled:opacity-70"
+                    >
+                      Erneut versuchen
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <div className="grid gap-4 sm:grid-cols-2">
                 <label className="block" htmlFor="modal-item-name">
                   <span className="text-sm font-medium text-slate-300">Name *</span>
@@ -1773,15 +2520,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     onChange={handleFieldChange}
                     aria-invalid={Boolean(errors.itemType)}
                     aria-describedby={getErrorId('itemType')}
+                    disabled={metadataSelectDisabled}
                   >
-                    <option value="">Bitte auswählen</option>
-                    {typeOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    <option value="">{metadataPlaceholderLabel}</option>
+                    {itemTypeOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {errors.itemType && (
                     <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
@@ -1801,15 +2547,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     onChange={handleFieldChange}
                     aria-invalid={Boolean(errors.material)}
                     aria-describedby={getErrorId('material')}
+                    disabled={metadataSelectDisabled}
                   >
-                    <option value="">Bitte auswählen</option>
-                    {materialOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    <option value="">{metadataPlaceholderLabel}</option>
+                    {materialOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {errors.material && (
                     <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
@@ -1829,15 +2574,14 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                     onChange={handleFieldChange}
                     aria-invalid={Boolean(errors.rarity)}
                     aria-describedby={getErrorId('rarity')}
+                    disabled={metadataSelectDisabled}
                   >
-                    <option value="">Bitte auswählen</option>
-                    {rarityOptions
-                      .filter((option) => option.value)
-                      .map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                    <option value="">{metadataPlaceholderLabel}</option>
+                    {rarityOptions.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
                   </select>
                   {errors.rarity && (
                     <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
@@ -1951,6 +2695,50 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                   {errors.price && (
                     <p id="item-modal-price-error" className="mt-2 text-sm text-rose-400">
                       {errors.price}
+                    </p>
+                  )}
+                </label>
+
+                <label className="sm:col-span-2 block" htmlFor="modal-item-image-url">
+                  <span className="text-sm font-medium text-slate-300">Item-Bild URL</span>
+                  <input
+                    id="modal-item-image-url"
+                    name="itemImageUrl"
+                    type="url"
+                    inputMode="url"
+                    className={getFieldClassName('itemImageUrl')}
+                    placeholder="https://..."
+                    value={formValues.itemImageUrl}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.itemImageUrl)}
+                    aria-describedby={getErrorId('itemImageUrl')}
+                  />
+                  <p className="mt-2 text-xs text-slate-500">Optional – hinterlege einen direkten Link zum Item-Bild.</p>
+                  {errors.itemImageUrl && (
+                    <p id="item-modal-itemImageUrl-error" className="mt-2 text-sm text-rose-400">
+                      {errors.itemImageUrl}
+                    </p>
+                  )}
+                </label>
+
+                <label className="sm:col-span-2 block" htmlFor="modal-item-lore-image-url">
+                  <span className="text-sm font-medium text-slate-300">Lore-Bild URL</span>
+                  <input
+                    id="modal-item-lore-image-url"
+                    name="itemLoreImageUrl"
+                    type="url"
+                    inputMode="url"
+                    className={getFieldClassName('itemLoreImageUrl')}
+                    placeholder="https://..."
+                    value={formValues.itemLoreImageUrl}
+                    onChange={handleFieldChange}
+                    aria-invalid={Boolean(errors.itemLoreImageUrl)}
+                    aria-describedby={getErrorId('itemLoreImageUrl')}
+                  />
+                  <p className="mt-2 text-xs text-slate-500">Optional – Link zu einem zusätzlichen Lore-Bild.</p>
+                  {errors.itemLoreImageUrl && (
+                    <p id="item-modal-itemLoreImageUrl-error" className="mt-2 text-sm text-rose-400">
+                      {errors.itemLoreImageUrl}
                     </p>
                   )}
                 </label>
@@ -2136,7 +2924,7 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
                 </button>
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || !metadataLoaded}
                   className="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60 disabled:cursor-not-allowed disabled:opacity-70"
                 >
                   {submitting && <SpinnerIcon className="h-4 w-4" />}
@@ -2150,14 +2938,33 @@ function ItemModal({ onClose, onSuccess, onError }: ItemModalProps) {
     </div>
   )
 }
-function ItemCard({ item }: { item: Item }) {
+type ItemCardProps = {
+  item: Item
+  itemTypeLookupMap: Map<string, LoadedFilterOption>
+  materialLookupMap: Map<string, LoadedFilterOption>
+  itemTypeLabelMap: Record<string, string>
+  materialLabelMap: Record<string, string>
+  resolveRarityMeta: (value?: string | null, rarityId?: number | null) => {
+    label: string
+    badgeClass: string
+  }
+}
+
+function ItemCard({
+  item,
+  itemTypeLookupMap,
+  materialLookupMap,
+  itemTypeLabelMap,
+  materialLabelMap,
+  resolveRarityMeta,
+}: ItemCardProps) {
   const rarityId =
     typeof item.rarity_id === 'number'
       ? item.rarity_id
       : typeof item.rarityId === 'number'
         ? item.rarityId
         : null
-  const { label, badgeClass } = getRarityMeta(item.rarity ?? undefined, rarityId)
+  const { label, badgeClass } = resolveRarityMeta(item.rarity ?? undefined, rarityId)
 
   const itemImageUrl = (() => {
     const candidates = [item.item_image, item.image_url]
@@ -2199,15 +3006,42 @@ function ItemCard({ item }: { item: Item }) {
     return ''
   }
 
-  const typeKey = resolveFilterKey(item.item_type_id, item.type ?? item.itemTypeId)
-  const materialKey = resolveFilterKey(item.material_id, item.material ?? item.materialId)
+  const resolveLabelFromMap = (
+    map: Record<string, string>,
+    ...candidates: unknown[]
+  ): string | null => {
+    const aliases = createAliasCandidates(candidates)
+    for (const alias of aliases) {
+      if (map[alias]) {
+        return map[alias]
+      }
+    }
+    return null
+  }
 
+  const typeOption = resolveOptionFromCandidates(
+    itemTypeLookupMap,
+    item.item_type_id,
+    item.itemTypeId,
+    item.type
+  )
+  const typeKey = resolveFilterKey(item.item_type_id, item.type ?? item.itemTypeId)
   const typeLabel =
-    typeKey ? typeLabelMap[typeKey] ?? `Typ #${typeKey}` : 'Unbekannter Typ'
+    typeOption?.label ??
+    resolveLabelFromMap(itemTypeLabelMap, item.item_type_id, item.itemTypeId, item.type) ??
+    (typeKey ? `Typ #${typeKey}` : 'Unbekannter Typ')
+
+  const materialOption = resolveOptionFromCandidates(
+    materialLookupMap,
+    item.material_id,
+    item.materialId,
+    item.material
+  )
+  const materialKey = resolveFilterKey(item.material_id, item.material ?? item.materialId)
   const materialLabel =
-    materialKey
-      ? materialLabelMap[materialKey] ?? `Material #${materialKey}`
-      : 'Unbekanntes Material'
+    materialOption?.label ??
+    resolveLabelFromMap(materialLabelMap, item.material_id, item.materialId, item.material) ??
+    (materialKey ? `Material #${materialKey}` : 'Unbekanntes Material')
   const starLevel =
     typeof item.star_level === 'number'
       ? Math.max(0, Math.min(MAX_STAR_LEVEL, item.star_level))
