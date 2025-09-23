@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { createClient } from '@supabase/supabase-js'
-import { meta } from './routes/meta'
+import meta from './routes/meta'
 import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
 
 type Bindings = {
