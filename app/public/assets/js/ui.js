@@ -982,3 +982,57 @@ export function renderSkeleton(count = 6, meta) {
     clearPagination();
   }
 }
+
+async function populateRarities() {
+  try {
+    const select = document.getElementById('item-rarity-select');
+    if (!select) {
+      return;
+    }
+
+    const response = await fetch('/api/rarities', { headers: { Accept: 'application/json' } });
+    if (!response.ok) {
+      throw new Error(`Fehler beim Laden der Seltenheiten: ${response.status}`);
+    }
+
+    const rarities = await response.json();
+    if (!Array.isArray(rarities)) {
+      throw new Error('Ungültige Antwortstruktur für Seltenheiten.');
+    }
+
+    select.innerHTML = '';
+    rarities.forEach((rarity) => {
+      if (!rarity || typeof rarity !== 'object') {
+        return;
+      }
+      const option = document.createElement('option');
+      option.value = String(rarity.id);
+      option.textContent = rarity.label;
+      select.appendChild(option);
+    });
+
+    const filterSelect = document.getElementById('filter-rarity');
+    if (filterSelect) {
+      const firstOption = filterSelect.querySelector('option[value=""]');
+      filterSelect.innerHTML = '';
+      if (firstOption) {
+        filterSelect.appendChild(firstOption);
+      }
+      rarities.forEach((rarity) => {
+        if (!rarity || typeof rarity !== 'object') {
+          return;
+        }
+        const option = document.createElement('option');
+        option.value = String(rarity.id);
+        option.textContent = rarity.label;
+        filterSelect.appendChild(option);
+      });
+    }
+  } catch (error) {
+    console.error('[ui] populateRarities failed', error);
+  }
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('DOMContentLoaded', populateRarities, { once: true });
+}
