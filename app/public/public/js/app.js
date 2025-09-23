@@ -2843,8 +2843,8 @@ async function handleAddItemSubmit(event) {
 
   const formData = new FormData(elements.addItemForm)
   const title = (formData.get('title') || '').toString().trim()
-  const typeId = formData.get('itemType')?.toString() ?? ''
-  const materialId = formData.get('material')?.toString() ?? ''
+  const typeId = formData.get('item_type_id')?.toString() ?? ''
+  const materialId = formData.get('material_id')?.toString() ?? ''
   const rarityValue = formData.get('rarity_id') ?? formData.get('rarity')
   const rarityId = rarityValue != null ? rarityValue.toString() : ''
   const starsValue = formData.get('stars')?.toString() ?? ''
@@ -2857,11 +2857,11 @@ async function handleAddItemSubmit(event) {
     hasError = true
   }
   if (!typeId) {
-    showFieldError('itemType', 'Bitte einen Item-Typ auswählen.')
+    showFieldError('item_type_id', 'Bitte einen Item-Typ auswählen.')
     hasError = true
   }
   if (!materialId) {
-    showFieldError('material', 'Bitte ein Material auswählen.')
+    showFieldError('material_id', 'Bitte ein Material auswählen.')
     hasError = true
   }
   if (!rarityId) {
@@ -3210,9 +3210,9 @@ async function loadFiltersAndLists() {
 
     populateSelect(elements.filterType, state.itemTypes)
     populateSelect(elements.filterMaterial, state.materials)
-    populateSelect(elements.filterRarity, state.rarities)
-    populateSelect(document.getElementById('itemTypeSelect'), state.itemTypes, 'Auswählen…')
-    populateSelect(document.getElementById('itemMaterialSelect'), state.materials, 'Auswählen…')
+    populateSelect(elements.filterRarity, state.rarities, 'Alle Seltenheiten')
+    populateSelect(document.getElementById('item-type-select'), state.itemTypes, 'Auswählen…')
+    populateSelect(document.getElementById('item-material-select'), state.materials, 'Auswählen…')
     populateSelect(document.getElementById('item-rarity-select'), state.rarities, 'Auswählen…')
 
     renderEnchantmentsList()

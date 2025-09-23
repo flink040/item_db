@@ -192,11 +192,11 @@
                           <select
                             id="filter-rarity"
                             class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                            name="rarity"
+                            name="rarity_id"
                             data-js="filter-rarity"
                             data-filter="rarity"
                           >
-                            <option value="">Alle</option>
+                            <option value="">Alle Seltenheiten</option>
                           </select>
                         </label>
                       </div>
@@ -305,30 +305,30 @@
                 <p id="itemTitleError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="title"></p>
               </div>
               <div>
-                <label class="block" for="itemTypeSelect">
+                <label class="block" for="item-type-select">
                   <span class="text-sm font-medium text-slate-300">Item-Typ<span class="text-rose-400">*</span></span>
                   <select
-                    id="itemTypeSelect"
-                    name="itemType"
+                    id="item-type-select"
+                    name="item_type_id"
                     required
                     class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                     aria-describedby="itemTypeError"
                   ></select>
                 </label>
-                <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="itemType"></p>
+                <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="item_type_id"></p>
               </div>
               <div>
-                <label class="block" for="itemMaterialSelect">
+                <label class="block" for="item-material-select">
                   <span class="text-sm font-medium text-slate-300">Material<span class="text-rose-400">*</span></span>
                   <select
-                    id="itemMaterialSelect"
-                    name="material"
+                    id="item-material-select"
+                    name="material_id"
                     required
                     class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                     aria-describedby="itemMaterialError"
                   ></select>
                 </label>
-                <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material"></p>
+                <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material_id"></p>
               </div>
               <div>
                 <label class="block" for="item-rarity-select">
@@ -818,6 +818,7 @@
       aria-live="polite"
       aria-atomic="true"
     ></div>
+    <script src="/assets/js/rarities.js" defer></script>
     <script type="module" src="/public/js/app.js"></script>
     <script src="/assets/js/moderation.js" defer></script>
   </body>
