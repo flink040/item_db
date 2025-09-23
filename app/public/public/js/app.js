@@ -2672,13 +2672,19 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
     rarity_id: payload.rarity_id ?? null,
-    rarity: payload.rarity ?? null,
     stars: resolvedStars,
     star_level: resolvedStars,
     created_by: user.id,
     item_image: resolvedItemImage,
     item_lore_image: resolvedLoreImage,
     is_published: payload.is_published === true,
+  }
+
+  if (payload.rarity !== undefined && payload.rarity !== null) {
+    const rarityValue = String(payload.rarity).trim()
+    if (rarityValue) {
+      basePayload.rarity = rarityValue
+    }
   }
 
   const buildPayloadVariant = (starColumn, useLegacyFallback) => {
@@ -2727,7 +2733,8 @@ async function attemptDirectInsert({ user, payload, enchantments }) {
     const legacyColumnIssue =
       message.includes('column "created_by"') ||
       message.includes('column "name"') ||
-      message.includes('column "rarity"')
+      message.includes('column "rarity"') ||
+      message.includes("'rarity' column")
     if (legacyColumnIssue) {
       result = await executeInsert(starColumn, true)
       if (!result.error && result.data) {
