@@ -164,7 +164,7 @@
                           <select
                             id="filter-type"
                             class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                            name="type"
+                            name="item_type_id"
                             data-filter="type"
                             data-js="filter-type"
                           >
@@ -178,7 +178,7 @@
                           <select
                             id="filter-material"
                             class="app-search__select mt-2 w-full rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-sm text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                            name="material"
+                            name="material_id"
                             data-filter="material"
                             data-js="filter-material"
                           >
@@ -818,7 +818,7 @@
       aria-live="polite"
       aria-atomic="true"
     ></div>
-    <script src="/assets/js/rarities.js" defer></script>
+    <script type="module" src="/assets/js/metadata.js"></script>
     <script type="module" src="/public/js/app.js"></script>
     <script src="/assets/js/moderation.js" defer></script>
   </body>

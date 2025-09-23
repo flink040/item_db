@@ -1,4 +1,5 @@
 import { supabase } from './supabaseClient.js'
+import { getMetadataList } from '/assets/js/metadata.js'
 
 const state = {
   filters: {
@@ -130,29 +131,28 @@ const insertDiagnostics = {
   lastUserId: null,
 }
 
-async function fetchRaritiesList() {
+async function fetchMetadataList(endpointKey) {
   try {
-    const response = await fetch(`${API_BASE}/rarities`, {
-      headers: { Accept: 'application/json' },
-    })
-
-    if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      const message = text && text.trim().length > 0 ? text.trim() : `HTTP ${response.status}`
-      const error = new Error(message)
-      error.status = response.status
-      throw error
-    }
-
-    const data = await response.json()
+    const data = await getMetadataList(endpointKey)
     if (!Array.isArray(data)) {
-      throw new Error('Ungültige Antwort für Seltenheiten erhalten.')
+      throw new Error(`Ungültige Antwort für ${endpointKey} erhalten.`)
     }
-
     return { data, error: null }
   } catch (error) {
     return { data: [], error }
   }
+}
+
+async function fetchRaritiesList() {
+  return fetchMetadataList('rarities')
+}
+
+async function fetchItemTypesList() {
+  return fetchMetadataList('item_types')
+}
+
+async function fetchMaterialsList() {
+  return fetchMetadataList('materials')
 }
 
 function formatFileSize(bytes) {
@@ -3190,8 +3190,8 @@ async function loadFiltersAndLists() {
   renderSkeleton(6)
   try {
     const [itemTypesResult, materialsResult, raritiesResult, enchantmentsResult] = await Promise.all([
-      supabase.from('item_types').select('id,label').order('label', { ascending: true }),
-      supabase.from('materials').select('id,label').order('label', { ascending: true }),
+      fetchItemTypesList(),
+      fetchMaterialsList(),
       fetchRaritiesList(),
       supabase.from('enchantments').select('id,label,max_level').order('label', { ascending: true }),
     ])
