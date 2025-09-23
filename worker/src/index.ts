@@ -781,7 +781,10 @@ app.route('/api', meta)
 // GET /api/items
 app.get('/api/items', async (c) => {
   const query = c.req.query()
-  const params = new URLSearchParams({ select: '*' })
+  const params = new URLSearchParams({
+    select:
+      '*,item_enchantments(enchantment_id,level,enchantments(id,label,slug,description,max_level))',
+  })
 
   const search = sanitizeSearchValue(query.search ?? '')
   const itemTypeFilter = extractPositiveIntegerFilter(
