@@ -821,7 +821,7 @@ app.get('/api/items', async (c) => {
     params.append('rarity_id', `eq.${rarityIdFilter}`)
   }
 
-  params.append('order', 'name.asc')
+  params.set('order', 'created_at.desc.nullslast')
 
   const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`
   const supabaseHeaders: Record<string, string> = { apikey: c.env.SUPABASE_ANON_KEY }
