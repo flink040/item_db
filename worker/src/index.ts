@@ -12,6 +12,7 @@ type Bindings = {
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
 const MAX_STAR_RATING = 3
+const LEGACY_RARITY_VALUES = new Set(['common', 'rare', 'epic', 'legendary'])
 const rarityStringSchema = z
   .string()
   .trim()
@@ -398,14 +399,23 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
   const itemImage = payload.item_image ?? payload.image_url ?? null
   const itemLoreImage = payload.item_lore_image ?? payload.lore_image_url ?? null
 
+  const hasRarityId = typeof payload.rarity_id === 'number'
+  const rawRarity =
+    typeof payload.rarity === 'string' && payload.rarity.trim() ? payload.rarity.trim() : null
+  const resolvedRarity =
+    !rawRarity
+      ? null
+      : !hasRarityId
+        ? rawRarity
+        : LEGACY_RARITY_VALUES.has(rawRarity.toLowerCase())
+          ? rawRarity
+          : null
+
   return {
     name,
     description: (payload.description ?? payload.lore ?? '').trim() || null,
     rarity_id: typeof payload.rarity_id === 'number' ? payload.rarity_id : null,
-    rarity:
-      typeof payload.rarity === 'string' && payload.rarity.trim()
-        ? payload.rarity.trim()
-        : null,
+    rarity: resolvedRarity,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
     star_level: normalizedStarLevel,
@@ -569,8 +579,12 @@ async function insertItemWithEnchantments(
       if (item.name) {
         payload.name = item.name
       }
-      if (item.rarity) {
-        payload.rarity = item.rarity
+      const hasRarityId = typeof item.rarity_id === 'number'
+      const rawRarity = typeof item.rarity === 'string' ? item.rarity : null
+      if (rawRarity && (!hasRarityId || LEGACY_RARITY_VALUES.has(rawRarity.toLowerCase()))) {
+        payload.rarity = rawRarity
+      } else if (hasRarityId) {
+        payload.rarity = null
       }
     }
 
