@@ -11,8 +11,12 @@ type Bindings = {
 
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
-const SUPPORTED_RARITIES = ['common', 'rare', 'epic', 'legendary'] as const
 const MAX_STAR_RATING = 3
+const rarityStringSchema = z
+  .string()
+  .trim()
+  .min(1, { message: 'Seltenheit darf nicht leer sein.' })
+  .max(120, { message: 'Seltenheit ist zu lang.' })
 
 type RequestLike = {
   header(name: string): string | undefined
@@ -183,7 +187,7 @@ const itemSchema = z
     title: z.string().trim().min(3).max(160).optional(),
     description: z.string().trim().max(4000).optional(),
     lore: z.string().trim().max(4000).optional(),
-    rarity: z.enum(SUPPORTED_RARITIES).optional(),
+    rarity: rarityStringSchema.optional(),
     rarity_id: integerFromUnknown({ positive: true }).optional(),
     item_type_id: integerFromUnknown({ positive: true }),
     material_id: integerFromUnknown({ positive: true }),
@@ -251,7 +255,10 @@ function normaliseItemPayload(payload: z.infer<typeof itemSchema>) {
     name,
     description: (payload.description ?? payload.lore ?? '').trim() || null,
     rarity_id: typeof payload.rarity_id === 'number' ? payload.rarity_id : null,
-    rarity: payload.rarity ?? null,
+    rarity:
+      typeof payload.rarity === 'string' && payload.rarity.trim()
+        ? payload.rarity.trim()
+        : null,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
     star_level: normalizedStarLevel,
