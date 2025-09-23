@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { createClient } from '@supabase/supabase-js'
 
-export const meta = new Hono()
+const meta = new Hono()
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'content-type': 'application/json' }
 
