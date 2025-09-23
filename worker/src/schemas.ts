@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 export const ItemInsertSchema = z.object({
-  name: z.string().min(1),
+  title: z.string().min(1),
   description: z.string().max(500).optional().nullable(),
   image_url: z.string().url().optional().nullable(),
   item_type_id: z.number().int().positive(),

@@ -362,7 +362,7 @@ const normalizeEnchantments = (
 }
 
 function normaliseItemPayload(payload: ItemInsert, rawBody: Record<string, unknown>) {
-  const name = payload.name.trim()
+  const title = payload.title.trim()
   const starLevel = normalizeStarLevel(payload.star_level)
   const description = pickFirstString(
     payload.description ?? undefined,
@@ -391,7 +391,7 @@ function normaliseItemPayload(payload: ItemInsert, rawBody: Record<string, unkno
     ) ?? null
 
   return {
-    name,
+    title,
     description: description ?? null,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
@@ -504,8 +504,7 @@ async function validateEnchantments(
 async function insertItemWithEnchantments(
   client: SupabaseClient,
   item: {
-    title?: string
-    name?: string
+    title: string
     description?: string | null
     item_type_id: number
     material_id: number
@@ -567,9 +566,6 @@ async function insertItemWithEnchantments(
       payload.owner = item.created_by
     } else {
       payload.created_by = item.created_by
-      if (item.name) {
-        payload.name = item.name
-      }
     }
 
     return payload
@@ -594,7 +590,7 @@ async function insertItemWithEnchantments(
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumnErrors = ['name', 'description', 'rarity']
+    const legacyColumnErrors = ['description', 'rarity']
     const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
     if (hasLegacyIssue) {
       result = await executeInsert(starColumn, true)
@@ -805,7 +801,7 @@ app.get('/api/items', async (c) => {
     const pattern = `*${search}*`
     params.set(
       'or',
-      `(name.ilike.${pattern},slug.ilike.${pattern},description.ilike.${pattern})`
+      `(title.ilike.${pattern},slug.ilike.${pattern},description.ilike.${pattern})`
     )
   }
 
@@ -821,7 +817,7 @@ app.get('/api/items', async (c) => {
     params.append('rarity_id', `eq.${rarityIdFilter}`)
   }
 
-  params.append('order', 'name.asc')
+  params.append('order', 'title.asc')
 
   const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`
   const supabaseHeaders: Record<string, string> = { apikey: c.env.SUPABASE_ANON_KEY }
@@ -958,8 +954,7 @@ app.post('/api/items', async (c) => {
   const dryRun = ['1', 'true', 'yes'].includes((c.req.query('dryRun') || '').toLowerCase())
 
   const baseItem = {
-    title: normalized.name,
-    name: normalized.name,
+    title: normalized.title,
     description: normalized.description,
     item_type_id: normalized.item_type_id,
     material_id: normalized.material_id,
