@@ -5,9 +5,13 @@ declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./src/index");
 	}
-	interface Env {
-		ASSETS: Fetcher;
-	}
+        interface Env {
+                ASSETS: Fetcher;
+                SUPABASE_URL: string;
+                SUPABASE_ANON_KEY: string;
+                SUPABASE_SERVICE_ROLE_KEY: string;
+                SUPABASE_JWT_SECRET?: string;
+        }
 }
 interface CloudflareBindings extends Cloudflare.Env {}
 
