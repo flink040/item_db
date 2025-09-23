@@ -1,62 +1,66 @@
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { createClient } from '@supabase/supabase-js'
+const meta = new Hono<{ Bindings: {
+  SUPABASE_URL: string
+  SUPABASE_SERVICE_ROLE_KEY: string
+} }>()
 
-const meta = new Hono()
 
-const cors = { 'Access-Control-Allow-Origin': '*', 'content-type': 'application/json' }
+// CORS
+meta.use('/*', cors({
+  origin: '*',
+  allowMethods: ['GET', 'OPTIONS'],
+  allowHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400
+}))
 
-type MaybeSupabase = {
-  from: (table: string) => any
+// Helper: Supabase Client
+function sb(c: any) {
+  return createClient(c.env.SUPABASE_URL, c.env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false }
+  })
 }
 
-function resolveSupabaseClient(c: any): MaybeSupabase {
-  const deps = (c.get('deps') ?? {}) as { supabase?: MaybeSupabase }
-  const existing =
-    deps.supabase ??
-    (c.get('supabase') as MaybeSupabase | undefined) ??
-    ((c.env as any)?.supabase as MaybeSupabase | undefined)
+// Materials
+meta.get('/materials', async (c) => {
+  const supabase = sb(c)
+  const { data, error } = await supabase
+    .from('materials')
+    .select('id, slug, label')
+    .order('label', { ascending: true })
+  if (error) return c.json({ error: error.message }, 500)
+  return c.json(data ?? [], 200, {
+    'cache-control': 'public, max-age=300, stale-while-revalidate=300'
+  })
+})
 
-  if (existing && typeof existing.from === 'function') {
-    return existing
-  }
+// Item Types
+meta.get('/item_types', async (c) => {
+  const supabase = sb(c)
+  const { data, error } = await supabase
+    .from('item_types')
+    .select('id, slug, label')
+    .order('label', { ascending: true })
+  if (error) return c.json({ error: error.message }, 500)
+  return c.json(data ?? [], 200, {
+    'cache-control': 'public, max-age=300, stale-while-revalidate=300'
+  })
+})
 
-  const url: string | undefined = (c.env as any)?.SUPABASE_URL
-  const serviceKey: string | undefined = (c.env as any)?.SUPABASE_SERVICE_ROLE_KEY
-  if (!url || !serviceKey) {
-    throw new Error('Supabase credentials are not configured')
-  }
-
-  const client = createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } }) as MaybeSupabase
-  c.set('supabase', client)
-  return client
-}
-
-async function list(c: any, table: string) {
-  let client: MaybeSupabase
-  try {
-    client = resolveSupabaseClient(c)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Supabase client unavailable'
-    return c.json({ error: message }, 500, cors)
-  }
-
-  try {
-    const { data, error } = await client
-      .from(table)
-      .select('id, slug, label, sort')
-      .order('sort', { ascending: true })
-    if (error) {
-      return c.json({ error: error.message }, 500, cors)
-    }
-    return c.json(data ?? [], 200, cors)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error'
-    return c.json({ error: message }, 500, cors)
-  }
-}
-
-meta.get('/rarities', (c) => list(c, 'rarities'))
-meta.get('/item_types', (c) => list(c, 'item_types'))
-meta.get('/materials', (c) => list(c, 'materials'))
+// Rarities (nach sort, dann label)
+meta.get('/rarities', async (c) => {
+  const supabase = sb(c)
+  const query = supabase
+    .from('rarities')
+    .select('id, slug, label, sort')
+    .order('sort', { ascending: true })
+    .order('label', { ascending: true })
+  const { data, error } = await query
+  if (error) return c.json({ error: error.message }, 500)
+  return c.json(data ?? [], 200, {
+    'cache-control': 'public, max-age=300, stale-while-revalidate=300'
+  })
+})
 
 export default meta
