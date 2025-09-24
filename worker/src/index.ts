@@ -647,6 +647,7 @@ async function insertItemWithEnchantments(
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
+const api = app.basePath('/api')
 
 const sanitizeSearchValue = (value: string) =>
   value
@@ -710,10 +711,10 @@ const META_CACHE_HEADERS = {
 }
 
 // Healthcheck
-app.get('/api/health', (c) => c.text('ok'))
+api.get('/health', (c) => c.text('ok'))
 
 // Quick diagnostics for environment configuration
-app.get('/api/diag', (c) => {
+api.get('/diag', (c) => {
   const env = c.env
   return c.json(
     {
@@ -727,7 +728,7 @@ app.get('/api/diag', (c) => {
 })
 
 // Debug echo endpoint
-app.all('/api/debug/echo', async (c) => {
+api.all('/debug/echo', async (c) => {
   let rawBody = ''
   try {
     rawBody = await c.req.text()
@@ -796,7 +797,8 @@ app.options('*', (c) =>
   c.body(null, 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
 )
 
-app.get('/api/materials', async (c) => {
+
+api.get('/materials', async (c) => {
   try {
     const data = await fetchMaterialsList(c.env)
     return c.json(data, 200, cors(META_CACHE_HEADERS))
@@ -805,7 +807,7 @@ app.get('/api/materials', async (c) => {
   }
 })
 
-app.get('/api/item_types', async (c) => {
+api.get('/item_types', async (c) => {
   try {
     const data = await fetchItemTypesList(c.env)
     return c.json(data, 200, cors(META_CACHE_HEADERS))
@@ -814,7 +816,7 @@ app.get('/api/item_types', async (c) => {
   }
 })
 
-app.get('/api/rarities', async (c) => {
+api.get('/rarities', async (c) => {
   try {
     const data = await fetchRaritiesList(c.env)
     return c.json(data, 200, cors(META_CACHE_HEADERS))
@@ -824,7 +826,7 @@ app.get('/api/rarities', async (c) => {
 })
 
 // GET /api/items
-app.get('/api/items', async (c) => {
+api.get('/items', async (c) => {
   const query = c.req.query()
   const params = new URLSearchParams({
     select:
@@ -889,7 +891,7 @@ app.get('/api/items', async (c) => {
 })
 
 // POST /api/items (validiert + Service-Role)
-app.post('/api/items', async (c) => {
+api.post('/items', async (c) => {
   const token = resolveSupabaseBearerToken(c.req)
 
   if (!token) {
@@ -1047,7 +1049,7 @@ app.post('/api/items', async (c) => {
 })
 
 // GET /api/enchantments (lange cachen)
-app.get('/api/enchantments', async (c) => {
+api.get('/enchantments', async (c) => {
   const res = await fetch(`${c.env.SUPABASE_URL}/rest/v1/enchantments?select=*`, {
     headers: { apikey: c.env.SUPABASE_ANON_KEY }
   })
