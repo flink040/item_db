@@ -301,6 +301,207 @@ const supabaseClient =
 
 const getSupabaseClient = () => supabaseClient
 
+const ENCHANTMENT_LEVEL_KEYS = ['level', 'enchantment_level', 'enchantmentLevel', 'lvl', 'value'] as const
+
+const parsePositiveInteger = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0) {
+      return value
+    }
+    return null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+const isLikelyEnchantmentEntry = (entry: unknown) => {
+  if (typeof entry === 'string') {
+    return entry.trim().length > 0
+  }
+
+  if (!entry || typeof entry !== 'object') {
+    return false
+  }
+
+  const record = entry as Record<string, unknown>
+  return ENCHANTMENT_LEVEL_KEYS.some((key) => parsePositiveInteger(record[key]) !== null)
+}
+
+const hasEmbeddedEnchantmentData = (item: Item) => {
+  const record = item as Record<string, unknown>
+  const candidates = [record.item_enchantments, record.itemEnchantments, record.enchantments]
+
+  return candidates.some(
+    (candidate) => Array.isArray(candidate) && candidate.some((entry) => isLikelyEnchantmentEntry(entry))
+  )
+}
+
+const extractNumericItemId = (item: Item): number | null => {
+  const record = item as Record<string, unknown>
+  const candidates = [record.id, record.item_id, record.itemId]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0) {
+      return candidate
+    }
+
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim()
+      if (!trimmed) {
+        continue
+      }
+
+      const parsed = Number.parseInt(trimmed, 10)
+      if (Number.isInteger(parsed) && parsed > 0) {
+        return parsed
+      }
+    }
+  }
+
+  return null
+}
+
+const ensureItemEnchantments = async (items: Item[]): Promise<Item[]> => {
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return items
+  }
+
+  const missingItemIds: number[] = []
+  const seenItemIds = new Set<number>()
+
+  items.forEach((item) => {
+    if (hasEmbeddedEnchantmentData(item)) {
+      return
+    }
+
+    const itemId = extractNumericItemId(item)
+    if (itemId === null || seenItemIds.has(itemId)) {
+      return
+    }
+
+    seenItemIds.add(itemId)
+    missingItemIds.push(itemId)
+  })
+
+  if (missingItemIds.length === 0) {
+    return items
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('item_enchantments')
+      .select('item_id,enchantment_id,level,enchantments(id,label,slug,description,max_level)')
+      .in('item_id', missingItemIds)
+
+    if (error) {
+      console.warn('Verzauberungen konnten nicht ergänzt werden.', error)
+      return items
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      return items
+    }
+
+    const grouped = new Map<number, Array<Record<string, unknown>>>()
+
+    data.forEach((row) => {
+      if (!row || typeof row !== 'object') {
+        return
+      }
+
+      const record = row as Record<string, unknown>
+      const rawItemId = record.item_id ?? record.itemId ?? record.item
+      let itemId: number | null = null
+
+      if (typeof rawItemId === 'number') {
+        itemId = Number.isInteger(rawItemId) && rawItemId > 0 ? rawItemId : null
+      } else if (typeof rawItemId === 'string') {
+        const trimmed = rawItemId.trim()
+        if (trimmed) {
+          const parsed = Number.parseInt(trimmed, 10)
+          itemId = Number.isInteger(parsed) && parsed > 0 ? parsed : null
+        }
+      }
+
+      if (itemId === null || !seenItemIds.has(itemId)) {
+        return
+      }
+
+      const level = ENCHANTMENT_LEVEL_KEYS.reduce<number | null>((acc, key) => {
+        if (acc !== null) {
+          return acc
+        }
+        return parsePositiveInteger(record[key])
+      }, null)
+
+      if (level === null) {
+        return
+      }
+
+      const normalized: Record<string, unknown> = { level }
+
+      const enchantmentId = parsePositiveInteger(
+        record.enchantment_id ?? record.enchantmentId ?? record.enchant_id
+      )
+      if (enchantmentId !== null) {
+        normalized.enchantment_id = enchantmentId
+      }
+
+      const meta = record.enchantments
+      if (meta && typeof meta === 'object') {
+        normalized.enchantments = meta
+      }
+
+      const list = grouped.get(itemId)
+      if (list) {
+        list.push(normalized)
+      } else {
+        grouped.set(itemId, [normalized])
+      }
+    })
+
+    if (!grouped.size) {
+      return items
+    }
+
+    return items.map((item) => {
+      const itemId = extractNumericItemId(item)
+      if (itemId === null) {
+        return item
+      }
+
+      const extra = grouped.get(itemId)
+      if (!extra || extra.length === 0) {
+        return item
+      }
+
+      const next = { ...(item as Record<string, unknown>) }
+      next.item_enchantments = extra
+      if (!Array.isArray(next.itemEnchantments)) {
+        next.itemEnchantments = extra
+      }
+
+      return next as Item
+    })
+  } catch (error) {
+    console.warn('Verzauberungen konnten nicht ergänzt werden.', error)
+    return items
+  }
+}
+
 const STORAGE_BUCKET_ITEM_MEDIA = 'item-media'
 const STORAGE_UPLOAD_ROOT = 'items'
 
@@ -1368,8 +1569,18 @@ export default function App() {
         }
 
         if (abortControllerRef.current === controller) {
-          setItems(data as Item[])
-          setError(null)
+          let itemsWithEnchantments = data as Item[]
+
+          try {
+            itemsWithEnchantments = await ensureItemEnchantments(itemsWithEnchantments)
+          } catch (enchantmentError) {
+            console.warn('Verzauberungsdaten konnten nicht angereichert werden.', enchantmentError)
+          }
+
+          if (abortControllerRef.current === controller) {
+            setItems(itemsWithEnchantments)
+            setError(null)
+          }
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -3246,29 +3457,7 @@ type ParsedEnchantmentMeta = {
   maxLevel: number | null
 }
 
-const toPositiveInteger = (value: unknown): number | null => {
-  if (typeof value === 'number') {
-    if (Number.isInteger(value) && value > 0) {
-      return value
-    }
-    return null
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) {
-      return null
-    }
-
-    const parsed = Number.parseInt(trimmed, 10)
-    if (Number.isInteger(parsed) && parsed > 0) {
-      return parsed
-    }
-  }
-
-  return null
-}
-
+const toPositiveInteger = (value: unknown): number | null => parsePositiveInteger(value)
 const toTrimmedString = (value: unknown): string | null => {
   if (typeof value !== 'string') {
     return null
@@ -3362,10 +3551,8 @@ const parseItemEnchantment = (entry: unknown): ResolvedItemEnchantment | null =>
   }
 
   const record = entry as Record<string, unknown>
-
-  const levelKeys = ['level', 'enchantment_level', 'enchantmentLevel', 'lvl', 'value']
   let level: number | null = null
-  for (const key of levelKeys) {
+  for (const key of ENCHANTMENT_LEVEL_KEYS) {
     const candidate = record[key]
     const parsed = toPositiveInteger(candidate)
     if (parsed !== null) {
