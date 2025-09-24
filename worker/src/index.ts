@@ -7,6 +7,16 @@ import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
 
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
+// Cloudflare's runtime sometimes expects a global `meta` object to exist when
+// evaluating module workers. The Windows deploy reported a `ReferenceError`
+// because the identifier wasn't defined at load time, so we provide a safe
+// default here. The cast keeps TypeScript happy without polluting the global
+// namespace with an explicit declaration.
+const globalWithMeta = globalThis as typeof globalThis & { meta?: unknown }
+if (typeof globalWithMeta.meta === 'undefined') {
+  globalWithMeta.meta = {}
+}
+
 const MAX_STAR_RATING = 3
 
 type RequestLike = {
