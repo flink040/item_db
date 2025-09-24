@@ -132,6 +132,9 @@ const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
 const PROFILE_MC_UUID_SUBMIT_LABEL = 'Mit Minecraft Account verbinden'
 const PROFILE_MC_UUID_SUBMIT_LOADING_LABEL = 'Verbinden…'
 
+const PROFILE_MC_UUID_SUBMIT_LABEL = 'Mit Minecraft Account verbinden'
+const PROFILE_MC_UUID_SUBMIT_LOADING_LABEL = 'Verbinden…'
+
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -2080,6 +2083,7 @@ async function handleProfileMcUuidSubmit(event) {
         input.focus()
       }
     }
+
   } finally {
     profileModalState.mcUuidSubmitting = false
     updateProfileMcUuidFormState()
@@ -2579,7 +2583,6 @@ async function loadProfile() {
       const mcUuidFromDb = typeof data.mc_uuid === 'string' ? data.mc_uuid.trim() : ''
       const mcUuidValue = normaliseMinecraftUuid(mcUuidFromDb)
       const mcNameFromDb = typeof data.mc_name === 'string' ? data.mc_name.trim() : ''
-
       const usernameValue = usernameFromDb || metadataFallback.username || null
       const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
       const bioValue = bioFromDb || null
