@@ -70,6 +70,10 @@ const profileModalElements = (() => {
     mcUuidInput: modal?.querySelector('[data-profile-mc-uuid-input]') ?? null,
     mcUuidButton: modal?.querySelector('[data-profile-mc-submit]') ?? null,
     mcUuidError: modal?.querySelector('[data-profile-mc-error]') ?? null,
+    mcConnected: modal?.querySelector('[data-profile-mc-connected]') ?? null,
+    mcConnectedName: modal?.querySelector('[data-profile-mc-name]') ?? null,
+    mcConnectedAvatarImage: modal?.querySelector('[data-profile-mc-avatar-image]') ?? null,
+    mcConnectedAvatarFallback: modal?.querySelector('[data-profile-mc-avatar-fallback]') ?? null,
   }
 })()
 
@@ -128,6 +132,8 @@ const IMAGE_MIME_EXTENSION_MAP = {
 
 const API_BASE = '/api'
 const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
+const MINECRAFT_RENDER_API_BASE_URL = 'https://mc-api.io/render'
+const MINECRAFT_RENDER_FACE_DEFAULT_SIZE = 128
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -1608,6 +1614,27 @@ function formatMinecraftUuidForDisplay(value) {
   return normalised.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
 }
 
+function getMinecraftRenderFaceUrl(normalisedUuid, size = MINECRAFT_RENDER_FACE_DEFAULT_SIZE) {
+  const formattedUuid = formatMinecraftUuidForDisplay(normalisedUuid)
+  if (!formattedUuid) {
+    return ''
+  }
+
+  const numericSize = Number(size)
+  const defaultSize = MINECRAFT_RENDER_FACE_DEFAULT_SIZE
+  const resolvedSize = Number.isFinite(numericSize)
+    ? Math.min(512, Math.max(32, Math.round(Math.max(numericSize, 0))))
+    : defaultSize
+
+  try {
+    const url = new URL(`${MINECRAFT_RENDER_API_BASE_URL}/face/${formattedUuid}`)
+    url.searchParams.set('size', String(resolvedSize))
+    return url.toString()
+  } catch (error) {
+    return `${MINECRAFT_RENDER_API_BASE_URL}/face/${formattedUuid}?size=${resolvedSize}`
+  }
+}
+
 async function fetchMinecraftProfileByUuid(normalisedUuid) {
   const formattedUuid = formatMinecraftUuidForDisplay(normalisedUuid)
   if (!formattedUuid) {
@@ -1682,6 +1709,57 @@ async function fetchMinecraftProfileByUuid(normalisedUuid) {
   return { name: playerName, uuid: uuidFromApi }
 }
 
+function setProfileMinecraftAvatar(normalisedUuid, displayName) {
+  const image = profileModalElements.mcConnectedAvatarImage
+  const fallback = profileModalElements.mcConnectedAvatarFallback
+  if (!image) {
+    if (fallback) {
+      const fallbackText =
+        typeof displayName === 'string' && displayName.trim()
+          ? displayName.trim().charAt(0).toUpperCase()
+          : 'MC'
+      fallback.textContent = fallbackText
+      fallback.classList.remove('hidden')
+    }
+    return
+  }
+
+  const trimmedName = typeof displayName === 'string' ? displayName.trim() : ''
+  const fallbackText = trimmedName ? trimmedName.charAt(0).toUpperCase() : 'MC'
+  const hasUuid = Boolean(normalisedUuid)
+
+  if (fallback) {
+    fallback.textContent = fallbackText
+    if (!hasUuid) {
+      fallback.classList.remove('hidden')
+    }
+  }
+
+  if (!hasUuid) {
+    delete image.dataset.renderUuid
+    image.dataset.fallbackText = fallbackText
+    image.removeAttribute('src')
+    image.alt = ''
+    image.classList.add('hidden')
+    if (fallback) {
+      fallback.classList.remove('hidden')
+    }
+    return
+  }
+
+  const altText = trimmedName ? `Minecraft Kopf von ${trimmedName}` : 'Minecraft Kopf'
+  const renderUrl = getMinecraftRenderFaceUrl(normalisedUuid)
+
+  image.dataset.renderUuid = normalisedUuid
+  image.dataset.fallbackText = fallbackText
+  image.alt = altText
+  image.classList.add('hidden')
+  if (fallback) {
+    fallback.classList.remove('hidden')
+  }
+  image.src = renderUrl
+}
+
 function setProfileMcUuidError(message) {
   const element = profileModalElements.mcUuidError
   if (!element) return
@@ -1698,23 +1776,60 @@ function setProfileMcUuidError(message) {
 function updateProfileMcUuidFormState() {
   const hasUser = Boolean(state.user)
   const isSubmitting = profileModalState.mcUuidSubmitting
+  const profileData =
+    hasUser && state.profile && typeof state.profile === 'object' ? state.profile : null
+  const rawUuid = profileData && typeof profileData.mc_uuid === 'string' ? profileData.mc_uuid : ''
+  const normalisedUuid = normaliseMinecraftUuid(rawUuid)
+  const isConnected = hasUser && Boolean(normalisedUuid)
+  const rawName = profileData && typeof profileData.mc_name === 'string' ? profileData.mc_name : ''
+  const mcName = rawName.trim()
+  const formattedUuid = formatMinecraftUuidForDisplay(normalisedUuid)
+
+  if (isConnected) {
+    profileModalState.mcUuidInputDirty = false
+  }
+
+  if (profileModalElements.mcUuidForm) {
+    profileModalElements.mcUuidForm.classList.toggle('hidden', isConnected)
+    profileModalElements.mcUuidForm.setAttribute(
+      'aria-hidden',
+      String(isConnected)
+    )
+    profileModalElements.mcUuidForm.setAttribute(
+      'aria-disabled',
+      String(!hasUser || isSubmitting || isConnected)
+    )
+  }
 
   if (profileModalElements.mcUuidInput) {
-    profileModalElements.mcUuidInput.disabled = !hasUser || isSubmitting
+    profileModalElements.mcUuidInput.disabled = !hasUser || isSubmitting || isConnected
+    if (!hasUser) {
+      profileModalElements.mcUuidInput.value = ''
+      profileModalState.mcUuidInputDirty = false
+    } else if (!profileModalState.mcUuidInputDirty) {
+      profileModalElements.mcUuidInput.value = formattedUuid
+    }
   }
 
   if (profileModalElements.mcUuidButton) {
-    profileModalElements.mcUuidButton.disabled = !hasUser || isSubmitting
+    profileModalElements.mcUuidButton.disabled = !hasUser || isSubmitting || isConnected
     const defaultLabel = 'Mit Minecraft Account verbinden'
     const loadingLabel = 'Verbinden…'
     profileModalElements.mcUuidButton.textContent = isSubmitting ? loadingLabel : defaultLabel
   }
 
-  if (profileModalElements.mcUuidForm) {
-    profileModalElements.mcUuidForm.setAttribute('aria-disabled', String(!hasUser || isSubmitting))
+  if (profileModalElements.mcConnected) {
+    profileModalElements.mcConnected.classList.toggle('hidden', !isConnected)
   }
 
-  if (!hasUser) {
+  if (profileModalElements.mcConnectedName) {
+    const displayName = mcName || formattedUuid || '–'
+    profileModalElements.mcConnectedName.textContent = displayName
+  }
+
+  setProfileMinecraftAvatar(isConnected ? normalisedUuid : '', mcName)
+
+  if (!hasUser || isConnected) {
     setProfileMcUuidError('')
   }
 }
@@ -1747,16 +1862,6 @@ function updateProfileModalUserInfo() {
   }
 
   updateProfileMcUuidFormState()
-
-  if (profileModalElements.mcUuidInput) {
-    if (!hasUser) {
-      profileModalElements.mcUuidInput.value = ''
-      profileModalState.mcUuidInputDirty = false
-    } else if (!profileModalState.mcUuidInputDirty) {
-      const displayUuid = formatMinecraftUuidForDisplay(state.profile?.mc_uuid ?? '')
-      profileModalElements.mcUuidInput.value = displayUuid
-    }
-  }
 
   if (!hasUser) {
     setProfileModalCounts('–', '–')
@@ -2091,6 +2196,39 @@ if (profileModalElements.mcUuidInput) {
 
 if (profileModalElements.mcUuidForm) {
   profileModalElements.mcUuidForm.addEventListener('submit', handleProfileMcUuidSubmit)
+}
+
+if (profileModalElements.mcConnectedAvatarImage) {
+  profileModalElements.mcConnectedAvatarImage.addEventListener('load', () => {
+    const image = profileModalElements.mcConnectedAvatarImage
+    if (!image || !image.dataset.renderUuid) {
+      return
+    }
+
+    image.classList.remove('hidden')
+
+    if (profileModalElements.mcConnectedAvatarFallback) {
+      profileModalElements.mcConnectedAvatarFallback.classList.add('hidden')
+    }
+  })
+
+  profileModalElements.mcConnectedAvatarImage.addEventListener('error', () => {
+    const image = profileModalElements.mcConnectedAvatarImage
+    if (!image) {
+      return
+    }
+
+    const fallbackText = image.dataset.fallbackText || 'MC'
+    image.classList.add('hidden')
+    image.removeAttribute('src')
+    image.alt = ''
+    delete image.dataset.renderUuid
+
+    if (profileModalElements.mcConnectedAvatarFallback) {
+      profileModalElements.mcConnectedAvatarFallback.textContent = fallbackText
+      profileModalElements.mcConnectedAvatarFallback.classList.remove('hidden')
+    }
+  })
 }
 
 updateProfileMcUuidFormState()
