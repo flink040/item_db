@@ -61,6 +61,11 @@ type Enchantment = {
   maxLevel: number
 }
 
+type ImagePreviewDetails = {
+  url: string
+  title: string
+}
+
 const MAX_STAR_LEVEL = 3 as const
 const STAR_LEVEL_VALUES = Array.from(
   { length: MAX_STAR_LEVEL + 1 },
@@ -1150,6 +1155,7 @@ export default function App() {
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
   )
   const [toasts, setToasts] = useState<ToastMessage[]>([])
+  const [imagePreview, setImagePreview] = useState<ImagePreviewDetails | null>(null)
 
   const typeLabelMap = useMemo(() => createFilterLabelMap(typeOptions), [typeOptions])
   const materialLabelMap = useMemo(
@@ -1241,6 +1247,32 @@ export default function App() {
     setLoading(false)
     setHasSearched(false)
   }, [])
+
+  const handleImagePreview = useCallback((details: ImagePreviewDetails) => {
+    setImagePreview(details)
+  }, [])
+
+  const handleImagePreviewClose = useCallback(() => {
+    setImagePreview(null)
+  }, [])
+
+  useEffect(() => {
+    if (!imagePreview) {
+      return
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setImagePreview(null)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [imagePreview])
 
   useEffect(() => {
     if (!showItemModal) {
@@ -2234,6 +2266,7 @@ export default function App() {
                         materialLabelMap={materialLabelMap}
                         rarityLabelMap={rarityLabelMap}
                         rarityOptions={rarityOptions}
+                        onImagePreview={handleImagePreview}
                       />
                     ))}
                   </div>
@@ -2258,6 +2291,13 @@ export default function App() {
           onReloadMetadata={handleMetadataReload}
         />
       )}
+      {imagePreview && (
+        <ImagePreviewModal
+          imageUrl={imagePreview.url}
+          title={imagePreview.title}
+          onClose={handleImagePreviewClose}
+        />
+      )}
     </div>
   )
 }
@@ -2275,6 +2315,51 @@ type ItemModalProps = ModalProps & {
   referenceLoading: boolean
   referenceError: string | null
   onReloadMetadata: () => void
+}
+
+type ImagePreviewModalProps = ModalProps & {
+  imageUrl: string
+  title: string
+}
+
+function ImagePreviewModal({ imageUrl, title, onClose }: ImagePreviewModalProps) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="image-preview-modal-title"
+    >
+      <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
+      <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 shadow-2xl shadow-emerald-500/10">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="image-preview-modal-title" className="text-xl font-semibold text-slate-50">
+              Bildvorschau
+            </h2>
+            <p className="mt-1 text-sm text-slate-400">{title}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            aria-label="Modal schließen"
+          >
+            <CloseIcon className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="mt-6">
+          <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+            <img
+              src={imageUrl}
+              alt={`Vergrößerte Abbildung von ${title}`}
+              className="max-h-[70vh] w-full object-contain"
+            />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function ProfileModal({ onClose }: ModalProps) {
@@ -3687,13 +3772,15 @@ function ItemCard({
   typeLabelMap,
   materialLabelMap,
   rarityLabelMap,
-  rarityOptions
+  rarityOptions,
+  onImagePreview
 }: {
   item: Item
   typeLabelMap: Record<string, string>
   materialLabelMap: Record<string, string>
   rarityLabelMap: Record<string, string>
   rarityOptions: FilterOption[]
+  onImagePreview: (details: ImagePreviewDetails) => void
 }) {
   const rarityId =
     typeof item.rarity_id === 'number'
@@ -3826,15 +3913,22 @@ function ItemCard({
       </div>
       <div className="relative z-10 flex flex-col gap-6">
         <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-          <div className="relative w-full overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-950/60 shadow-inner shadow-slate-950/50 lg:w-48">
+          <div className="group relative w-full overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-950/60 shadow-inner shadow-slate-950/50 lg:w-48">
             <div className="aspect-square w-full">
               {itemImageUrl ? (
-                <img
-                  src={itemImageUrl}
-                  alt={`Abbildung von ${normalizedTitle}`}
-                  loading="lazy"
-                  className="h-full w-full object-cover"
-                />
+                <button
+                  type="button"
+                  onClick={() => onImagePreview({ url: itemImageUrl, title: normalizedTitle })}
+                  className="relative block h-full w-full overflow-hidden focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                >
+                  <img
+                    src={itemImageUrl}
+                    alt={`Abbildung von ${normalizedTitle}`}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                  />
+                  <span className="sr-only">Bild in größerer Ansicht öffnen</span>
+                </button>
               ) : (
                 <div className="flex h-full w-full items-center justify-center text-5xl font-semibold text-emerald-200">
                   {titleInitial}
