@@ -135,7 +135,6 @@ const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
 const MINECRAFT_RENDER_API_BASE_URL = 'https://mc-api.io/render'
 const MINECRAFT_RENDER_FACE_DEFAULT_SIZE = 128
 
-
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -2740,7 +2739,6 @@ async function loadProfile() {
       const mcUuidFromDb = typeof data.mc_uuid === 'string' ? data.mc_uuid.trim() : ''
       const mcUuidValue = normaliseMinecraftUuid(mcUuidFromDb)
       const mcNameFromDb = typeof data.mc_name === 'string' ? data.mc_name.trim() : ''
-
       const usernameValue = usernameFromDb || metadataFallback.username || null
       const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
       const bioValue = bioFromDb || null

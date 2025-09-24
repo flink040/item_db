@@ -2332,9 +2332,6 @@ function ProfileModal({ onClose }: ModalProps) {
             <p>
               Verbinde deinen Minecraft-Account, um Profildaten zu speichern und deinen Namen in der Item-Liste erscheinen zu lassen.
             </p>
-            <p className="text-xs text-slate-500">
-              Hinweis: Die Anmeldung wird aktuell nicht bereitgestellt – nutze die Supabase Auth Integration in deiner produktiven Instanz.
-            </p>
           </div>
 
           <div className="flex justify-end">
