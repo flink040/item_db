@@ -10,7 +10,7 @@ const meta = new Hono<{ Bindings: {
 // CORS
 meta.use('/*', cors({
   origin: '*',
-  allowMethods: ['GET', 'OPTIONS'],
+  allowMethods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   maxAge: 86400
 }))
