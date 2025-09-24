@@ -41,6 +41,9 @@ type Item = {
   item_types?: ReferenceLookup | null
   materials?: ReferenceLookup | null
   rarities?: ReferenceLookup | null
+  enchantments?: unknown
+  item_enchantments?: unknown
+  itemEnchantments?: unknown
 }
 
 type ReferenceLookup = {
@@ -297,6 +300,207 @@ const supabaseClient =
     : null
 
 const getSupabaseClient = () => supabaseClient
+
+const ENCHANTMENT_LEVEL_KEYS = ['level', 'enchantment_level', 'enchantmentLevel', 'lvl', 'value'] as const
+
+const parsePositiveInteger = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    if (Number.isInteger(value) && value > 0) {
+      return value
+    }
+    return null
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (!trimmed) {
+      return null
+    }
+
+    const parsed = Number.parseInt(trimmed, 10)
+    if (Number.isInteger(parsed) && parsed > 0) {
+      return parsed
+    }
+  }
+
+  return null
+}
+
+const isLikelyEnchantmentEntry = (entry: unknown) => {
+  if (typeof entry === 'string') {
+    return entry.trim().length > 0
+  }
+
+  if (!entry || typeof entry !== 'object') {
+    return false
+  }
+
+  const record = entry as Record<string, unknown>
+  return ENCHANTMENT_LEVEL_KEYS.some((key) => parsePositiveInteger(record[key]) !== null)
+}
+
+const hasEmbeddedEnchantmentData = (item: Item) => {
+  const record = item as Record<string, unknown>
+  const candidates = [record.item_enchantments, record.itemEnchantments, record.enchantments]
+
+  return candidates.some(
+    (candidate) => Array.isArray(candidate) && candidate.some((entry) => isLikelyEnchantmentEntry(entry))
+  )
+}
+
+const extractNumericItemId = (item: Item): number | null => {
+  const record = item as Record<string, unknown>
+  const candidates = [record.id, record.item_id, record.itemId]
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'number' && Number.isInteger(candidate) && candidate > 0) {
+      return candidate
+    }
+
+    if (typeof candidate === 'string') {
+      const trimmed = candidate.trim()
+      if (!trimmed) {
+        continue
+      }
+
+      const parsed = Number.parseInt(trimmed, 10)
+      if (Number.isInteger(parsed) && parsed > 0) {
+        return parsed
+      }
+    }
+  }
+
+  return null
+}
+
+const ensureItemEnchantments = async (items: Item[]): Promise<Item[]> => {
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return items
+  }
+
+  const missingItemIds: number[] = []
+  const seenItemIds = new Set<number>()
+
+  items.forEach((item) => {
+    if (hasEmbeddedEnchantmentData(item)) {
+      return
+    }
+
+    const itemId = extractNumericItemId(item)
+    if (itemId === null || seenItemIds.has(itemId)) {
+      return
+    }
+
+    seenItemIds.add(itemId)
+    missingItemIds.push(itemId)
+  })
+
+  if (missingItemIds.length === 0) {
+    return items
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('item_enchantments')
+      .select('item_id,enchantment_id,level,enchantments(id,label,slug,description,max_level)')
+      .in('item_id', missingItemIds)
+
+    if (error) {
+      console.warn('Verzauberungen konnten nicht ergänzt werden.', error)
+      return items
+    }
+
+    if (!Array.isArray(data) || data.length === 0) {
+      return items
+    }
+
+    const grouped = new Map<number, Array<Record<string, unknown>>>()
+
+    data.forEach((row) => {
+      if (!row || typeof row !== 'object') {
+        return
+      }
+
+      const record = row as Record<string, unknown>
+      const rawItemId = record.item_id ?? record.itemId ?? record.item
+      let itemId: number | null = null
+
+      if (typeof rawItemId === 'number') {
+        itemId = Number.isInteger(rawItemId) && rawItemId > 0 ? rawItemId : null
+      } else if (typeof rawItemId === 'string') {
+        const trimmed = rawItemId.trim()
+        if (trimmed) {
+          const parsed = Number.parseInt(trimmed, 10)
+          itemId = Number.isInteger(parsed) && parsed > 0 ? parsed : null
+        }
+      }
+
+      if (itemId === null || !seenItemIds.has(itemId)) {
+        return
+      }
+
+      const level = ENCHANTMENT_LEVEL_KEYS.reduce<number | null>((acc, key) => {
+        if (acc !== null) {
+          return acc
+        }
+        return parsePositiveInteger(record[key])
+      }, null)
+
+      if (level === null) {
+        return
+      }
+
+      const normalized: Record<string, unknown> = { level }
+
+      const enchantmentId = parsePositiveInteger(
+        record.enchantment_id ?? record.enchantmentId ?? record.enchant_id
+      )
+      if (enchantmentId !== null) {
+        normalized.enchantment_id = enchantmentId
+      }
+
+      const meta = record.enchantments
+      if (meta && typeof meta === 'object') {
+        normalized.enchantments = meta
+      }
+
+      const list = grouped.get(itemId)
+      if (list) {
+        list.push(normalized)
+      } else {
+        grouped.set(itemId, [normalized])
+      }
+    })
+
+    if (!grouped.size) {
+      return items
+    }
+
+    return items.map((item) => {
+      const itemId = extractNumericItemId(item)
+      if (itemId === null) {
+        return item
+      }
+
+      const extra = grouped.get(itemId)
+      if (!extra || extra.length === 0) {
+        return item
+      }
+
+      const next = { ...(item as Record<string, unknown>) }
+      next.item_enchantments = extra
+      if (!Array.isArray(next.itemEnchantments)) {
+        next.itemEnchantments = extra
+      }
+
+      return next as Item
+    })
+  } catch (error) {
+    console.warn('Verzauberungen konnten nicht ergänzt werden.', error)
+    return items
+  }
+}
 
 const STORAGE_BUCKET_ITEM_MEDIA = 'item-media'
 const STORAGE_UPLOAD_ROOT = 'items'
@@ -1365,8 +1569,18 @@ export default function App() {
         }
 
         if (abortControllerRef.current === controller) {
-          setItems(data as Item[])
-          setError(null)
+          let itemsWithEnchantments = data as Item[]
+
+          try {
+            itemsWithEnchantments = await ensureItemEnchantments(itemsWithEnchantments)
+          } catch (enchantmentError) {
+            console.warn('Verzauberungsdaten konnten nicht angereichert werden.', enchantmentError)
+          }
+
+          if (abortControllerRef.current === controller) {
+            setItems(itemsWithEnchantments)
+            setError(null)
+          }
         }
       } catch (error) {
         if (error instanceof DOMException && error.name === 'AbortError') {
@@ -3224,6 +3438,255 @@ function ItemModal({
     </div>
   )
 }
+
+type ResolvedItemEnchantment = {
+  key: string
+  id: number | null
+  slug: string | null
+  label: string
+  description: string | null
+  level: number
+  maxLevel: number | null
+}
+
+type ParsedEnchantmentMeta = {
+  id: number | null
+  label: string | null
+  slug: string | null
+  description: string | null
+  maxLevel: number | null
+}
+
+const toPositiveInteger = (value: unknown): number | null => parsePositiveInteger(value)
+
+const toTrimmedString = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
+}
+
+const parseEnchantmentMeta = (input: unknown): ParsedEnchantmentMeta | null => {
+  if (!input || typeof input !== 'object') {
+    return null
+  }
+
+  const record = input as Record<string, unknown>
+
+  const idKeys = ['id', 'enchantment_id', 'enchantmentId', 'enchant_id']
+  let id: number | null = null
+  for (const key of idKeys) {
+    const candidate = record[key]
+    const parsed = toPositiveInteger(candidate)
+    if (parsed !== null) {
+      id = parsed
+      break
+    }
+  }
+
+  const labelKeys = ['label', 'name', 'name_de', 'nameDe', 'title']
+  let label: string | null = null
+  for (const key of labelKeys) {
+    const candidate = record[key]
+    const normalized = toTrimmedString(candidate)
+    if (normalized) {
+      label = normalized
+      break
+    }
+  }
+
+  const slug = toTrimmedString(record['slug']) ?? toTrimmedString(record['key']) ?? null
+
+  const descriptionKeys = ['description', 'desc', 'lore', 'text', 'details']
+  let description: string | null = null
+  for (const key of descriptionKeys) {
+    if (key in record) {
+      const normalized = toTrimmedString(record[key])
+      if (normalized) {
+        description = normalized
+        break
+      }
+    }
+  }
+
+  const maxKeys = ['max_level', 'maxLevel', 'max', 'level_cap']
+  let maxLevel: number | null = null
+  for (const key of maxKeys) {
+    const candidate = record[key]
+    const parsed = toPositiveInteger(candidate)
+    if (parsed !== null) {
+      maxLevel = parsed
+      break
+    }
+  }
+
+  if (!label && id) {
+    label = `Verzauberung ${id}`
+  }
+
+  return { id, label, slug, description, maxLevel }
+}
+
+const parseItemEnchantment = (entry: unknown): ResolvedItemEnchantment | null => {
+  if (typeof entry === 'string') {
+    const normalized = entry.trim()
+    if (!normalized) {
+      return null
+    }
+
+    return {
+      key: `label:${normalized.toLowerCase()}`,
+      id: null,
+      slug: null,
+      label: normalized,
+      description: null,
+      level: 1,
+      maxLevel: null,
+    }
+  }
+
+  if (!entry || typeof entry !== 'object') {
+    return null
+  }
+
+  const record = entry as Record<string, unknown>
+
+  let level: number | null = null
+  for (const key of ENCHANTMENT_LEVEL_KEYS) {
+    const candidate = record[key]
+    const parsed = toPositiveInteger(candidate)
+    if (parsed !== null) {
+      level = parsed
+      break
+    }
+  }
+
+  if (level === null) {
+    return null
+  }
+
+  const meta =
+    parseEnchantmentMeta(record['enchantment']) ??
+    parseEnchantmentMeta(record['enchantments']) ??
+    parseEnchantmentMeta(record['meta']) ??
+    parseEnchantmentMeta(record['details']) ??
+    null
+
+  const fallbackIdKeys = ['enchantment_id', 'enchantmentId', 'enchant_id']
+  let fallbackId: number | null = null
+  for (const key of fallbackIdKeys) {
+    const candidate = record[key]
+    const parsed = toPositiveInteger(candidate)
+    if (parsed !== null) {
+      fallbackId = parsed
+      break
+    }
+  }
+
+  const metaId = meta?.id ?? fallbackId
+
+  const inlineLabelKeys = ['label', 'name', 'name_de', 'nameDe', 'title']
+  let inlineLabel: string | null = null
+  for (const key of inlineLabelKeys) {
+    const normalized = toTrimmedString(record[key])
+    if (normalized) {
+      inlineLabel = normalized
+      break
+    }
+  }
+
+  const label =
+    meta?.label ??
+    inlineLabel ??
+    (metaId ? `Verzauberung ${metaId}` : null) ??
+    `Verzauberung (Level ${level})`
+
+  const slug = meta?.slug ?? null
+
+  let description = meta?.description ?? null
+  if (!description) {
+    description = toTrimmedString(record['description']) ?? toTrimmedString(record['details']) ?? null
+  }
+
+  let maxLevel = meta?.maxLevel ?? null
+  if (maxLevel === null) {
+    const maxKeys = ['max_level', 'maxLevel', 'max']
+    for (const key of maxKeys) {
+      const candidate = record[key]
+      const parsed = toPositiveInteger(candidate)
+      if (parsed !== null) {
+        maxLevel = parsed
+        break
+      }
+    }
+  }
+
+  if (maxLevel !== null && maxLevel < level) {
+    maxLevel = level
+  }
+
+  const keyParts: string[] = []
+  if (metaId !== null) {
+    keyParts.push(`id:${metaId}`)
+  } else if (slug) {
+    keyParts.push(`slug:${slug.toLowerCase()}`)
+  }
+  keyParts.push(`label:${label.toLowerCase()}`)
+  keyParts.push(`level:${level}`)
+  const key = keyParts.join('|')
+
+  return {
+    key,
+    id: metaId,
+    slug,
+    label,
+    description,
+    level,
+    maxLevel,
+  }
+}
+
+const resolveItemEnchantments = (item: Item): ResolvedItemEnchantment[] => {
+  const sources: unknown[] = []
+
+  const rawItemEnchantments = (item as Record<string, unknown>).item_enchantments
+  if (Array.isArray(rawItemEnchantments)) {
+    sources.push(...rawItemEnchantments)
+  }
+
+  const rawItemEnchantmentsCamel = (item as Record<string, unknown>).itemEnchantments
+  if (Array.isArray(rawItemEnchantmentsCamel)) {
+    sources.push(...rawItemEnchantmentsCamel)
+  }
+
+  const rawEnchantments = (item as Record<string, unknown>).enchantments
+  if (Array.isArray(rawEnchantments)) {
+    sources.push(...rawEnchantments)
+  }
+
+  const parsed = sources
+    .map((entry) => parseItemEnchantment(entry))
+    .filter((entry): entry is ResolvedItemEnchantment => entry !== null)
+
+  const deduped = new Map<string, ResolvedItemEnchantment>()
+  parsed.forEach((entry) => {
+    if (!deduped.has(entry.key)) {
+      deduped.set(entry.key, entry)
+    }
+  })
+
+  return Array.from(deduped.values()).sort((a, b) => {
+    const labelCompare = a.label.localeCompare(b.label, 'de', { sensitivity: 'base' })
+    if (labelCompare !== 0) {
+      return labelCompare
+    }
+
+    return a.level - b.level
+  })
+}
+
 function ItemCard({
   item,
   typeLabelMap,
@@ -3344,54 +3807,126 @@ function ItemCard({
       : 0
   const starStates = Array.from({ length: MAX_STAR_LEVEL }, (_, index) => index < starLevel)
 
+  const normalizedTitle = item.title.trim() || 'Unbenanntes Item'
+  const titleInitial = normalizedTitle.charAt(0).toUpperCase() || 'I'
+  const slugLabel = typeof item.slug === 'string' ? item.slug.trim() : ''
+  const description = toTrimmedString(item.description) ?? ''
+  const enchantmentEntries = resolveItemEnchantments(item)
+  const hasEnchantments = enchantmentEntries.length > 0
+  const enchantmentCountLabel = hasEnchantments
+    ? `${enchantmentEntries.length} ${enchantmentEntries.length === 1 ? 'Eintrag' : 'Einträge'}`
+    : ''
+
+  const metaEntries: Array<{ id: string; label: string; value: string; accent: string }> = [
+    { id: 'rarity', label: 'Seltenheit', value: label, accent: 'text-amber-300' },
+    { id: 'type', label: 'Item-Typ', value: typeLabel, accent: 'text-sky-300' },
+    { id: 'material', label: 'Material', value: materialLabel, accent: 'text-indigo-300' },
+  ]
+
   return (
-    <article className="relative rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-2xl shadow-emerald-500/5">
-      <div className="flex flex-col gap-4">
-        <div className="flex items-start gap-4">
-          <span className="relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl bg-emerald-500/10 text-lg font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-500/30">
-            {itemImageUrl ? (
-              <img src={itemImageUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <span>{item.title.charAt(0)}</span>
-            )}
-          </span>
-          <div className="flex-1 space-y-3">
-            <div>
-              <p className="text-xs uppercase tracking-[0.3em] text-slate-500">{item.slug}</p>
-              <h3 className="text-lg font-semibold text-slate-100">{item.title}</h3>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${badgeClass}`}>
-                {label}
-              </span>
-              {starLevel > 0 && (
-                <div className="flex items-center gap-1 text-amber-300">
-                  {starStates.map((active, index) => (
-                    <span key={index} aria-hidden="true">
-                      {active ? '★' : '☆'}
-                    </span>
-                  ))}
-                  <span className="sr-only">{`Stern-Level ${starLevel} von ${MAX_STAR_LEVEL}`}</span>
+    <article className="relative overflow-hidden rounded-3xl border border-slate-800/70 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 shadow-2xl shadow-emerald-500/10">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl" aria-hidden="true">
+        <div className="absolute -left-24 top-0 h-40 w-40 rounded-full bg-emerald-500/10 blur-3xl" />
+        <div className="absolute -right-28 bottom-0 h-52 w-52 rounded-full bg-indigo-500/10 blur-3xl" />
+      </div>
+      <div className="relative z-10 flex flex-col gap-6">
+        <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
+          <div className="relative w-full overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-950/60 shadow-inner shadow-slate-950/50 lg:w-48">
+            <div className="aspect-square w-full">
+              {itemImageUrl ? (
+                <img
+                  src={itemImageUrl}
+                  alt={`Abbildung von ${normalizedTitle}`}
+                  loading="lazy"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center text-5xl font-semibold text-emerald-200">
+                  {titleInitial}
                 </div>
               )}
             </div>
+            {starLevel > 0 && (
+              <div className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-950/90 px-3 py-1 text-amber-300 shadow-lg shadow-amber-500/10 ring-1 ring-inset ring-amber-400/40">
+                {starStates.map((active, index) => (
+                  <span key={index} aria-hidden="true">
+                    {active ? '★' : '☆'}
+                  </span>
+                ))}
+                <span className="sr-only">{`Stern-Level ${starLevel} von ${MAX_STAR_LEVEL}`}</span>
+              </div>
+            )}
           </div>
-        </div>
+          <div className="flex flex-1 flex-col gap-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="space-y-2">
+                {slugLabel ? (
+                  <p className="text-[11px] uppercase tracking-[0.4em] text-slate-500">{slugLabel}</p>
+                ) : null}
+                <h3 className="text-2xl font-semibold text-slate-50">{normalizedTitle}</h3>
+              </div>
+              <span className={`inline-flex items-center rounded-full px-4 py-1.5 text-xs font-semibold shadow-sm ${badgeClass}`}>
+                {label}
+              </span>
+            </div>
+            <dl className="grid gap-3 text-sm text-slate-300 sm:grid-cols-2 xl:grid-cols-3">
+              {metaEntries.map((entry) => (
+                <div
+                  key={entry.id}
+                  className="rounded-xl border border-slate-800/60 bg-slate-950/60 p-3 shadow-inner shadow-slate-950/40"
+                >
+                  <dt className="flex items-center gap-2 text-[11px] uppercase tracking-[0.3em] text-slate-500">
+                    <BadgeDot className={`h-1.5 w-1.5 ${entry.accent}`} />
+                    {entry.label}
+                  </dt>
+                  <dd className="mt-1 text-base font-semibold text-slate-100">{entry.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </div>
+        </header>
 
-        {item.description && (
-          <p className="text-sm leading-relaxed text-slate-400">{item.description}</p>
-        )}
+        {description ? (
+          <p className="whitespace-pre-line text-sm leading-relaxed text-slate-300">{description}</p>
+        ) : null}
 
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          <span className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1">
-            <BadgeDot className="h-2 w-2 text-emerald-400" />
-            {typeLabel}
-          </span>
-          <span className="inline-flex items-center gap-2 rounded-full border border-slate-800 bg-slate-900/60 px-3 py-1">
-            <BadgeDot className="h-2 w-2 text-indigo-400" />
-            {materialLabel}
-          </span>
-        </div>
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs uppercase tracking-[0.35em] text-emerald-300/80">Verzauberungen</p>
+            {hasEnchantments ? (
+              <span className="text-xs text-emerald-200/70">{enchantmentCountLabel}</span>
+            ) : null}
+          </div>
+          {hasEnchantments ? (
+            <ul className="grid gap-2 sm:grid-cols-2">
+              {enchantmentEntries.map((enchantment) => (
+                <li
+                  key={enchantment.key}
+                  className="group rounded-2xl border border-emerald-500/20 bg-emerald-500/10 p-3 backdrop-blur-sm transition hover:border-emerald-400/40 hover:bg-emerald-500/20"
+                >
+                  <div className="flex flex-col gap-1">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <p className="text-sm font-semibold text-emerald-100">{enchantment.label}</p>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-slate-950/60 px-3 py-1 text-xs font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/30">
+                        Level {enchantment.level}
+                        {enchantment.maxLevel ? (
+                          <span className="text-emerald-300/80">/ {enchantment.maxLevel}</span>
+                        ) : null}
+                      </span>
+                    </div>
+                    {enchantment.description ? (
+                      <p className="text-xs text-emerald-100/70">{enchantment.description}</p>
+                    ) : null}
+                  </div>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="rounded-2xl border border-slate-800/60 bg-slate-950/60 p-3 text-xs text-slate-500">
+              Für dieses Item wurden keine Verzauberungen hinterlegt.
+            </p>
+          )}
+        </section>
       </div>
     </article>
   )
