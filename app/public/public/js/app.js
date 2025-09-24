@@ -135,6 +135,10 @@ const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
 const MINECRAFT_RENDER_API_BASE_URL = 'https://mc-api.io/render'
 const MINECRAFT_RENDER_FACE_DEFAULT_SIZE = 128
 
+const minecraftRenderFaceCache = new Map()
+const minecraftRenderFacePromises = new Map()
+
+
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -1636,6 +1640,68 @@ function getMinecraftRenderFaceUrl(normalisedUuid, size = MINECRAFT_RENDER_FACE_
   }
 }
 
+function getMinecraftRenderCacheKey(normalisedUuid, size) {
+  return `${normalisedUuid}:${size}`
+}
+
+function loadMinecraftRenderFace(normalisedUuid, size = MINECRAFT_RENDER_FACE_DEFAULT_SIZE) {
+  const cacheKey = getMinecraftRenderCacheKey(normalisedUuid, size)
+  const cached = minecraftRenderFaceCache.get(cacheKey)
+  if (cached && cached.url) {
+    return Promise.resolve(cached)
+  }
+
+  const pending = minecraftRenderFacePromises.get(cacheKey)
+  if (pending) {
+    return pending
+  }
+
+  const renderUrl = getMinecraftRenderFaceUrl(normalisedUuid, size)
+  if (!renderUrl) {
+    return Promise.reject(new Error('Ungültige Minecraft UUID für das Render-Bild.'))
+  }
+
+  const canUseImageConstructor = typeof Image === 'function'
+
+  if (!canUseImageConstructor) {
+    const fallbackPayload = { url: renderUrl, width: size, height: size }
+    minecraftRenderFaceCache.set(cacheKey, fallbackPayload)
+    return Promise.resolve(fallbackPayload)
+  }
+
+  const promise = new Promise((resolve, reject) => {
+    const loader = new Image()
+    loader.decoding = 'async'
+    loader.loading = 'eager'
+    loader.crossOrigin = 'anonymous'
+    loader.referrerPolicy = 'no-referrer'
+
+    loader.addEventListener('load', () => {
+      const payload = {
+        url: renderUrl,
+        width: loader.naturalWidth || size,
+        height: loader.naturalHeight || size,
+      }
+      minecraftRenderFaceCache.set(cacheKey, payload)
+      minecraftRenderFacePromises.delete(cacheKey)
+      resolve(payload)
+    })
+
+    loader.addEventListener('error', (event) => {
+      minecraftRenderFacePromises.delete(cacheKey)
+      const error = new Error('Minecraft Kopf konnte nicht geladen werden.')
+      error.code = 'MINECRAFT_RENDER_ERROR'
+      error.event = event
+      reject(error)
+    })
+
+    loader.src = renderUrl
+  })
+
+  minecraftRenderFacePromises.set(cacheKey, promise)
+  return promise
+}
+
 async function fetchMinecraftProfileByUuid(normalisedUuid) {
   const formattedUuid = formatMinecraftUuidForDisplay(normalisedUuid)
   if (!formattedUuid) {
@@ -1713,28 +1779,26 @@ async function fetchMinecraftProfileByUuid(normalisedUuid) {
 function setProfileMinecraftAvatar(normalisedUuid, displayName) {
   const image = profileModalElements.mcConnectedAvatarImage
   const fallback = profileModalElements.mcConnectedAvatarFallback
+  const trimmedName = typeof displayName === 'string' ? displayName.trim() : ''
+  const fallbackText = trimmedName ? trimmedName.charAt(0).toUpperCase() : 'MC'
+
   if (!image) {
     if (fallback) {
-      const fallbackText =
-        typeof displayName === 'string' && displayName.trim()
-          ? displayName.trim().charAt(0).toUpperCase()
-          : 'MC'
       fallback.textContent = fallbackText
       fallback.classList.remove('hidden')
     }
     return
   }
 
-  const trimmedName = typeof displayName === 'string' ? displayName.trim() : ''
-  const fallbackText = trimmedName ? trimmedName.charAt(0).toUpperCase() : 'MC'
-  const hasUuid = Boolean(normalisedUuid)
-
   if (fallback) {
     fallback.textContent = fallbackText
   }
 
+  const hasUuid = Boolean(normalisedUuid)
+
   if (!hasUuid) {
     delete image.dataset.renderUuid
+    delete image.dataset.renderSize
     image.dataset.fallbackText = fallbackText
     image.removeAttribute('src')
     image.alt = ''
@@ -1745,45 +1809,86 @@ function setProfileMinecraftAvatar(normalisedUuid, displayName) {
     return
   }
 
-  const altText = trimmedName ? `Minecraft Kopf von ${trimmedName}` : 'Minecraft Kopf'
-  const renderUrl = getMinecraftRenderFaceUrl(normalisedUuid)
+  const renderSize = MINECRAFT_RENDER_FACE_DEFAULT_SIZE
+  const renderUrl = getMinecraftRenderFaceUrl(normalisedUuid, renderSize)
   const previousUuid = typeof image.dataset.renderUuid === 'string' ? image.dataset.renderUuid : ''
   const previousSrc = image.getAttribute('src') || ''
+  const altText = trimmedName ? `Minecraft Kopf von ${trimmedName}` : 'Minecraft Kopf'
   const isSameImage = previousUuid === normalisedUuid && previousSrc === renderUrl
 
   image.dataset.fallbackText = fallbackText
+  image.dataset.renderUuid = normalisedUuid
+  image.dataset.renderSize = String(renderSize)
+  image.alt = altText
 
-  if (isSameImage && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
-    image.alt = altText
+  const revealAvatar = (url) => {
+    if (!url || image.dataset.renderUuid !== normalisedUuid) {
+      return
+    }
+
+    if (image.getAttribute('src') !== url) {
+      image.src = url
+    }
+
+    if (typeof image.loading === 'string') {
+      image.loading = 'eager'
+    } else if (image.getAttribute('loading') === 'lazy') {
+      image.setAttribute('loading', 'eager')
+    }
+
     image.classList.remove('hidden')
     if (fallback) {
       fallback.classList.add('hidden')
     }
+  }
+
+  const handleRenderFailure = (error) => {
+    if (image.dataset.renderUuid !== normalisedUuid) {
+      return
+    }
+
+    image.classList.add('hidden')
+    image.removeAttribute('src')
+    image.alt = ''
+    delete image.dataset.renderUuid
+    delete image.dataset.renderSize
+
+    if (fallback) {
+      fallback.textContent = fallbackText
+      fallback.classList.remove('hidden')
+    }
+
+    if (error) {
+      console.warn('[profile] Minecraft Kopf konnte nicht geladen werden.', error)
+    }
+  }
+
+  if (isSameImage && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+    revealAvatar(previousSrc)
     return
   }
 
-  image.dataset.renderUuid = normalisedUuid
-  image.alt = altText
+  const cacheKey = getMinecraftRenderCacheKey(normalisedUuid, renderSize)
+  const cached = minecraftRenderFaceCache.get(cacheKey)
+
+  if (cached && cached.url) {
+    revealAvatar(cached.url)
+    return
+  }
+
   image.classList.add('hidden')
   if (fallback) {
     fallback.classList.remove('hidden')
   }
-  image.src = renderUrl
 
-  if (image.complete) {
-    setTimeout(() => {
-      if (image.dataset.renderUuid !== normalisedUuid) {
-        return
-      }
-
-      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
-        image.classList.remove('hidden')
-        if (fallback) {
-          fallback.classList.add('hidden')
-        }
-      }
-    }, 0)
-  }
+  loadMinecraftRenderFace(normalisedUuid, renderSize)
+    .then((result) => {
+      const resolvedUrl = result && result.url ? result.url : renderUrl
+      revealAvatar(resolvedUrl)
+    })
+    .catch((error) => {
+      handleRenderFailure(error)
+    })
 }
 
 function setProfileMcUuidError(message) {
@@ -2739,6 +2844,7 @@ async function loadProfile() {
       const mcUuidFromDb = typeof data.mc_uuid === 'string' ? data.mc_uuid.trim() : ''
       const mcUuidValue = normaliseMinecraftUuid(mcUuidFromDb)
       const mcNameFromDb = typeof data.mc_name === 'string' ? data.mc_name.trim() : ''
+
       const usernameValue = usernameFromDb || metadataFallback.username || null
       const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
       const bioValue = bioFromDb || null

@@ -2340,6 +2340,7 @@ function ImagePreviewModal({ imageUrl, title, onClose }: ImagePreviewModalProps)
       role="dialog"
       aria-modal="true"
       aria-labelledby="image-preview-modal-title"
+
       aria-describedby="image-preview-modal-description"
     >
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
