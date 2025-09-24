@@ -315,11 +315,12 @@ function renderSkeleton(count = 6) {
   const skeleton = Array.from({ length: count })
     .map(
       () => `
-        <article class="flex h-full flex-col gap-4 rounded-2xl border border-slate-800/60 bg-slate-950/60 p-5 shadow-inner shadow-slate-950/30 animate-pulse">
-          <div class="h-5 w-2/3 rounded bg-slate-800/80"></div>
-          <div class="h-4 w-1/2 rounded bg-slate-800/70"></div>
-          <div class="h-24 rounded-lg bg-slate-900/80"></div>
-          <div class="mt-auto h-3 w-24 rounded bg-slate-800/70"></div>
+        <article class="item-card item-card--loading">
+          <div class="item-card__loading-media"></div>
+          <div class="item-card__loading-bar item-card__loading-bar--wide"></div>
+          <div class="item-card__loading-bar item-card__loading-bar--medium"></div>
+          <div class="item-card__loading-bar item-card__loading-bar--tall"></div>
+          <div class="item-card__loading-bar item-card__loading-bar--footer"></div>
         </article>
       `
     )
@@ -461,29 +462,20 @@ function renderItems(items) {
 
   items.forEach((item) => {
     const card = document.createElement('article')
-    card.className = 'flex h-full flex-col gap-4 rounded-2xl border border-slate-800/70 bg-slate-900/60 p-5 shadow-sm shadow-slate-950/40'
+    card.className = 'item-card'
 
     const resolvedTitle = resolveItemTitle(item)
     const primaryImageUrl = resolvePrimaryImageUrl(item)
-    if (primaryImageUrl) {
-      const imageWrapper = document.createElement('div')
-      imageWrapper.className = 'overflow-hidden rounded-xl border border-slate-800/60'
-      const image = document.createElement('img')
-      image.src = primaryImageUrl
-      image.alt = resolvedTitle ? `Abbildung von ${resolvedTitle}` : 'Item-Bild'
-      image.loading = 'lazy'
-      image.className = 'h-40 w-full object-cover'
-      imageWrapper.appendChild(image)
-      card.appendChild(imageWrapper)
-    }
+    const loreImageUrl = resolveLoreImageUrl(item)
 
     const header = document.createElement('div')
-    header.className = 'flex items-start justify-between gap-3'
+    header.className = 'item-card__header'
 
     const title = document.createElement('h3')
-    title.className = 'text-lg font-semibold text-slate-100'
+    title.className = 'item-card__title'
     title.textContent = resolvedTitle ?? 'Unbenanntes Item'
     header.appendChild(title)
+
     const normalizedStars = normalizeStarValue(item?.stars)
     const normalizedStarLevel = normalizeStarValue(item?.star_level)
     const starValue =
@@ -494,7 +486,7 @@ function renderItems(items) {
           : 0
 
     const stars = document.createElement('span')
-    stars.className = 'text-sm font-medium text-amber-300'
+    stars.className = 'item-card__stars'
     stars.setAttribute('aria-label', `${starValue} von ${MAX_STAR_RATING} Sternen`)
     stars.textContent = renderStars(starValue)
     header.appendChild(stars)
@@ -502,7 +494,7 @@ function renderItems(items) {
     card.appendChild(header)
 
     const meta = document.createElement('div')
-    meta.className = 'flex flex-wrap gap-2 text-xs text-slate-300'
+    meta.className = 'item-card__meta'
 
     const rarityLabel = item?.rarities?.label ?? 'Unbekannt'
     const typeLabel = item?.item_types?.label ?? 'Unbekannt'
@@ -514,31 +506,45 @@ function renderItems(items) {
 
     card.appendChild(meta)
 
+    const mediaSection = document.createElement('div')
+    mediaSection.className = 'item-card__media'
+
+    if (primaryImageUrl) {
+      mediaSection.appendChild(
+        createImagePreview(
+          primaryImageUrl,
+          resolvedTitle ? `Abbildung von ${resolvedTitle}` : 'Item-Bild',
+          'Item'
+        )
+      )
+    }
+
+    if (loreImageUrl) {
+      mediaSection.appendChild(
+        createImagePreview(
+          loreImageUrl,
+          resolvedTitle ? `Lore-Bild zu ${resolvedTitle}` : 'Lore-Bild',
+          'Lore'
+        )
+      )
+    }
+
+    if (mediaSection.childElementCount > 0) {
+      card.appendChild(mediaSection)
+    }
+
     const loreText = truncateText(resolveItemDescription(item), 360)
-    const loreImageUrl = resolveLoreImageUrl(item)
 
     if (loreText) {
       const loreParagraph = document.createElement('p')
-      loreParagraph.className = 'text-sm leading-relaxed text-slate-300'
+      loreParagraph.className = 'item-card__description'
       loreParagraph.textContent = loreText
       card.appendChild(loreParagraph)
     }
 
-    if (loreImageUrl) {
-      const loreImageWrapper = document.createElement('div')
-      loreImageWrapper.className = 'overflow-hidden rounded-xl border border-slate-800/60'
-      const loreImage = document.createElement('img')
-      loreImage.src = loreImageUrl
-      loreImage.alt = resolvedTitle ? `Lore-Bild zu ${resolvedTitle}` : 'Lore-Bild'
-      loreImage.loading = 'lazy'
-      loreImage.className = 'h-48 w-full object-cover'
-      loreImageWrapper.appendChild(loreImage)
-      card.appendChild(loreImageWrapper)
-    }
-
     if (!loreText && !loreImageUrl) {
       const fallback = document.createElement('p')
-      fallback.className = 'text-sm leading-relaxed text-slate-300'
+      fallback.className = 'item-card__description item-card__description--muted'
       fallback.textContent = 'Keine zusätzlichen Informationen hinterlegt.'
       card.appendChild(fallback)
     }
@@ -546,7 +552,7 @@ function renderItems(items) {
     const createdAtDate = resolveItemCreatedAt(item)
     if (createdAtDate) {
       const created = document.createElement('p')
-      created.className = 'text-xs text-slate-500'
+      created.className = 'item-card__footer'
       try {
         const formatted = createdAtDate.toLocaleDateString('de-DE', {
           year: 'numeric',
@@ -570,18 +576,46 @@ function renderItems(items) {
 
 function createMetaBadge(label, value) {
   const badge = document.createElement('span')
-  badge.className = 'inline-flex items-center gap-1 rounded-full border border-slate-800/70 bg-slate-950/60 px-3 py-1'
+  badge.className = 'item-card__meta-badge'
 
   const term = document.createElement('span')
-  term.className = 'text-[11px] uppercase tracking-wide text-slate-500'
+  term.className = 'item-card__meta-term'
   term.textContent = label
 
   const val = document.createElement('span')
-  val.className = 'text-xs font-medium text-slate-200'
+  val.className = 'item-card__meta-value'
   val.textContent = value
 
   badge.append(term, val)
   return badge
+}
+
+function createImagePreview(url, alt, label) {
+  const link = document.createElement('a')
+  link.href = url
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  link.className = 'item-card__preview'
+  const previewLabel = label ? `${label} in voller Größe öffnen` : 'Bild in voller Größe öffnen'
+  link.setAttribute('aria-label', previewLabel)
+  link.title = previewLabel
+
+  const figure = document.createElement('div')
+  figure.className = 'item-card__previewFigure'
+
+  const image = document.createElement('img')
+  image.src = url
+  image.alt = alt
+  image.loading = 'lazy'
+  image.className = 'item-card__previewImage'
+  figure.appendChild(image)
+
+  const overlay = document.createElement('span')
+  overlay.className = 'item-card__previewLabel'
+  overlay.textContent = label ? `${label} ansehen` : 'Ansehen'
+
+  link.append(figure, overlay)
+  return link
 }
 
 function populateSelect(select, items, placeholder = 'Alle') {
