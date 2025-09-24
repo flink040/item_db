@@ -66,6 +66,10 @@ const profileModalElements = (() => {
     likes: modal?.querySelector('[data-profile-likes]') ?? null,
     loading: modal?.querySelector('[data-profile-loading]') ?? null,
     error: modal?.querySelector('[data-profile-error]') ?? null,
+    mcUuidForm: modal?.querySelector('[data-profile-mc-form]') ?? null,
+    mcUuidInput: modal?.querySelector('[data-profile-mc-uuid-input]') ?? null,
+    mcUuidButton: modal?.querySelector('[data-profile-mc-submit]') ?? null,
+    mcUuidError: modal?.querySelector('[data-profile-mc-error]') ?? null,
   }
 })()
 
@@ -73,6 +77,8 @@ const profileModalState = {
   isOpen: false,
   lastFocusedElement: null,
   activeFetchToken: 0,
+  mcUuidSubmitting: false,
+  mcUuidInputDirty: false,
 }
 
 const MODERATION_ROLES = new Set(['moderator', 'admin'])
@@ -121,6 +127,8 @@ const IMAGE_MIME_EXTENSION_MAP = {
 };
 
 const API_BASE = '/api'
+const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
+
 
 const insertDiagnostics = {
   lastMethod: null,
@@ -1487,6 +1495,12 @@ function getProfileDisplayName() {
     return profileName
   }
 
+  const profileMcName =
+    typeof state.profile?.mc_name === 'string' ? state.profile.mc_name.trim() : ''
+  if (profileMcName) {
+    return profileMcName
+  }
+
   const metadata =
     state.user.user_metadata && typeof state.user.user_metadata === 'object'
       ? state.user.user_metadata
@@ -1569,6 +1583,144 @@ function setProfileModalError(message) {
   }
 }
 
+function normaliseMinecraftUuid(value) {
+  if (typeof value !== 'string') {
+    return ''
+  }
+
+  const trimmed = value.trim().toLowerCase()
+  if (!trimmed) {
+    return ''
+  }
+
+  const sanitized = trimmed.replace(/-/g, '')
+  if (!/^[0-9a-f]{32}$/.test(sanitized)) {
+    return ''
+  }
+
+  return sanitized
+}
+
+function formatMinecraftUuidForDisplay(value) {
+  const normalised = normaliseMinecraftUuid(value)
+  if (!normalised) {
+    return ''
+  }
+
+  return normalised.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
+}
+
+async function fetchMinecraftProfileByUuid(normalisedUuid) {
+  const formattedUuid = formatMinecraftUuidForDisplay(normalisedUuid)
+  if (!formattedUuid) {
+    const error = new Error('Ungültige Minecraft UUID.')
+    error.code = 'MINECRAFT_PROFILE_INVALID_UUID'
+    throw error
+  }
+
+  const requestUrl = `${MINECRAFT_PROFILE_API_BASE_URL}/${formattedUuid}`
+  let response
+
+  try {
+    response = await fetch(requestUrl, {
+      headers: { Accept: 'application/json' },
+      method: 'GET',
+    })
+  } catch (networkError) {
+    const error = new Error(
+      'Die Minecraft API konnte nicht erreicht werden. Bitte versuche es später erneut.'
+    )
+    error.code = 'MINECRAFT_PROFILE_NETWORK'
+    error.cause = networkError
+    throw error
+  }
+
+  let payload = null
+  try {
+    payload = await response.json()
+  } catch (parseError) {
+    payload = null
+  }
+
+  if (!response.ok) {
+    const isNotFound = response.status === 404
+    const message = isNotFound
+      ? 'Es wurde kein Minecraft Account mit dieser UUID gefunden.'
+      : 'Die Minecraft API hat einen Fehler zurückgegeben. Bitte versuche es später erneut.'
+    const error = new Error(message)
+    error.code = isNotFound ? 'MINECRAFT_PROFILE_NOT_FOUND' : 'MINECRAFT_PROFILE_API'
+    error.status = response.status
+    if (payload && typeof payload.message === 'string') {
+      error.details = payload.message
+    }
+    throw error
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    const error = new Error('Die Minecraft API hat eine ungültige Antwort geliefert.')
+    error.code = 'MINECRAFT_PROFILE_INVALID_RESPONSE'
+    throw error
+  }
+
+  if (payload.error) {
+    const message =
+      typeof payload.message === 'string' && payload.message.trim()
+        ? payload.message.trim()
+        : 'Die Minecraft API hat einen Fehler gemeldet.'
+    const error = new Error(message)
+    error.code = 'MINECRAFT_PROFILE_API'
+    throw error
+  }
+
+  const playerName = typeof payload.name === 'string' ? payload.name.trim() : ''
+  if (!playerName) {
+    const error = new Error('Die Minecraft API hat keinen Spielernamen zurückgegeben.')
+    error.code = 'MINECRAFT_PROFILE_INVALID_RESPONSE'
+    throw error
+  }
+
+  const uuidFromApi = normaliseMinecraftUuid(payload.uuid ?? formattedUuid) || normalisedUuid
+
+  return { name: playerName, uuid: uuidFromApi }
+}
+
+function setProfileMcUuidError(message) {
+  const element = profileModalElements.mcUuidError
+  if (!element) return
+
+  if (message) {
+    element.textContent = message
+    element.classList.remove('hidden')
+  } else {
+    element.textContent = ''
+    element.classList.add('hidden')
+  }
+}
+
+function updateProfileMcUuidFormState() {
+  const hasUser = Boolean(state.user)
+  const isSubmitting = profileModalState.mcUuidSubmitting
+
+  if (profileModalElements.mcUuidInput) {
+    profileModalElements.mcUuidInput.disabled = !hasUser || isSubmitting
+  }
+
+  if (profileModalElements.mcUuidButton) {
+    profileModalElements.mcUuidButton.disabled = !hasUser || isSubmitting
+    const defaultLabel = 'Mit Minecraft Account verbinden'
+    const loadingLabel = 'Verbinden…'
+    profileModalElements.mcUuidButton.textContent = isSubmitting ? loadingLabel : defaultLabel
+  }
+
+  if (profileModalElements.mcUuidForm) {
+    profileModalElements.mcUuidForm.setAttribute('aria-disabled', String(!hasUser || isSubmitting))
+  }
+
+  if (!hasUser) {
+    setProfileMcUuidError('')
+  }
+}
+
 function updateProfileModalUserInfo() {
   if (!profileModalElements.modal) {
     return
@@ -1594,6 +1746,18 @@ function updateProfileModalUserInfo() {
   }
   if (profileModalElements.avatarFrame) {
     profileModalElements.avatarFrame.classList.toggle('bg-slate-900/80', !url)
+  }
+
+  updateProfileMcUuidFormState()
+
+  if (profileModalElements.mcUuidInput) {
+    if (!hasUser) {
+      profileModalElements.mcUuidInput.value = ''
+      profileModalState.mcUuidInputDirty = false
+    } else if (!profileModalState.mcUuidInputDirty) {
+      const displayUuid = formatMinecraftUuidForDisplay(state.profile?.mc_uuid ?? '')
+      profileModalElements.mcUuidInput.value = displayUuid
+    }
   }
 
   if (!hasUser) {
@@ -1742,6 +1906,9 @@ function openProfileModal() {
     return
   }
 
+  profileModalState.mcUuidInputDirty = false
+  setProfileMcUuidError('')
+
   profileModalState.lastFocusedElement =
     document.activeElement instanceof HTMLElement ? document.activeElement : null
 
@@ -1795,6 +1962,140 @@ function openProfileModal() {
     }
   }
 }
+
+async function handleProfileMcUuidSubmit(event) {
+  event.preventDefault()
+
+  if (profileModalState.mcUuidSubmitting) {
+    return
+  }
+
+  if (!state.user?.id) {
+    showToast('Bitte melde dich an, um deinen Minecraft Account zu verbinden.', 'info')
+    return
+  }
+
+  const input = profileModalElements.mcUuidInput
+  if (!(input instanceof HTMLInputElement)) {
+    return
+  }
+
+  const rawValue = input.value ?? ''
+  const trimmedValue = rawValue.trim()
+
+  if (!trimmedValue) {
+    setProfileMcUuidError('Bitte gib deine Minecraft UUID ein.')
+    input.focus()
+    return
+  }
+
+  const normalised = normaliseMinecraftUuid(trimmedValue)
+  if (!normalised) {
+    setProfileMcUuidError('Ungültige Minecraft UUID. Bitte überprüfe deine Eingabe.')
+    input.focus()
+    return
+  }
+
+  if (!supabase) {
+    showToast('Supabase ist nicht konfiguriert.', 'error')
+    return
+  }
+
+  profileModalState.mcUuidSubmitting = true
+  updateProfileMcUuidFormState()
+  setProfileMcUuidError('')
+
+  let confirmedUuid = normalised
+  let fetchedName = ''
+
+  try {
+    const profile = await fetchMinecraftProfileByUuid(normalised)
+    confirmedUuid = profile.uuid
+    fetchedName = profile.name
+
+    const existingProfile =
+      state.profile && typeof state.profile === 'object' ? state.profile : {}
+    const currentUuid =
+      typeof existingProfile.mc_uuid === 'string' ? existingProfile.mc_uuid : null
+    const currentName =
+      typeof existingProfile.mc_name === 'string' ? existingProfile.mc_name.trim() : ''
+
+    if (currentUuid === confirmedUuid && currentName === fetchedName) {
+      profileModalState.mcUuidInputDirty = false
+      setProfileMcUuidError('')
+      updateProfileModalUserInfo()
+      showToast('Dein Minecraft Account ist bereits verbunden.', 'info')
+      return
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ mc_uuid: confirmedUuid, mc_name: fetchedName })
+      .eq('id', state.user.id)
+
+    if (error) {
+      throw error
+    }
+
+    state.profile = {
+      ...existingProfile,
+      mc_uuid: confirmedUuid,
+      mc_name: fetchedName,
+    }
+
+    profileModalState.mcUuidInputDirty = false
+    setProfileMcUuidError('')
+    updateProfileModalUserInfo()
+    showToast(`Minecraft Account ${fetchedName} wurde verbunden.`, 'success')
+  } catch (caughtError) {
+    if (typeof caughtError?.code === 'string' && caughtError.code.startsWith('MINECRAFT_PROFILE')) {
+      console.error('[profile] Fehler beim Abrufen des Minecraft Accounts.', caughtError)
+      const message =
+        caughtError.message ||
+        'Verknüpfung mit Minecraft fehlgeschlagen. Bitte versuche es erneut.'
+      setProfileMcUuidError(message)
+      showToast(message, 'error')
+      try {
+        input.focus({ preventScroll: true })
+      } catch (focusError) {
+        input.focus()
+      }
+    } else {
+      console.error('[profile] Fehler beim Speichern der Minecraft UUID.', caughtError)
+      const code = typeof caughtError?.code === 'string' ? caughtError.code : ''
+      const messageText = typeof caughtError?.message === 'string' ? caughtError.message.toLowerCase() : ''
+      let message = 'Verknüpfung mit Minecraft fehlgeschlagen. Bitte versuche es erneut.'
+
+      if (code === '23505' || messageText.includes('duplicate')) {
+        message = 'Diese Minecraft UUID wird bereits von einem anderen Profil verwendet.'
+      }
+
+      setProfileMcUuidError(message)
+      showToast(message, 'error')
+      try {
+        input.focus({ preventScroll: true })
+      } catch (focusError) {
+        input.focus()
+      }
+    }
+  } finally {
+    profileModalState.mcUuidSubmitting = false
+    updateProfileMcUuidFormState()
+  }
+}
+
+if (profileModalElements.mcUuidInput) {
+  profileModalElements.mcUuidInput.addEventListener('input', () => {
+    profileModalState.mcUuidInputDirty = true
+    setProfileMcUuidError('')
+  })
+}
+
+if (profileModalElements.mcUuidForm) {
+  profileModalElements.mcUuidForm.addEventListener('submit', handleProfileMcUuidSubmit)
+}
+
+updateProfileMcUuidFormState()
 
 if (profileModalElements.overlay) {
   profileModalElements.overlay.addEventListener('click', (event) => {
@@ -2258,7 +2559,7 @@ async function loadProfile() {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('username,avatar_url,bio,roles:role_id(slug,label)')
+      .select('username,avatar_url,bio,mc_uuid,mc_name,roles:role_id(slug,label)')
       .eq('id', state.user.id)
       .maybeSingle()
 
@@ -2273,17 +2574,23 @@ async function loadProfile() {
         typeof data.avatar_url === 'string' ? data.avatar_url.trim() : ''
       const bioFromDb = typeof data.bio === 'string' ? data.bio.trim() : ''
       const roleFromRelation = resolveTextValue(data.roles, ['slug', 'label'])
+      const mcUuidFromDb = typeof data.mc_uuid === 'string' ? data.mc_uuid.trim() : ''
+      const mcUuidValue = normaliseMinecraftUuid(mcUuidFromDb)
+      const mcNameFromDb = typeof data.mc_name === 'string' ? data.mc_name.trim() : ''
 
       const usernameValue = usernameFromDb || metadataFallback.username || null
       const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
       const bioValue = bioFromDb || null
       const roleValue = roleFromRelation || metadataFallback.role || null
+      const mcNameValue = mcNameFromDb || null
 
       state.profile = {
         username: usernameValue,
         avatar_url: avatarValue,
         bio: bioValue,
         role: roleValue,
+        mc_uuid: mcUuidValue || null,
+        mc_name: mcNameValue,
       }
 
       const normalizedRole =
@@ -2295,6 +2602,8 @@ async function loadProfile() {
         avatar_url: metadataFallback.avatar_url ?? null,
         bio: null,
         role: metadataFallback.role ?? null,
+        mc_uuid: null,
+        mc_name: null,
       }
       state.profileRole = metadataFallbackRoleNormalized || null
     }
@@ -2305,6 +2614,8 @@ async function loadProfile() {
       avatar_url: metadataFallback.avatar_url ?? null,
       bio: null,
       role: metadataFallback.role ?? null,
+      mc_uuid: null,
+      mc_name: null,
     }
     state.profileRole = metadataFallbackRoleNormalized || null
   } finally {
