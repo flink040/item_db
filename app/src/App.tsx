@@ -3918,13 +3918,25 @@ function ItemCard({
               {itemImageUrl ? (
                 <button
                   type="button"
-                  onClick={() => onImagePreview({ url: itemImageUrl, title: normalizedTitle })}
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onImagePreview({ url: itemImageUrl, title: normalizedTitle })
+                  }}
+                  onAuxClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    onImagePreview({ url: itemImageUrl, title: normalizedTitle })
+                  }}
                   className="relative block h-full w-full overflow-hidden focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                  aria-haspopup="dialog"
                 >
                   <img
                     src={itemImageUrl}
                     alt={`Abbildung von ${normalizedTitle}`}
                     loading="lazy"
+                    draggable={false}
+
                     className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                   />
                   <span className="sr-only">Bild in größerer Ansicht öffnen</span>
