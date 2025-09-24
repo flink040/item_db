@@ -623,10 +623,69 @@
         </div>
       </div>
     </div>
+  <div
+    id="imagePreviewModal"
+    class="fixed inset-0 z-50 hidden items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="image-preview-modal-title"
+    aria-describedby="image-preview-modal-description"
+    data-image-preview-modal
+    aria-hidden="true"
+  >
+    <div class="absolute inset-0" data-image-preview-overlay></div>
     <div
-      id="profileModal"
-      class="fixed inset-0 z-[60] hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
-      role="dialog"
+      class="relative z-10 w-full max-w-3xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
+      role="document"
+    >
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="image-preview-modal-title" class="text-xl font-semibold text-slate-50">Bildvorschau</h2>
+          <p
+            id="image-preview-modal-description"
+            class="mt-1 hidden text-sm text-slate-400"
+            data-image-preview-description
+          ></p>
+        </div>
+        <button
+          type="button"
+          class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+          data-image-preview-close
+          aria-label="Modal schließen"
+        >
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            class="h-5 w-5"
+            aria-hidden="true"
+          >
+            <path d="m6 6 12 12" />
+            <path d="m18 6-12 12" />
+          </svg>
+        </button>
+      </div>
+      <div class="mt-6">
+        <div class="relative overflow-hidden rounded-2xl border border-slate-800 bg-slate-950">
+          <img
+            src=""
+            alt=""
+            data-image-preview-image
+            class="max-h-[70vh] w-full object-contain"
+            draggable="false"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    id="profileModal"
+    class="fixed inset-0 z-[60] hidden flex items-center justify-center overflow-y-auto bg-slate-950/80 p-6"
+    role="dialog"
       aria-modal="true"
       aria-labelledby="profile-modal-title"
       aria-hidden="true"
