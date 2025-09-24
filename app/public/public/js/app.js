@@ -85,6 +85,23 @@ const profileModalState = {
   mcUuidInputDirty: false,
 }
 
+const imagePreviewModalElements = (() => {
+  const modal = document.getElementById('imagePreviewModal')
+  return {
+    modal,
+    overlay: modal?.querySelector('[data-image-preview-overlay]') ?? null,
+    closeButtons: modal ? Array.from(modal.querySelectorAll('[data-image-preview-close]')) : [],
+    description: modal?.querySelector('[data-image-preview-description]') ?? null,
+    image: modal?.querySelector('[data-image-preview-image]') ?? null,
+  }
+})()
+
+const imagePreviewModalState = {
+  isOpen: false,
+  lastFocusedElement: null,
+  previousBodyOverflow: null,
+}
+
 const MODERATION_ROLES = new Set(['moderator', 'admin'])
 
 const moderationElements = (() => {
@@ -607,15 +624,196 @@ function createMetaBadge(label, value) {
   return badge
 }
 
+function getImagePreviewFocusableElements(root) {
+  if (!(root instanceof HTMLElement)) {
+    return []
+  }
+
+  const focusableSelectors = [
+    'a[href]',
+    'button:not([disabled])',
+    'input:not([disabled])',
+    'select:not([disabled])',
+    'textarea:not([disabled])',
+    '[tabindex]:not([tabindex="-1"])',
+  ]
+
+  return Array.from(root.querySelectorAll(focusableSelectors.join(','))).filter((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return false
+    }
+
+    if (element.hasAttribute('hidden')) {
+      return false
+    }
+
+    const ariaHidden = element.getAttribute('aria-hidden')
+    if (ariaHidden && ariaHidden.toLowerCase() === 'true') {
+      return false
+    }
+
+    return true
+  })
+}
+
+function focusImagePreviewElement(element) {
+  if (!(element instanceof HTMLElement)) {
+    return
+  }
+
+  try {
+    element.focus({ preventScroll: true })
+  } catch (error) {
+    element.focus()
+  }
+}
+
+function setImagePreviewModalContent({ url, alt, label }) {
+  if (imagePreviewModalElements.image instanceof HTMLImageElement) {
+    imagePreviewModalElements.image.src = url || ''
+    imagePreviewModalElements.image.alt = alt || ''
+    imagePreviewModalElements.image.draggable = false
+  }
+
+  if (imagePreviewModalElements.description instanceof HTMLElement) {
+    const descriptionText = alt || label || ''
+    imagePreviewModalElements.description.textContent = descriptionText
+    imagePreviewModalElements.description.classList.toggle('hidden', descriptionText.length === 0)
+  }
+}
+
+function clearImagePreviewModalContent() {
+  if (imagePreviewModalElements.image instanceof HTMLImageElement) {
+    imagePreviewModalElements.image.src = ''
+    imagePreviewModalElements.image.alt = ''
+  }
+
+  if (imagePreviewModalElements.description instanceof HTMLElement) {
+    imagePreviewModalElements.description.textContent = ''
+    imagePreviewModalElements.description.classList.add('hidden')
+  }
+}
+
+function handleImagePreviewKeydown(event) {
+  if (!imagePreviewModalState.isOpen) {
+    return
+  }
+
+  if (event.key === 'Escape' || event.key === 'Esc') {
+    event.preventDefault()
+    closeImagePreviewModal()
+    return
+  }
+
+  if (event.key !== 'Tab') {
+    return
+  }
+
+  const modal = imagePreviewModalElements.modal
+  if (!(modal instanceof HTMLElement)) {
+    return
+  }
+
+  const focusable = getImagePreviewFocusableElements(modal)
+  if (focusable.length === 0) {
+    event.preventDefault()
+    focusImagePreviewElement(modal)
+    return
+  }
+
+  const first = focusable[0]
+  const last = focusable[focusable.length - 1]
+  const active = document.activeElement instanceof HTMLElement ? document.activeElement : null
+
+  if (event.shiftKey) {
+    if (!active || active === first || !modal.contains(active)) {
+      event.preventDefault()
+      focusImagePreviewElement(last)
+    }
+  } else if (!active || active === last || !modal.contains(active)) {
+    event.preventDefault()
+    focusImagePreviewElement(first)
+  }
+}
+
+function closeImagePreviewModal() {
+  if (!imagePreviewModalElements.modal || !imagePreviewModalState.isOpen) {
+    return
+  }
+
+  imagePreviewModalState.isOpen = false
+  imagePreviewModalElements.modal.classList.add('hidden')
+  imagePreviewModalElements.modal.setAttribute('aria-hidden', 'true')
+  clearImagePreviewModalContent()
+
+  document.removeEventListener('keydown', handleImagePreviewKeydown, true)
+
+  if (typeof document !== 'undefined' && document.body instanceof HTMLBodyElement) {
+    if (imagePreviewModalState.previousBodyOverflow !== null) {
+      document.body.style.overflow = imagePreviewModalState.previousBodyOverflow
+    } else {
+      document.body.style.removeProperty('overflow')
+    }
+  }
+
+  imagePreviewModalState.previousBodyOverflow = null
+
+  const focusTarget = imagePreviewModalState.lastFocusedElement
+  imagePreviewModalState.lastFocusedElement = null
+  if (focusTarget instanceof HTMLElement) {
+    focusImagePreviewElement(focusTarget)
+  }
+}
+
+function openImagePreviewModal({ url, alt, label }) {
+  if (!url) {
+    return
+  }
+
+  if (!imagePreviewModalElements.modal) {
+    window.open(url, '_blank', 'noopener,noreferrer')
+    return
+  }
+
+  if (imagePreviewModalState.isOpen) {
+    setImagePreviewModalContent({ url, alt, label })
+    return
+  }
+
+  const activeElement = document.activeElement
+  imagePreviewModalState.lastFocusedElement =
+    activeElement instanceof HTMLElement ? activeElement : null
+
+  setImagePreviewModalContent({ url, alt, label })
+
+  imagePreviewModalElements.modal.classList.remove('hidden')
+  imagePreviewModalElements.modal.setAttribute('aria-hidden', 'false')
+  imagePreviewModalState.isOpen = true
+
+  if (typeof document !== 'undefined' && document.body instanceof HTMLBodyElement) {
+    imagePreviewModalState.previousBodyOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  } else {
+    imagePreviewModalState.previousBodyOverflow = null
+  }
+
+  document.addEventListener('keydown', handleImagePreviewKeydown, true)
+
+  const focusTarget = imagePreviewModalElements.closeButtons[0]
+  if (focusTarget instanceof HTMLElement) {
+    focusImagePreviewElement(focusTarget)
+  } else {
+    focusImagePreviewElement(imagePreviewModalElements.modal)
+  }
+}
+
 function createImagePreview(url, alt, label) {
-  const link = document.createElement('a')
-  link.href = url
-  link.target = '_blank'
-  link.rel = 'noopener noreferrer'
-  link.className = 'item-card__preview'
-  const previewLabel = label ? `${label} in voller Größe öffnen` : 'Bild in voller Größe öffnen'
-  link.setAttribute('aria-label', previewLabel)
-  link.title = previewLabel
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'item-card__preview'
+  const previewLabel = label ? `${label} vergrößern` : 'Bild vergrößern'
+  button.setAttribute('aria-label', previewLabel)
+  button.title = previewLabel
 
   const figure = document.createElement('div')
   figure.className = 'item-card__previewFigure'
@@ -624,6 +822,7 @@ function createImagePreview(url, alt, label) {
   image.src = url
   image.alt = alt
   image.loading = 'lazy'
+  image.draggable = false
   image.className = 'item-card__previewImage'
   figure.appendChild(image)
 
@@ -631,8 +830,26 @@ function createImagePreview(url, alt, label) {
   overlay.className = 'item-card__previewLabel'
   overlay.textContent = label ? `${label} ansehen` : 'Ansehen'
 
-  link.append(figure, overlay)
-  return link
+  button.append(figure, overlay)
+
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    openImagePreviewModal({ url, alt, label })
+  })
+
+  button.addEventListener('auxclick', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+  })
+
+  button.addEventListener('mousedown', (event) => {
+    if (event.button === 1) {
+      event.preventDefault()
+    }
+  })
+
+  return button
 }
 
 function populateSelect(select, items, placeholder = 'Alle') {
@@ -718,6 +935,29 @@ function bindModalEvents() {
 
   elements.addItemModal?.querySelectorAll('[data-modal-cancel]').forEach((button) => {
     button.addEventListener('click', closeAddItemModal)
+  })
+
+  if (imagePreviewModalElements.overlay) {
+    imagePreviewModalElements.overlay.addEventListener('click', (event) => {
+      event.preventDefault()
+      closeImagePreviewModal()
+    })
+  }
+
+  if (imagePreviewModalElements.modal) {
+    imagePreviewModalElements.modal.addEventListener('click', (event) => {
+      if (event.target === imagePreviewModalElements.modal) {
+        event.preventDefault()
+        closeImagePreviewModal()
+      }
+    })
+  }
+
+  imagePreviewModalElements.closeButtons.forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.preventDefault()
+      closeImagePreviewModal()
+    })
   })
 
   if (elements.enchantmentsSearchInput) {
