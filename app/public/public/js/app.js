@@ -128,13 +128,6 @@ const IMAGE_MIME_EXTENSION_MAP = {
 
 const API_BASE = '/api'
 const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
-
-const PROFILE_MC_UUID_SUBMIT_LABEL = 'Mit Minecraft Account verbinden'
-const PROFILE_MC_UUID_SUBMIT_LOADING_LABEL = 'Verbinden…'
-
-const PROFILE_MC_UUID_SUBMIT_LABEL = 'Mit Minecraft Account verbinden'
-const PROFILE_MC_UUID_SUBMIT_LOADING_LABEL = 'Verbinden…'
-
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -1712,9 +1705,9 @@ function updateProfileMcUuidFormState() {
 
   if (profileModalElements.mcUuidButton) {
     profileModalElements.mcUuidButton.disabled = !hasUser || isSubmitting
-    profileModalElements.mcUuidButton.textContent = isSubmitting
-      ? PROFILE_MC_UUID_SUBMIT_LOADING_LABEL
-      : PROFILE_MC_UUID_SUBMIT_LABEL
+    const defaultLabel = 'Mit Minecraft Account verbinden'
+    const loadingLabel = 'Verbinden…'
+    profileModalElements.mcUuidButton.textContent = isSubmitting ? loadingLabel : defaultLabel
   }
 
   if (profileModalElements.mcUuidForm) {
@@ -2083,7 +2076,6 @@ async function handleProfileMcUuidSubmit(event) {
         input.focus()
       }
     }
-
   } finally {
     profileModalState.mcUuidSubmitting = false
     updateProfileMcUuidFormState()
