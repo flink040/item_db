@@ -7,6 +7,29 @@ import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
 
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
+// Cloudflare's runtime sometimes expects a global `meta` object to exist when
+// evaluating module workers. The Windows deploy reported a `ReferenceError`
+// because the identifier wasn't defined at load time, so we provide a safe
+// default here. To mirror the behaviour of Wrangler's bundler we also ensure a
+// hoisted `var meta` binding exists alongside the global property.
+declare global {
+  // eslint-disable-next-line no-var
+  var meta: unknown | undefined
+}
+
+const globalWithMeta = globalThis as typeof globalThis & { meta?: unknown }
+
+if (typeof globalWithMeta.meta === 'undefined') {
+  globalWithMeta.meta = {}
+}
+
+if (typeof meta === 'undefined') {
+  // eslint-disable-next-line no-var
+  var meta = globalWithMeta.meta
+} else if (globalWithMeta.meta !== meta) {
+  globalWithMeta.meta = meta
+}
+
 const MAX_STAR_RATING = 3
 
 type RequestLike = {
@@ -1064,10 +1087,6 @@ api.get('/enchantments', async (c) => {
     cors({ 'cache-control': 'public, max-age=3600, stale-while-revalidate=86400' })
   )
 })
-
-// Meta-/Referenzendpunkte zuletzt registrieren, damit sie keine
-// spezifischeren /api-Routen (z. B. /api/items) überschreiben.
-app.route('/api', meta)
 
 app.onError((err, c) => {
   console.error('[worker:onError]', err)
