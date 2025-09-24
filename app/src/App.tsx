@@ -3458,7 +3458,6 @@ type ParsedEnchantmentMeta = {
 }
 
 const toPositiveInteger = (value: unknown): number | null => parsePositiveInteger(value)
-
 const toTrimmedString = (value: unknown): string | null => {
   if (typeof value !== 'string') {
     return null
@@ -3552,7 +3551,6 @@ const parseItemEnchantment = (entry: unknown): ResolvedItemEnchantment | null =>
   }
 
   const record = entry as Record<string, unknown>
-
   let level: number | null = null
   for (const key of ENCHANTMENT_LEVEL_KEYS) {
     const candidate = record[key]
