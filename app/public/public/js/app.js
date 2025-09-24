@@ -128,8 +128,6 @@ const IMAGE_MIME_EXTENSION_MAP = {
 
 const API_BASE = '/api'
 const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
-
-
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -2577,7 +2575,6 @@ async function loadProfile() {
       const mcUuidFromDb = typeof data.mc_uuid === 'string' ? data.mc_uuid.trim() : ''
       const mcUuidValue = normaliseMinecraftUuid(mcUuidFromDb)
       const mcNameFromDb = typeof data.mc_name === 'string' ? data.mc_name.trim() : ''
-
       const usernameValue = usernameFromDb || metadataFallback.username || null
       const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
       const bioValue = bioFromDb || null
