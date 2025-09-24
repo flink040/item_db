@@ -797,6 +797,7 @@ app.options('*', (c) =>
   c.body(null, 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
 )
 
+
 api.get('/materials', async (c) => {
   try {
     const data = await fetchMaterialsList(c.env)
@@ -1063,6 +1064,10 @@ api.get('/enchantments', async (c) => {
     cors({ 'cache-control': 'public, max-age=3600, stale-while-revalidate=86400' })
   )
 })
+
+// Meta-/Referenzendpunkte zuletzt registrieren, damit sie keine
+// spezifischeren /api-Routen (z. B. /api/items) überschreiben.
+app.route('/api', meta)
 
 app.onError((err, c) => {
   console.error('[worker:onError]', err)
