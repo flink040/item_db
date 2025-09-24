@@ -653,16 +653,6 @@ async function insertItemWithEnchantments(
 
 const app = new Hono<{ Bindings: Bindings }>()
 
-app.use('/api/*', async (c, next) => {
-  try {
-    const supabase = getCachedSupabaseAdminClient(c.env)
-    c.set('supabase', supabase)
-  } catch (error) {
-    console.error('[meta] failed to initialise supabase client', error)
-  }
-  return next()
-})
-
 const sanitizeSearchValue = (value: string) =>
   value
     .trim()
@@ -705,6 +695,20 @@ const cors = (overrides: Record<string, string> = {}) => ({
 
 // Healthcheck
 app.get('/api/health', (c) => c.text('ok'))
+
+// Quick diagnostics for environment configuration
+app.get('/api/diag', (c) => {
+  const env = c.env
+  return c.json(
+    {
+      hasUrl: !!env.SUPABASE_URL,
+      hasAnon: !!env.SUPABASE_ANON_KEY,
+      hasSrv: !!env.SUPABASE_SERVICE_ROLE_KEY,
+    },
+    200,
+    cors()
+  )
+})
 
 // Debug echo endpoint
 app.all('/api/debug/echo', async (c) => {
@@ -773,7 +777,7 @@ app.all('/api/debug/echo', async (c) => {
 })
 
 app.options('*', (c) =>
-  c.text('', 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
+  c.body(null, 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
 )
 
 app.route('/api', meta)
@@ -832,7 +836,9 @@ app.get('/api/items', async (c) => {
     headers: supabaseHeaders,
   })
 
-  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any, cors())
+  if (!res.ok) {
+    return c.json({ error: 'supabase_error' }, res.status as any, cors())
+  }
 
   return c.json(
     await res.json(),
@@ -853,7 +859,7 @@ app.post('/api/items', async (c) => {
     )
   }
 
-  const adminClient = createSupabaseAdminClient(c.env)
+  const adminClient = getCachedSupabaseAdminClient(c.env)
 
   let user
   try {
@@ -1005,13 +1011,20 @@ app.get('/api/enchantments', async (c) => {
     headers: { apikey: c.env.SUPABASE_ANON_KEY }
   })
 
-  if (!res.ok) return c.json({ error: 'supabase_error' }, res.status as any, cors())
+  if (!res.ok) {
+    return c.json({ error: 'supabase_error' }, res.status as any, cors())
+  }
 
   return c.json(
     await res.json(),
     200,
     cors({ 'cache-control': 'public, max-age=3600, stale-while-revalidate=86400' })
   )
+})
+
+app.onError((err, c) => {
+  console.error('[worker:onError]', err)
+  return c.json({ error: (err as Error).message ?? 'Internal Error' }, 500, cors())
 })
 
 export default app
