@@ -12,6 +12,8 @@ op-item-db-starter/
 └─ worker/         # Cloudflare Worker (BFF) – /api/*
 ```
 
+> Hinweis: Frühere Experimente im Ordner `op-item-db-api/` wurden entfernt – der Worker lebt nun ausschließlich unter `worker/`.
+
 ## Schnellstart
 
 ### 1) Frontend lokal
