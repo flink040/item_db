@@ -1,66 +1,76 @@
-import { Hono } from 'hono'
-import { cors } from 'hono/cors'
 import { createClient } from '@supabase/supabase-js'
-const meta = new Hono<{ Bindings: {
-  SUPABASE_URL: string
-  SUPABASE_SERVICE_ROLE_KEY: string
-} }>()
+import type { Bindings } from '../bindings'
 
+type MetaEnv = Pick<Bindings, 'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY'>
 
-// CORS
-meta.use('/*', cors({
-  origin: '*',
-  allowMethods: ['GET', 'OPTIONS'],
-  allowHeaders: ['Content-Type', 'Authorization'],
-  maxAge: 86400
-}))
+type ServiceRoleClient = ReturnType<typeof createClient<any, any>>
 
-// Helper: Supabase Client
-function sb(c: any) {
-  return createClient(c.env.SUPABASE_URL, c.env.SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false }
+type PostgrestQueryResult<T> = {
+  data: T[] | null
+  error: { message?: string } | null
+  status: number
+}
+
+const createServiceRoleClient = (env: MetaEnv): ServiceRoleClient =>
+  createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
+    auth: { persistSession: false },
+  })
+
+const ensureArray = <T>(rows: T[] | null | undefined): T[] =>
+  Array.isArray(rows) ? rows : []
+
+const createMetaError = (scope: string, error: unknown, status: number) => {
+  const message =
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message?: string }).message === 'string'
+      ? (error as { message?: string }).message || `Fehler beim Laden von ${scope}.`
+      : `Fehler beim Laden von ${scope}.`
+
+  return Object.assign(new Error(message), {
+    cause: error ?? undefined,
+    status: status || 500,
+    scope,
   })
 }
 
-// Materials
-meta.get('/materials', async (c) => {
-  const supabase = sb(c)
-  const { data, error } = await supabase
-    .from('materials')
-    .select('id, slug, label')
-    .order('label', { ascending: true })
-  if (error) return c.json({ error: error.message }, 500)
-  return c.json(data ?? [], 200, {
-    'cache-control': 'public, max-age=300, stale-while-revalidate=300'
-  })
-})
+const executeListQuery = async <T>(
+  env: MetaEnv,
+  scope: string,
+  queryBuilder: (client: ServiceRoleClient) => Promise<PostgrestQueryResult<T>>
+): Promise<T[]> => {
+  const client = createServiceRoleClient(env)
+  const { data, error, status } = await queryBuilder(client)
 
-// Item Types
-meta.get('/item_types', async (c) => {
-  const supabase = sb(c)
-  const { data, error } = await supabase
-    .from('item_types')
-    .select('id, slug, label')
-    .order('label', { ascending: true })
-  if (error) return c.json({ error: error.message }, 500)
-  return c.json(data ?? [], 200, {
-    'cache-control': 'public, max-age=300, stale-while-revalidate=300'
-  })
-})
+  if (error) {
+    throw createMetaError(scope, error, status)
+  }
 
-// Rarities (nach sort, dann label)
-meta.get('/rarities', async (c) => {
-  const supabase = sb(c)
-  const query = supabase
-    .from('rarities')
-    .select('id, slug, label, sort')
-    .order('sort', { ascending: true })
-    .order('label', { ascending: true })
-  const { data, error } = await query
-  if (error) return c.json({ error: error.message }, 500)
-  return c.json(data ?? [], 200, {
-    'cache-control': 'public, max-age=300, stale-while-revalidate=300'
-  })
-})
+  return ensureArray(data)
+}
 
-export default meta
+export const fetchMaterialsList = (env: MetaEnv) =>
+  executeListQuery(env, 'materials', (client) =>
+    client
+      .from('materials')
+      .select('id, slug, label')
+      .order('label', { ascending: true })
+  )
+
+export const fetchItemTypesList = (env: MetaEnv) =>
+  executeListQuery(env, 'item_types', (client) =>
+    client
+      .from('item_types')
+      .select('id, slug, label')
+      .order('label', { ascending: true })
+  )
+
+export const fetchRaritiesList = (env: MetaEnv) =>
+  executeListQuery(env, 'rarities', (client) =>
+    client
+      .from('rarities')
+      .select('id, slug, label, sort')
+      .order('sort', { ascending: true })
+      .order('label', { ascending: true })
+  )

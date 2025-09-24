@@ -1,14 +1,9 @@
 import { Hono } from 'hono'
+import type { Context } from 'hono'
 import { createClient } from '@supabase/supabase-js'
-import meta from './routes/meta'
+import type { Bindings } from './bindings'
+import { fetchItemTypesList, fetchMaterialsList, fetchRaritiesList } from './routes/meta'
 import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
-
-type Bindings = {
-  SUPABASE_URL: string
-  SUPABASE_ANON_KEY: string
-  SUPABASE_SERVICE_ROLE_KEY: string
-  // CACHE?: KVNamespace // optional, wenn du KV Cache nutzt
-}
 
 type SupabaseClient = ReturnType<typeof createClient<any, any>>
 
@@ -693,6 +688,27 @@ const cors = (overrides: Record<string, string> = {}) => ({
   ...overrides,
 })
 
+const handleMetaError = (
+  c: Context<{ Bindings: Bindings }>,
+  scope: string,
+  error: unknown,
+  fallbackMessage: string
+) => {
+  console.error(`[worker:meta:${scope}]`, error)
+  const status =
+    typeof (error as { status?: number } | null)?.status === 'number'
+      ? (error as { status?: number }).status
+      : 500
+  const message =
+    error instanceof Error && error.message ? error.message : fallbackMessage
+
+  return c.json({ error: message }, status as any, cors())
+}
+
+const META_CACHE_HEADERS = {
+  'cache-control': 'public, max-age=300, stale-while-revalidate=300',
+}
+
 // Healthcheck
 app.get('/api/health', (c) => c.text('ok'))
 
@@ -780,7 +796,32 @@ app.options('*', (c) =>
   c.body(null, 204, cors({ 'content-type': 'text/plain; charset=UTF-8', 'Access-Control-Max-Age': '600' }))
 )
 
-app.route('/api', meta)
+app.get('/api/materials', async (c) => {
+  try {
+    const data = await fetchMaterialsList(c.env)
+    return c.json(data, 200, cors(META_CACHE_HEADERS))
+  } catch (error) {
+    return handleMetaError(c, 'materials', error, 'Materialien konnten nicht geladen werden.')
+  }
+})
+
+app.get('/api/item_types', async (c) => {
+  try {
+    const data = await fetchItemTypesList(c.env)
+    return c.json(data, 200, cors(META_CACHE_HEADERS))
+  } catch (error) {
+    return handleMetaError(c, 'item_types', error, 'Item-Typen konnten nicht geladen werden.')
+  }
+})
+
+app.get('/api/rarities', async (c) => {
+  try {
+    const data = await fetchRaritiesList(c.env)
+    return c.json(data, 200, cors(META_CACHE_HEADERS))
+  } catch (error) {
+    return handleMetaError(c, 'rarities', error, 'Seltenheiten konnten nicht geladen werden.')
+  }
+})
 
 // GET /api/items
 app.get('/api/items', async (c) => {
