@@ -3936,6 +3936,7 @@ function ItemCard({
                     alt={`Abbildung von ${normalizedTitle}`}
                     loading="lazy"
                     draggable={false}
+
                     className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
                   />
                   <span className="sr-only">Bild in größerer Ansicht öffnen</span>

@@ -1065,10 +1065,6 @@ api.get('/enchantments', async (c) => {
   )
 })
 
-// Meta-/Referenzendpunkte zuletzt registrieren, damit sie keine
-// spezifischeren /api-Routen (z. B. /api/items) überschreiben.
-app.route('/api', meta)
-
 app.onError((err, c) => {
   console.error('[worker:onError]', err)
   return c.json({ error: (err as Error).message ?? 'Internal Error' }, 500, cors())
