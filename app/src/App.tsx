@@ -5,7 +5,8 @@ import {
   useRef,
   useState,
   type ChangeEvent,
-  type FormEvent
+  type FormEvent,
+  type MouseEvent
 } from 'react'
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import type { SVGProps } from 'react'
@@ -1269,8 +1270,18 @@ export default function App() {
     }
 
     window.addEventListener('keydown', handleKeyDown)
+    let body: HTMLBodyElement | null = null
+    let previousOverflow: string | null = null
+    if (typeof document !== 'undefined') {
+      body = document.body
+      previousOverflow = body.style.overflow
+      body.style.overflow = 'hidden'
+    }
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
+      if (body) {
+        body.style.overflow = previousOverflow ?? ''
+      }
     }
   }, [imagePreview])
 
@@ -2329,6 +2340,8 @@ function ImagePreviewModal({ imageUrl, title, onClose }: ImagePreviewModalProps)
       role="dialog"
       aria-modal="true"
       aria-labelledby="image-preview-modal-title"
+
+      aria-describedby="image-preview-modal-description"
     >
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
       <div className="relative z-10 w-full max-w-3xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 shadow-2xl shadow-emerald-500/10">
@@ -2337,7 +2350,9 @@ function ImagePreviewModal({ imageUrl, title, onClose }: ImagePreviewModalProps)
             <h2 id="image-preview-modal-title" className="text-xl font-semibold text-slate-50">
               Bildvorschau
             </h2>
-            <p className="mt-1 text-sm text-slate-400">{title}</p>
+            <p id="image-preview-modal-description" className="mt-1 text-sm text-slate-400">
+              {title}
+            </p>
           </div>
           <button
             type="button"
@@ -2353,6 +2368,7 @@ function ImagePreviewModal({ imageUrl, title, onClose }: ImagePreviewModalProps)
             <img
               src={imageUrl}
               alt={`Vergrößerte Abbildung von ${title}`}
+              draggable={false}
               className="max-h-[70vh] w-full object-contain"
             />
           </div>
@@ -3813,6 +3829,23 @@ function ItemCard({
     return null
   })()
 
+  const itemLoreImageUrl = (() => {
+    const candidates = [item.item_lore_image, item.lore_image_url]
+    for (const candidate of candidates) {
+      if (typeof candidate !== 'string') {
+        continue
+      }
+      const trimmed = candidate.trim()
+      if (trimmed) {
+        return trimmed
+      }
+    }
+    return null
+  })()
+
+  const uniqueLoreImageUrl =
+    itemLoreImageUrl && itemLoreImageUrl !== itemImageUrl ? itemLoreImageUrl : null
+
   const resolveAttributeLabel = (
     numericCandidates: Array<number | string | null | undefined>,
     stringCandidates: Array<string | null | undefined>,
@@ -3905,6 +3938,24 @@ function ItemCard({
     { id: 'material', label: 'Material', value: materialLabel, accent: 'text-indigo-300' },
   ]
 
+  const baseImageButtonClassName =
+    'relative block h-full w-full overflow-hidden focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60'
+
+  const handleImagePreviewOpen = (
+    event: MouseEvent<HTMLButtonElement>,
+    details: ImagePreviewDetails
+  ) => {
+    event.preventDefault()
+    event.stopPropagation()
+    onImagePreview(details)
+  }
+
+  const handleImagePreviewMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
+    if (event.button === 1) {
+      event.preventDefault()
+    }
+  }
+
   return (
     <article className="relative overflow-hidden rounded-3xl border border-slate-800/70 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 p-6 shadow-2xl shadow-emerald-500/10">
       <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl" aria-hidden="true">
@@ -3913,50 +3964,102 @@ function ItemCard({
       </div>
       <div className="relative z-10 flex flex-col gap-6">
         <header className="flex flex-col gap-4 lg:flex-row lg:items-start lg:gap-6">
-          <div className="group relative w-full overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-950/60 shadow-inner shadow-slate-950/50 lg:w-48">
-            <div className="aspect-square w-full">
-              {itemImageUrl ? (
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onImagePreview({ url: itemImageUrl, title: normalizedTitle })
-                  }}
-                  onAuxClick={(event) => {
-                    event.preventDefault()
-                    event.stopPropagation()
-                    onImagePreview({ url: itemImageUrl, title: normalizedTitle })
-                  }}
-                  className="relative block h-full w-full overflow-hidden focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
-                  aria-haspopup="dialog"
-                >
-                  <img
-                    src={itemImageUrl}
-                    alt={`Abbildung von ${normalizedTitle}`}
-                    loading="lazy"
-                    draggable={false}
-
-                    className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
-                  />
-                  <span className="sr-only">Bild in größerer Ansicht öffnen</span>
-                </button>
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-5xl font-semibold text-emerald-200">
-                  {titleInitial}
+          <div className="flex w-full flex-col gap-3 lg:w-48">
+            <div className="group relative overflow-hidden rounded-2xl border border-slate-800/60 bg-slate-950/60 shadow-inner shadow-slate-950/50">
+              <div className="aspect-square w-full">
+                {itemImageUrl ? (
+                  <button
+                    type="button"
+                    onClick={(event) =>
+                      handleImagePreviewOpen(event, {
+                        url: itemImageUrl,
+                        title: normalizedTitle
+                      })
+                    }
+                    onAuxClick={(event) =>
+                      handleImagePreviewOpen(event, {
+                        url: itemImageUrl,
+                        title: normalizedTitle
+                      })
+                    }
+                    onMouseDown={handleImagePreviewMouseDown}
+                    className={baseImageButtonClassName}
+                    aria-haspopup="dialog"
+                    aria-label="Itembild vergrößern"
+                    title="Itembild vergrößern"
+                  >
+                    <img
+                      src={itemImageUrl}
+                      alt={`Abbildung von ${normalizedTitle}`}
+                      loading="lazy"
+                      draggable={false}
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                    />
+                    <span
+                      className="pointer-events-none absolute left-3 top-3 rounded-full bg-slate-950/80 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em] text-slate-200 shadow-lg shadow-slate-950/40 ring-1 ring-inset ring-slate-800/70"
+                      aria-hidden="true"
+                    >
+                      Itembild
+                    </span>
+                  </button>
+                ) : (
+                  <div className="relative flex h-full w-full items-center justify-center text-5xl font-semibold text-emerald-200">
+                    <span aria-hidden="true">{titleInitial}</span>
+                    <span className="sr-only">Kein Itembild verfügbar</span>
+                  </div>
+                )}
+              </div>
+              {starLevel > 0 && (
+                <div className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-950/90 px-3 py-1 text-amber-300 shadow-lg shadow-amber-500/10 ring-1 ring-inset ring-amber-400/40">
+                  {starStates.map((active, index) => (
+                    <span key={index} aria-hidden="true">
+                      {active ? '★' : '☆'}
+                    </span>
+                  ))}
+                  <span className="sr-only">{`Stern-Level ${starLevel} von ${MAX_STAR_LEVEL}`}</span>
                 </div>
               )}
             </div>
-            {starLevel > 0 && (
-              <div className="absolute -bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1 rounded-full bg-slate-950/90 px-3 py-1 text-amber-300 shadow-lg shadow-amber-500/10 ring-1 ring-inset ring-amber-400/40">
-                {starStates.map((active, index) => (
-                  <span key={index} aria-hidden="true">
-                    {active ? '★' : '☆'}
-                  </span>
-                ))}
-                <span className="sr-only">{`Stern-Level ${starLevel} von ${MAX_STAR_LEVEL}`}</span>
+            {uniqueLoreImageUrl ? (
+              <div className="group relative overflow-hidden rounded-2xl border border-emerald-500/20 bg-emerald-500/5 shadow-inner shadow-emerald-500/10">
+                <div className="aspect-square w-full">
+                  <button
+                    type="button"
+                    onClick={(event) =>
+                      handleImagePreviewOpen(event, {
+                        url: uniqueLoreImageUrl,
+                        title: `${normalizedTitle} – Lore-Bild`
+                      })
+                    }
+                    onAuxClick={(event) =>
+                      handleImagePreviewOpen(event, {
+                        url: uniqueLoreImageUrl,
+                        title: `${normalizedTitle} – Lore-Bild`
+                      })
+                    }
+                    onMouseDown={handleImagePreviewMouseDown}
+                    className={baseImageButtonClassName}
+                    aria-haspopup="dialog"
+                    aria-label="Lore-Bild vergrößern"
+                    title="Lore-Bild vergrößern"
+                  >
+                    <img
+                      src={uniqueLoreImageUrl}
+                      alt={`Lore-Abbildung von ${normalizedTitle}`}
+                      loading="lazy"
+                      draggable={false}
+                      className="h-full w-full object-cover transition duration-300 group-hover:scale-105"
+                    />
+                    <span
+                      className="pointer-events-none absolute left-3 top-3 rounded-full bg-emerald-950/70 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.35em] text-emerald-200 shadow-lg shadow-emerald-900/40 ring-1 ring-inset ring-emerald-400/50"
+                      aria-hidden="true"
+                    >
+                      Lore-Bild
+                    </span>
+                  </button>
+                </div>
               </div>
-            )}
+            ) : null}
           </div>
           <div className="flex flex-1 flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
