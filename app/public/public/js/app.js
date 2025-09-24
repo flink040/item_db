@@ -134,6 +134,7 @@ const API_BASE = '/api'
 const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
 const MINECRAFT_RENDER_API_BASE_URL = 'https://mc-api.io/render'
 const MINECRAFT_RENDER_FACE_DEFAULT_SIZE = 128
+
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
@@ -1730,9 +1731,6 @@ function setProfileMinecraftAvatar(normalisedUuid, displayName) {
 
   if (fallback) {
     fallback.textContent = fallbackText
-    if (!hasUuid) {
-      fallback.classList.remove('hidden')
-    }
   }
 
   if (!hasUuid) {
@@ -1749,15 +1747,43 @@ function setProfileMinecraftAvatar(normalisedUuid, displayName) {
 
   const altText = trimmedName ? `Minecraft Kopf von ${trimmedName}` : 'Minecraft Kopf'
   const renderUrl = getMinecraftRenderFaceUrl(normalisedUuid)
+  const previousUuid = typeof image.dataset.renderUuid === 'string' ? image.dataset.renderUuid : ''
+  const previousSrc = image.getAttribute('src') || ''
+  const isSameImage = previousUuid === normalisedUuid && previousSrc === renderUrl
+
+  image.dataset.fallbackText = fallbackText
+
+  if (isSameImage && image.complete && image.naturalWidth > 0 && image.naturalHeight > 0) {
+    image.alt = altText
+    image.classList.remove('hidden')
+    if (fallback) {
+      fallback.classList.add('hidden')
+    }
+    return
+  }
 
   image.dataset.renderUuid = normalisedUuid
-  image.dataset.fallbackText = fallbackText
   image.alt = altText
   image.classList.add('hidden')
   if (fallback) {
     fallback.classList.remove('hidden')
   }
   image.src = renderUrl
+
+  if (image.complete) {
+    setTimeout(() => {
+      if (image.dataset.renderUuid !== normalisedUuid) {
+        return
+      }
+
+      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+        image.classList.remove('hidden')
+        if (fallback) {
+          fallback.classList.add('hidden')
+        }
+      }
+    }, 0)
+  }
 }
 
 function setProfileMcUuidError(message) {
