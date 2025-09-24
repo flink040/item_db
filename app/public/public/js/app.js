@@ -127,6 +127,10 @@ const IMAGE_MIME_EXTENSION_MAP = {
 };
 
 const API_BASE = '/api'
+const MINECRAFT_PROFILE_API_BASE_URL = 'https://mc-api.io/profile'
+
+const PROFILE_MC_UUID_SUBMIT_LABEL = 'Mit Minecraft Account verbinden'
+const PROFILE_MC_UUID_SUBMIT_LOADING_LABEL = 'Verbinden…'
 
 const PROFILE_MC_UUID_SUBMIT_LABEL = 'Mit Minecraft Account verbinden'
 const PROFILE_MC_UUID_SUBMIT_LOADING_LABEL = 'Verbinden…'
@@ -1496,6 +1500,12 @@ function getProfileDisplayName() {
     return profileName
   }
 
+  const profileMcName =
+    typeof state.profile?.mc_name === 'string' ? state.profile.mc_name.trim() : ''
+  if (profileMcName) {
+    return profileMcName
+  }
+
   const metadata =
     state.user.user_metadata && typeof state.user.user_metadata === 'object'
       ? state.user.user_metadata
@@ -1603,6 +1613,80 @@ function formatMinecraftUuidForDisplay(value) {
   }
 
   return normalised.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
+}
+
+async function fetchMinecraftProfileByUuid(normalisedUuid) {
+  const formattedUuid = formatMinecraftUuidForDisplay(normalisedUuid)
+  if (!formattedUuid) {
+    const error = new Error('Ungültige Minecraft UUID.')
+    error.code = 'MINECRAFT_PROFILE_INVALID_UUID'
+    throw error
+  }
+
+  const requestUrl = `${MINECRAFT_PROFILE_API_BASE_URL}/${formattedUuid}`
+  let response
+
+  try {
+    response = await fetch(requestUrl, {
+      headers: { Accept: 'application/json' },
+      method: 'GET',
+    })
+  } catch (networkError) {
+    const error = new Error(
+      'Die Minecraft API konnte nicht erreicht werden. Bitte versuche es später erneut.'
+    )
+    error.code = 'MINECRAFT_PROFILE_NETWORK'
+    error.cause = networkError
+    throw error
+  }
+
+  let payload = null
+  try {
+    payload = await response.json()
+  } catch (parseError) {
+    payload = null
+  }
+
+  if (!response.ok) {
+    const isNotFound = response.status === 404
+    const message = isNotFound
+      ? 'Es wurde kein Minecraft Account mit dieser UUID gefunden.'
+      : 'Die Minecraft API hat einen Fehler zurückgegeben. Bitte versuche es später erneut.'
+    const error = new Error(message)
+    error.code = isNotFound ? 'MINECRAFT_PROFILE_NOT_FOUND' : 'MINECRAFT_PROFILE_API'
+    error.status = response.status
+    if (payload && typeof payload.message === 'string') {
+      error.details = payload.message
+    }
+    throw error
+  }
+
+  if (!payload || typeof payload !== 'object') {
+    const error = new Error('Die Minecraft API hat eine ungültige Antwort geliefert.')
+    error.code = 'MINECRAFT_PROFILE_INVALID_RESPONSE'
+    throw error
+  }
+
+  if (payload.error) {
+    const message =
+      typeof payload.message === 'string' && payload.message.trim()
+        ? payload.message.trim()
+        : 'Die Minecraft API hat einen Fehler gemeldet.'
+    const error = new Error(message)
+    error.code = 'MINECRAFT_PROFILE_API'
+    throw error
+  }
+
+  const playerName = typeof payload.name === 'string' ? payload.name.trim() : ''
+  if (!playerName) {
+    const error = new Error('Die Minecraft API hat keinen Spielernamen zurückgegeben.')
+    error.code = 'MINECRAFT_PROFILE_INVALID_RESPONSE'
+    throw error
+  }
+
+  const uuidFromApi = normaliseMinecraftUuid(payload.uuid ?? formattedUuid) || normalisedUuid
+
+  return { name: playerName, uuid: uuidFromApi }
 }
 
 function setProfileMcUuidError(message) {
@@ -1922,50 +2006,84 @@ async function handleProfileMcUuidSubmit(event) {
     return
   }
 
-  if (state.profile?.mc_uuid === normalised) {
-    setProfileMcUuidError('')
-    profileModalState.mcUuidInputDirty = false
-    updateProfileModalUserInfo()
-    showToast('Dein Minecraft Account ist bereits verbunden.', 'info')
-    return
-  }
-
   profileModalState.mcUuidSubmitting = true
   updateProfileMcUuidFormState()
   setProfileMcUuidError('')
 
+  let confirmedUuid = normalised
+  let fetchedName = ''
+
   try {
+    const profile = await fetchMinecraftProfileByUuid(normalised)
+    confirmedUuid = profile.uuid
+    fetchedName = profile.name
+
+    const existingProfile =
+      state.profile && typeof state.profile === 'object' ? state.profile : {}
+    const currentUuid =
+      typeof existingProfile.mc_uuid === 'string' ? existingProfile.mc_uuid : null
+    const currentName =
+      typeof existingProfile.mc_name === 'string' ? existingProfile.mc_name.trim() : ''
+
+    if (currentUuid === confirmedUuid && currentName === fetchedName) {
+      profileModalState.mcUuidInputDirty = false
+      setProfileMcUuidError('')
+      updateProfileModalUserInfo()
+      showToast('Dein Minecraft Account ist bereits verbunden.', 'info')
+      return
+    }
+
     const { error } = await supabase
       .from('profiles')
-      .update({ mc_uuid: normalised })
+      .update({ mc_uuid: confirmedUuid, mc_name: fetchedName })
       .eq('id', state.user.id)
 
     if (error) {
       throw error
     }
 
-    const existingProfile = state.profile && typeof state.profile === 'object' ? state.profile : {}
     state.profile = {
       ...existingProfile,
-      mc_uuid: normalised,
+      mc_uuid: confirmedUuid,
+      mc_name: fetchedName,
     }
 
     profileModalState.mcUuidInputDirty = false
     setProfileMcUuidError('')
     updateProfileModalUserInfo()
-    showToast('Minecraft Account wurde verbunden.', 'success')
+    showToast(`Minecraft Account ${fetchedName} wurde verbunden.`, 'success')
   } catch (caughtError) {
-    console.error('[profile] Fehler beim Speichern der Minecraft UUID.', caughtError)
-    const code = typeof caughtError?.code === 'string' ? caughtError.code : ''
-    const messageText = typeof caughtError?.message === 'string' ? caughtError.message.toLowerCase() : ''
-    let message = 'Verknüpfung mit Minecraft fehlgeschlagen. Bitte versuche es erneut.'
+    if (typeof caughtError?.code === 'string' && caughtError.code.startsWith('MINECRAFT_PROFILE')) {
+      console.error('[profile] Fehler beim Abrufen des Minecraft Accounts.', caughtError)
+      const message =
+        caughtError.message ||
+        'Verknüpfung mit Minecraft fehlgeschlagen. Bitte versuche es erneut.'
+      setProfileMcUuidError(message)
+      showToast(message, 'error')
+      try {
+        input.focus({ preventScroll: true })
+      } catch (focusError) {
+        input.focus()
+      }
+    } else {
+      console.error('[profile] Fehler beim Speichern der Minecraft UUID.', caughtError)
+      const code = typeof caughtError?.code === 'string' ? caughtError.code : ''
+      const messageText = typeof caughtError?.message === 'string' ? caughtError.message.toLowerCase() : ''
+      let message = 'Verknüpfung mit Minecraft fehlgeschlagen. Bitte versuche es erneut.'
 
-    if (code === '23505' || messageText.includes('duplicate')) {
-      message = 'Diese Minecraft UUID wird bereits von einem anderen Profil verwendet.'
+      if (code === '23505' || messageText.includes('duplicate')) {
+        message = 'Diese Minecraft UUID wird bereits von einem anderen Profil verwendet.'
+      }
+
+      setProfileMcUuidError(message)
+      showToast(message, 'error')
+      try {
+        input.focus({ preventScroll: true })
+      } catch (focusError) {
+        input.focus()
+      }
     }
 
-    setProfileMcUuidError(message)
-    showToast(message, 'error')
   } finally {
     profileModalState.mcUuidSubmitting = false
     updateProfileMcUuidFormState()
@@ -2447,7 +2565,7 @@ async function loadProfile() {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('username,avatar_url,bio,mc_uuid,roles:role_id(slug,label)')
+      .select('username,avatar_url,bio,mc_uuid,mc_name,roles:role_id(slug,label)')
       .eq('id', state.user.id)
       .maybeSingle()
 
@@ -2464,11 +2582,12 @@ async function loadProfile() {
       const roleFromRelation = resolveTextValue(data.roles, ['slug', 'label'])
       const mcUuidFromDb = typeof data.mc_uuid === 'string' ? data.mc_uuid.trim() : ''
       const mcUuidValue = normaliseMinecraftUuid(mcUuidFromDb)
-
+      const mcNameFromDb = typeof data.mc_name === 'string' ? data.mc_name.trim() : ''
       const usernameValue = usernameFromDb || metadataFallback.username || null
       const avatarValue = avatarFromDb || metadataFallback.avatar_url || null
       const bioValue = bioFromDb || null
       const roleValue = roleFromRelation || metadataFallback.role || null
+      const mcNameValue = mcNameFromDb || null
 
       state.profile = {
         username: usernameValue,
@@ -2476,6 +2595,7 @@ async function loadProfile() {
         bio: bioValue,
         role: roleValue,
         mc_uuid: mcUuidValue || null,
+        mc_name: mcNameValue,
       }
 
       const normalizedRole =
@@ -2488,6 +2608,7 @@ async function loadProfile() {
         bio: null,
         role: metadataFallback.role ?? null,
         mc_uuid: null,
+        mc_name: null,
       }
       state.profileRole = metadataFallbackRoleNormalized || null
     }
@@ -2499,6 +2620,7 @@ async function loadProfile() {
       bio: null,
       role: metadataFallback.role ?? null,
       mc_uuid: null,
+      mc_name: null,
     }
     state.profileRole = metadataFallbackRoleNormalized || null
   } finally {
