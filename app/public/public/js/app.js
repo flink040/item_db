@@ -139,7 +139,6 @@ const minecraftRenderFaceCache = new Map()
 const minecraftRenderFacePromises = new Map()
 
 
-
 const insertDiagnostics = {
   lastMethod: null,
   lastStatus: null,
