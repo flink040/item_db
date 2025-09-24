@@ -3,7 +3,6 @@ import type { Bindings } from '../bindings'
 
 type MetaEnv = Pick<Bindings, 'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY'>
 type ServiceRoleClient = ReturnType<typeof createClient<any, any>>
-
 type PostgrestQueryResult<T> = {
   data: T[] | null
   error: { message?: string } | null
@@ -45,6 +44,7 @@ const executeListQuery = async <T>(
   if (error) {
     throw createMetaError(scope, error, status)
   }
+
   return ensureArray(data)
 }
 

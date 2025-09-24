@@ -798,7 +798,7 @@ app.options('*', (c) =>
 )
 
 
-api.get('/materials', async (c) => {
+app.get('/api/materials', async (c) => {
   try {
     const data = await fetchMaterialsList(c.env)
     return c.json(data, 200, cors(META_CACHE_HEADERS))
@@ -807,7 +807,7 @@ api.get('/materials', async (c) => {
   }
 })
 
-api.get('/item_types', async (c) => {
+app.get('/api/item_types', async (c) => {
   try {
     const data = await fetchItemTypesList(c.env)
     return c.json(data, 200, cors(META_CACHE_HEADERS))
@@ -816,7 +816,7 @@ api.get('/item_types', async (c) => {
   }
 })
 
-api.get('/rarities', async (c) => {
+app.get('/api/rarities', async (c) => {
   try {
     const data = await fetchRaritiesList(c.env)
     return c.json(data, 200, cors(META_CACHE_HEADERS))
