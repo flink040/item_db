@@ -122,6 +122,7 @@ let menuMediaQuery = null
 let menuMediaHandler = null
 let ignoreNextMenuClick = false
 const customFileInputs = new Map()
+const characterCountControls = new Map()
 const starRatingControl = {
   container: null,
   input: null,
@@ -973,8 +974,12 @@ function bindModalEvents() {
   if (elements.addItemForm) {
     elements.addItemForm.addEventListener('submit', handleAddItemSubmit)
     elements.addItemForm.addEventListener('reset', handleAddItemFormReset)
+    elements.addItemForm.addEventListener('input', updateAddItemSubmitButtonState)
+    elements.addItemForm.addEventListener('change', updateAddItemSubmitButtonState)
     initializeCustomFileInputs()
     initializeStarRatingControl()
+    initializeCharacterCountControls()
+    updateAddItemSubmitButtonState()
   }
 
   document.addEventListener('keydown', (event) => {
@@ -1023,6 +1028,8 @@ function resetAddItemForm() {
   renderEnchantmentsList()
   resetCustomFileInputs()
   resetStarRatingControl()
+  resetCharacterCountControls()
+  updateAddItemSubmitButtonState()
 }
 
 function toggleSubmitLoading(isLoading) {
@@ -1096,6 +1103,19 @@ function inferMimeTypeFromExtension(extension) {
     default:
       return 'application/octet-stream'
   }
+}
+
+function updateAddItemSubmitButtonState() {
+  const form = elements.addItemForm
+  const submitButton = elements.submitButton
+  if (!(form instanceof HTMLFormElement) || !(submitButton instanceof HTMLButtonElement)) {
+    return
+  }
+
+  const isValid = form.checkValidity()
+  submitButton.classList.toggle('shadow-emerald-500/20', isValid)
+  submitButton.classList.toggle('shadow-emerald-500/0', !isValid)
+  submitButton.classList.toggle('hover:scale-[1.02]', isValid)
 }
 
 function isAllowedImageFile(file) {
@@ -1362,10 +1382,32 @@ function updateCustomFileInput(entry) {
     entry.resetButton.hidden = !hasFile
   }
 
+  if (entry.preview) {
+    if (entry.preview.currentUrl) {
+      URL.revokeObjectURL(entry.preview.currentUrl)
+      entry.preview.currentUrl = null
+    }
+
+    if (hasFile && file && typeof file.type === 'string' && file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file)
+      entry.preview.image.src = url
+      entry.preview.image.alt = ''
+      entry.preview.image.classList.remove('hidden')
+      entry.preview.empty.classList.add('hidden')
+      entry.preview.currentUrl = url
+    } else {
+      entry.preview.image.removeAttribute('src')
+      entry.preview.image.classList.add('hidden')
+      entry.preview.empty.classList.remove('hidden')
+    }
+  }
+
   const field = entry.input.name || entry.input.id || ''
   if (field) {
     clearFieldError(field)
   }
+
+  updateAddItemSubmitButtonState()
 }
 
 function registerCustomFileInput(input) {
@@ -1385,6 +1427,24 @@ function registerCustomFileInput(input) {
 
   const resetButton = elements.addItemForm?.querySelector(`[data-file-reset="${key}"]`)
   const pasteTarget = elements.addItemForm?.querySelector(`[data-file-paste-target="${key}"]`)
+  const previewContainer = Array.from(
+    elements.addItemForm?.querySelectorAll('[data-file-preview]') ?? [],
+  ).find((node) => node instanceof HTMLElement && node.dataset.filePreview === key)
+
+  let preview = null
+  if (previewContainer instanceof HTMLElement) {
+    const previewImage = previewContainer.querySelector('[data-file-preview-image]')
+    const previewEmpty = previewContainer.querySelector('[data-file-preview-empty]')
+    if (previewImage instanceof HTMLImageElement && previewEmpty instanceof HTMLElement) {
+      preview = {
+        container: previewContainer,
+        image: previewImage,
+        empty: previewEmpty,
+        currentUrl: null,
+      }
+    }
+  }
+
   const entry = {
     input,
     display,
@@ -1392,6 +1452,7 @@ function registerCustomFileInput(input) {
     pasteTarget: pasteTarget instanceof HTMLElement ? pasteTarget : null,
     defaultText: display.dataset.fileDefault || display.textContent || 'Keine Datei ausgewählt',
     update: null,
+    preview,
   }
 
   entry.update = () => updateCustomFileInput(entry)
@@ -1442,6 +1503,96 @@ function initializeCustomFileInputs() {
 
 function resetCustomFileInputs() {
   customFileInputs.forEach((entry) => {
+    entry.update?.()
+  })
+}
+
+function updateCharacterCountEntry(entry) {
+  if (!entry || !(entry.input instanceof HTMLElement) || !(entry.counter instanceof HTMLElement)) {
+    return
+  }
+
+  const rawValue = typeof entry.input.value === 'string' ? entry.input.value : ''
+  const length = Array.from(rawValue).length
+  const max = entry.maxLength
+
+  let text = `${length} Zeichen`
+  if (typeof max === 'number' && Number.isFinite(max) && max > 0) {
+    text = `${length} / ${max} Zeichen`
+    const remaining = max - length
+
+    entry.counter.classList.remove('text-slate-500', 'text-amber-300', 'text-rose-400')
+    if (remaining < 0) {
+      entry.counter.classList.add('text-rose-400')
+    } else if (remaining <= entry.threshold) {
+      entry.counter.classList.add('text-amber-300')
+    } else {
+      entry.counter.classList.add('text-slate-500')
+    }
+  } else {
+    entry.counter.classList.remove('text-amber-300', 'text-rose-400')
+    entry.counter.classList.add('text-slate-500')
+  }
+
+  if (entry.counterText instanceof HTMLElement) {
+    entry.counterText.textContent = text
+  } else {
+    entry.counter.textContent = text
+  }
+}
+
+function registerCharacterCountControl(input) {
+  if (!(input instanceof HTMLInputElement || input instanceof HTMLTextAreaElement)) {
+    return
+  }
+
+  const key = typeof input.dataset.characterCount === 'string' ? input.dataset.characterCount.trim() : ''
+  if (!key || characterCountControls.has(key)) {
+    return
+  }
+
+  const counters = elements.addItemForm?.querySelectorAll('[data-character-counter]') ?? []
+  const counter = Array.from(counters).find(
+    (node) => node instanceof HTMLElement && node.dataset.characterCounter === key,
+  )
+
+  if (!(counter instanceof HTMLElement)) {
+    return
+  }
+
+  const counterText = counter.querySelector('[data-character-counter-text]')
+  const threshold = Number.parseInt(input.dataset.characterCountWarn ?? '', 10)
+  const entry = {
+    input,
+    counter,
+    counterText: counterText instanceof HTMLElement ? counterText : null,
+    maxLength: input.maxLength && input.maxLength > 0 ? input.maxLength : null,
+    threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 15,
+    update: null,
+  }
+
+  entry.update = () => updateCharacterCountEntry(entry)
+
+  input.addEventListener('input', entry.update)
+  characterCountControls.set(key, entry)
+  entry.update()
+}
+
+function initializeCharacterCountControls() {
+  if (!elements.addItemForm) {
+    return
+  }
+
+  const inputs = elements.addItemForm.querySelectorAll('[data-character-count]')
+  inputs.forEach((node) => {
+    if (node instanceof HTMLInputElement || node instanceof HTMLTextAreaElement) {
+      registerCharacterCountControl(node)
+    }
+  })
+}
+
+function resetCharacterCountControls() {
+  characterCountControls.forEach((entry) => {
     entry.update?.()
   })
 }
@@ -1518,8 +1669,18 @@ function updateStarRatingDisplay() {
       button.classList.toggle('text-slate-400', !isSelected)
       button.classList.toggle('border-slate-800/70', !isSelected)
     } else {
-      button.classList.toggle('text-amber-300', highlight || isSelected)
-      button.classList.toggle('text-slate-600', !(highlight || isSelected))
+      const active = Boolean(highlight || isSelected)
+      button.classList.toggle('text-amber-300', active)
+      button.classList.toggle('text-slate-600', !active)
+      button.classList.toggle('bg-amber-400/10', active)
+      button.classList.remove('border-amber-300/60', 'border-amber-300/40', 'border-transparent')
+      if (isSelected) {
+        button.classList.add('border-amber-300/60')
+      } else if (highlight) {
+        button.classList.add('border-amber-300/40')
+      } else {
+        button.classList.add('border-transparent')
+      }
     }
 
     if (isSelected && !focusAssigned) {
@@ -1568,6 +1729,7 @@ function setStarRatingValue(value) {
   starRatingControl.hoverValue = null
   updateStarRatingDisplay()
   clearFieldError('stars')
+  updateAddItemSubmitButtonState()
 }
 
 function setStarRatingHover(value) {
@@ -1746,6 +1908,8 @@ function handleAddItemFormReset() {
   window.setTimeout(() => {
     resetCustomFileInputs()
     resetStarRatingControl()
+    resetCharacterCountControls()
+    updateAddItemSubmitButtonState()
   }, 0)
 }
 
@@ -3209,6 +3373,14 @@ async function loadProfile() {
   }
 }
 
+function renderEnchantmentsLoadingState(container) {
+  if (!container) return
+
+  container.innerHTML =
+    '<div class="space-y-2" aria-hidden="true"><div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div><div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div><div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div></div><p class="sr-only">Verzauberungen werden geladen…</p>'
+  container.scrollTop = 0
+}
+
 function renderEnchantmentsList() {
   const container = elements.enchantmentsList
   if (!container) return
@@ -3217,8 +3389,7 @@ function renderEnchantmentsList() {
   container.style.removeProperty('--enchantments-max-height')
 
   if (!state.enchantmentsLoaded) {
-    container.innerHTML = '<p class="text-sm text-slate-500">Verzauberungen werden geladen…</p>'
-    container.scrollTop = 0
+    renderEnchantmentsLoadingState(container)
     return
   }
 
