@@ -281,13 +281,20 @@
               </svg>
             </button>
           </div>
-          <form id="addItemForm" class="mt-6 space-y-6" aria-describedby="addItemFormError" novalidate>
+          <form id="addItemForm" class="mt-6 space-y-8" aria-describedby="addItemFormError" novalidate>
             <div
               id="addItemFormError"
               class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
               role="alert"
             ></div>
-            <div class="grid gap-4 sm:grid-cols-2">
+            <section aria-labelledby="addItemFormBasics" class="space-y-4">
+              <div class="space-y-1">
+                <h3 id="addItemFormBasics" class="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  Basisdaten
+                </h3>
+                <p class="text-sm text-slate-500">Wähle einen eindeutigen Namen und passe die wichtigsten Attribute an.</p>
+              </div>
+              <div class="grid gap-4 sm:grid-cols-2">
               <div class="sm:col-span-2">
                 <label class="block" for="itemTitle">
                   <span class="text-sm font-medium text-slate-300">Item Name<span class="text-rose-400">*</span></span>
@@ -299,9 +306,18 @@
                     required
                     autocomplete="off"
                     class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemTitleError"
+                    aria-describedby="itemTitleError itemTitleCounter"
+                    data-character-count="itemTitle"
                   />
                 </label>
+                <div
+                  id="itemTitleCounter"
+                  class="mt-2 flex items-center justify-between text-xs text-slate-500"
+                  data-character-counter="itemTitle"
+                  aria-live="polite"
+                >
+                  <span data-character-counter-text>0 / 120 Zeichen</span>
+                </div>
                 <p id="itemTitleError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="title"></p>
               </div>
               <div>
@@ -315,6 +331,7 @@
                     aria-describedby="itemTypeError"
                   ></select>
                 </label>
+                <p class="mt-1 text-xs text-slate-500">Bestimmt, in welchen Kategorien das Item später gefiltert werden kann.</p>
                 <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="item_type_id"></p>
               </div>
               <div>
@@ -328,6 +345,7 @@
                     aria-describedby="itemMaterialError"
                   ></select>
                 </label>
+                <p class="mt-1 text-xs text-slate-500">Wird u.&nbsp;a. für die Textur und im Tooltip angezeigt.</p>
                 <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material_id"></p>
               </div>
               <div>
@@ -341,6 +359,7 @@
                     aria-describedby="itemRarityError"
                   ></select>
                 </label>
+                <p class="mt-1 text-xs text-slate-500">Legt die Farbgebung und Drop-Chance des Items fest.</p>
                 <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity_id"></p>
               </div>
               <div>
@@ -365,7 +384,7 @@
                 >
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 text-sm font-semibold text-slate-400 transition hover:border-emerald-400 hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 text-sm font-semibold text-slate-400 transition hover:border-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="0"
                     role="radio"
                     aria-label="Keine Sterne"
@@ -375,7 +394,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-2xl text-slate-600 transition hover:bg-amber-400/10 hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="1"
                     role="radio"
                     aria-label="1 Stern"
@@ -385,7 +404,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-2xl text-slate-600 transition hover:bg-amber-400/10 hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="2"
                     role="radio"
                     aria-label="2 Sterne"
@@ -395,7 +414,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-9 w-9 items-center justify-center rounded-full border border-transparent text-2xl text-slate-600 transition hover:bg-amber-400/10 hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="3"
                     role="radio"
                     aria-label="3 Sterne"
@@ -406,8 +425,14 @@
                 </div>
                 <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
               </div>
-              <div class="sm:col-span-2 space-y-2">
-
+              </div>
+            </section>
+            <section aria-labelledby="addItemFormMedia" class="space-y-4">
+              <div class="space-y-1">
+                <h3 id="addItemFormMedia" class="text-sm font-semibold uppercase tracking-wide text-slate-400">Medien</h3>
+                <p class="text-sm text-slate-500">Gib deinem Item ein Gesicht – optional auch mit zusätzlicher Lore-Grafik.</p>
+              </div>
+              <div class="grid gap-4">
                 <div class="space-y-2">
                   <label class="text-sm font-medium text-slate-300" for="itemImage">Item-Bild</label>
                   <input
@@ -445,6 +470,45 @@
                       </svg>
                       <span>Bild hinzufügen</span>
                     </label>
+                    <div class="flex min-w-0 flex-1 items-center gap-3">
+                      <div
+                        class="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-slate-800/70 bg-slate-950/60"
+                        data-file-preview="itemImage"
+                      >
+                        <div
+                          class="flex h-full w-full items-center justify-center text-slate-600"
+                          data-file-preview-empty
+                          aria-hidden="true"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class="h-6 w-6"
+                          >
+                            <path d="M3 16.5V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v11.5l-5-4.375a2 2 0 0 0-2.5 0L12 14l-2.5-2.875a2 2 0 0 0-2.5 0z" />
+                            <circle cx="8.5" cy="7.5" r="1.5" />
+                          </svg>
+                        </div>
+                        <img
+                          data-file-preview-image
+                          alt=""
+                          class="hidden h-full w-full object-cover"
+                        />
+                      </div>
+                      <span
+                        class="min-w-0 flex-1 truncate text-sm text-slate-500"
+                        data-file-display="itemImage"
+                        data-file-default="Keine Datei ausgewählt"
+                        aria-live="polite"
+                      >
+                        Keine Datei ausgewählt
+                      </span>
+                    </div>
                     <button
                       type="button"
                       class="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
@@ -467,22 +531,13 @@
                       </svg>
                       <span>Zurücksetzen</span>
                     </button>
-                    <span
-                      class="min-w-0 flex-1 truncate text-sm text-slate-500"
-                      data-file-display="itemImage"
-                      data-file-default="Keine Datei ausgewählt"
-                      aria-live="polite"
-                    >
-                      Keine Datei ausgewählt
-                    </span>
                   </div>
                 </div>
                 <p id="itemImageHelp" class="text-xs text-slate-500">
                   Unterstützte Formate: PNG, JPG, WebP · Maximal 5&nbsp;MB. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
                 </p>
                 <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage"></p>
-              </div>
-              <div class="sm:col-span-2 space-y-2">
+                </div>
                 <div class="space-y-2">
                   <label class="text-sm font-medium text-slate-300" for="itemLoreImage">Lore-Bild (optional)</label>
                   <input
@@ -520,6 +575,45 @@
                       </svg>
                       <span>Bild hinzufügen</span>
                     </label>
+                    <div class="flex min-w-0 flex-1 items-center gap-3">
+                      <div
+                        class="relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-lg border border-slate-800/70 bg-slate-950/60"
+                        data-file-preview="itemLoreImage"
+                      >
+                        <div
+                          class="flex h-full w-full items-center justify-center text-slate-600"
+                          data-file-preview-empty
+                          aria-hidden="true"
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.5"
+                            stroke-linecap="round"
+                            stroke-linejoin="round"
+                            class="h-6 w-6"
+                          >
+                            <path d="M3 16.5V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v11.5l-5-4.375a2 2 0 0 0-2.5 0L12 14l-2.5-2.875a2 2 0 0 0-2.5 0z" />
+                            <circle cx="8.5" cy="7.5" r="1.5" />
+                          </svg>
+                        </div>
+                        <img
+                          data-file-preview-image
+                          alt=""
+                          class="hidden h-full w-full object-cover"
+                        />
+                      </div>
+                      <span
+                        class="min-w-0 flex-1 truncate text-sm text-slate-500"
+                        data-file-display="itemLoreImage"
+                        data-file-default="Keine Datei ausgewählt"
+                        aria-live="polite"
+                      >
+                        Keine Datei ausgewählt
+                      </span>
+                    </div>
                     <button
                       type="button"
                       class="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
@@ -542,14 +636,6 @@
                       </svg>
                       <span>Zurücksetzen</span>
                     </button>
-                    <span
-                      class="min-w-0 flex-1 truncate text-sm text-slate-500"
-                      data-file-display="itemLoreImage"
-                      data-file-default="Keine Datei ausgewählt"
-                      aria-live="polite"
-                    >
-                      Keine Datei ausgewählt
-                    </span>
                   </div>
                 </div>
                 <p id="itemLoreImageHelp" class="text-xs text-slate-500">
@@ -557,10 +643,10 @@
                 </p>
                 <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage"></p>
               </div>
-            </div>
-            <div class="space-y-4">
+            </section>
+            <section class="space-y-4" aria-labelledby="addItemEnchantments">
               <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <span class="text-sm font-medium text-slate-300">Verzauberungen</span>
+                <span id="addItemEnchantments" class="text-sm font-medium text-slate-300">Verzauberungen</span>
                 <span class="text-xs text-slate-500">Optional – aktiviere Einträge nach Bedarf</span>
               </div>
               <div class="space-y-3">
@@ -595,11 +681,16 @@
                   class="enchantments-list space-y-3 rounded-xl border border-slate-800/70 bg-slate-900/40 p-3"
                   data-enchantments-list
                 >
-                  <p class="text-sm text-slate-500">Verzauberungen werden geladen…</p>
+                  <div class="space-y-2" aria-hidden="true" data-enchantments-skeleton>
+                    <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                    <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                    <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                  </div>
+                  <p class="sr-only">Verzauberungen werden geladen…</p>
                 </div>
               </div>
               <p class="text-xs text-rose-400 hidden" data-error-for="enchantments"></p>
-            </div>
+            </section>
             <div class="flex justify-end gap-3 pt-2">
               <button
                 type="button"
@@ -610,7 +701,7 @@
               </button>
               <button
                 type="submit"
-                class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-emerald-500/0 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                 id="addItemSubmit"
               >
                 <span>Speichern</span>
