@@ -287,8 +287,8 @@
               class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
               role="alert"
             ></div>
-            <div class="grid gap-4 sm:grid-cols-2">
-              <div class="sm:col-span-2">
+            <div class="space-y-6">
+              <div>
                 <label class="block" for="itemTitle">
                   <span class="text-sm font-medium text-slate-300">Item Name<span class="text-rose-400">*</span></span>
                   <input
@@ -304,46 +304,48 @@
                 </label>
                 <p id="itemTitleError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="title"></p>
               </div>
-              <div>
-                <label class="block" for="item-type-select">
-                  <span class="text-sm font-medium text-slate-300">Item-Typ<span class="text-rose-400">*</span></span>
-                  <select
-                    id="item-type-select"
-                    name="item_type_id"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemTypeError"
-                  ></select>
-                </label>
-                <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="item_type_id"></p>
+              <div class="grid gap-3 sm:grid-cols-3">
+                <div>
+                  <label class="block" for="item-type-select">
+                    <span class="text-sm font-medium text-slate-300">Item-Typ<span class="text-rose-400">*</span></span>
+                    <select
+                      id="item-type-select"
+                      name="item_type_id"
+                      required
+                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                      aria-describedby="itemTypeError"
+                    ></select>
+                  </label>
+                  <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="item_type_id"></p>
+                </div>
+                <div>
+                  <label class="block" for="item-material-select">
+                    <span class="text-sm font-medium text-slate-300">Material<span class="text-rose-400">*</span></span>
+                    <select
+                      id="item-material-select"
+                      name="material_id"
+                      required
+                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                      aria-describedby="itemMaterialError"
+                    ></select>
+                  </label>
+                  <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material_id"></p>
+                </div>
+                <div>
+                  <label class="block" for="item-rarity-select">
+                    <span class="text-sm font-medium text-slate-300">Seltenheit<span class="text-rose-400">*</span></span>
+                    <select
+                      id="item-rarity-select"
+                      name="rarity_id"
+                      required
+                      class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                      aria-describedby="itemRarityError"
+                    ></select>
+                  </label>
+                  <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity_id"></p>
+                </div>
               </div>
-              <div>
-                <label class="block" for="item-material-select">
-                  <span class="text-sm font-medium text-slate-300">Material<span class="text-rose-400">*</span></span>
-                  <select
-                    id="item-material-select"
-                    name="material_id"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemMaterialError"
-                  ></select>
-                </label>
-                <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material_id"></p>
-              </div>
-              <div>
-                <label class="block" for="item-rarity-select">
-                  <span class="text-sm font-medium text-slate-300">Seltenheit<span class="text-rose-400">*</span></span>
-                  <select
-                    id="item-rarity-select"
-                    name="rarity_id"
-                    required
-                    class="mt-1 w-full rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-base text-slate-100 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                    aria-describedby="itemRarityError"
-                  ></select>
-                </label>
-                <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity_id"></p>
-              </div>
-              <div>
+              <div class="space-y-2">
                 <span id="itemStarsLabel" class="text-sm font-medium text-slate-300"
                   >Sterne<span class="text-rose-400">*</span></span
                 >
@@ -357,7 +359,7 @@
                   aria-required="true"
                 />
                 <div
-                  class="mt-2 inline-flex items-center gap-2 rounded-lg border border-slate-800/60 bg-slate-900/60 px-3 py-2 transition focus-within:border-emerald-400 focus-within:ring-2 focus-within:ring-emerald-500/40"
+                  class="flex items-center gap-2"
                   role="radiogroup"
                   aria-labelledby="itemStarsLabel"
                   aria-describedby="itemStarsError"
@@ -365,7 +367,7 @@
                 >
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full border border-slate-800/70 text-sm font-semibold text-slate-400 transition hover:border-emerald-400 hover:text-emerald-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-10 w-10 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-sm font-semibold text-slate-300 transition hover:border-emerald-400 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="0"
                     role="radio"
                     aria-label="Keine Sterne"
@@ -375,7 +377,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-10 w-10 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-2xl text-slate-500 transition hover:border-emerald-400 hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="1"
                     role="radio"
                     aria-label="1 Stern"
@@ -385,7 +387,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-10 w-10 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-2xl text-slate-500 transition hover:border-emerald-400 hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="2"
                     role="radio"
                     aria-label="2 Sterne"
@@ -395,7 +397,7 @@
                   </button>
                   <button
                     type="button"
-                    class="flex h-9 w-9 items-center justify-center rounded-full text-2xl text-slate-600 transition hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                    class="flex h-10 w-10 items-center justify-center rounded-full border border-slate-800 bg-slate-900 text-2xl text-slate-500 transition hover:border-emerald-400 hover:text-amber-300 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                     data-star-value="3"
                     role="radio"
                     aria-label="3 Sterne"
@@ -404,166 +406,10 @@
                     <span aria-hidden="true" data-star-icon>☆</span>
                   </button>
                 </div>
-                <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
+                <p id="itemStarsError" class="text-xs text-rose-400 hidden" data-error-for="stars"></p>
               </div>
-              <div class="sm:col-span-2 space-y-2">
-
-                <div class="space-y-2">
-                  <label class="text-sm font-medium text-slate-300" for="itemImage">Item-Bild</label>
-                  <input
-                    id="itemImage"
-                    name="itemImage"
-                    type="file"
-                    accept="image/*"
-                    class="sr-only"
-                    data-file-input="itemImage"
-                    aria-describedby="itemImageHelp itemImageError"
-                  />
-                  <div
-                    class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4"
-                    data-file-paste-target="itemImage"
-                    tabindex="0"
-                    aria-label="Item-Bild hinzufügen oder einfügen"
-                  >
-                    <label
-                      for="itemImage"
-                      class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        class="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                      </svg>
-                      <span>Bild hinzufügen</span>
-                    </label>
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
-                      data-file-reset="itemImage"
-                      hidden
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        class="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path d="m6 6 12 12" />
-                        <path d="m18 6-12 12" />
-                      </svg>
-                      <span>Zurücksetzen</span>
-                    </button>
-                    <span
-                      class="min-w-0 flex-1 truncate text-sm text-slate-500"
-                      data-file-display="itemImage"
-                      data-file-default="Keine Datei ausgewählt"
-                      aria-live="polite"
-                    >
-                      Keine Datei ausgewählt
-                    </span>
-                  </div>
-                </div>
-                <p id="itemImageHelp" class="text-xs text-slate-500">
-                  Unterstützte Formate: PNG, JPG, WebP · Maximal 5&nbsp;MB. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
-                </p>
-                <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage"></p>
-              </div>
-              <div class="sm:col-span-2 space-y-2">
-                <div class="space-y-2">
-                  <label class="text-sm font-medium text-slate-300" for="itemLoreImage">Lore-Bild (optional)</label>
-                  <input
-                    id="itemLoreImage"
-                    name="itemLoreImage"
-                    type="file"
-                    accept="image/*"
-                    class="sr-only"
-                    data-file-input="itemLoreImage"
-                    aria-describedby="itemLoreImageHelp itemLoreImageError"
-                  />
-                  <div
-                    class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4"
-                    data-file-paste-target="itemLoreImage"
-                    tabindex="0"
-                    aria-label="Lore-Bild hinzufügen oder einfügen"
-                  >
-                    <label
-                      for="itemLoreImage"
-                      class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        class="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                      </svg>
-                      <span>Bild hinzufügen</span>
-                    </label>
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-2 rounded-lg border border-slate-700 px-3 py-2 text-xs font-medium text-slate-300 transition hover:border-slate-500 hover:text-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
-                      data-file-reset="itemLoreImage"
-                      hidden
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="1.5"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        class="h-4 w-4"
-                        aria-hidden="true"
-                      >
-                        <path d="m6 6 12 12" />
-                        <path d="m18 6-12 12" />
-                      </svg>
-                      <span>Zurücksetzen</span>
-                    </button>
-                    <span
-                      class="min-w-0 flex-1 truncate text-sm text-slate-500"
-                      data-file-display="itemLoreImage"
-                      data-file-default="Keine Datei ausgewählt"
-                      aria-live="polite"
-                    >
-                      Keine Datei ausgewählt
-                    </span>
-                  </div>
-                </div>
-                <p id="itemLoreImageHelp" class="text-xs text-slate-500">
-                  Optionales Zusatzbild für Lore-Ansichten. Unterstützte Formate wie oben. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
-                </p>
-                <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage"></p>
-              </div>
-            </div>
-            <div class="space-y-4">
-              <div class="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <span class="text-sm font-medium text-slate-300">Verzauberungen</span>
-                <span class="text-xs text-slate-500">Optional – aktiviere Einträge nach Bedarf</span>
-              </div>
-              <div class="space-y-3">
+              <div class="space-y-3 rounded-2xl border border-slate-800 bg-slate-950/80 p-4" aria-labelledby="addItemEnchantments">
+                <span id="addItemEnchantments" class="text-sm font-medium text-slate-300">Verzauberungen</span>
                 <label class="relative block" for="enchantmentsSearch">
                   <span class="sr-only">Verzauberungen durchsuchen</span>
                   <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center text-slate-500">
@@ -585,20 +431,85 @@
                   <input
                     id="enchantmentsSearch"
                     type="search"
-                    class="w-full rounded-lg border border-slate-800 bg-slate-950/70 py-2 pl-10 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    class="w-full rounded-lg border border-slate-800 bg-slate-900 py-2 pl-10 pr-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
                     placeholder="Verzauberungen durchsuchen…"
                     autocomplete="off"
                   />
                 </label>
                 <div
                   id="enchantmentsList"
-                  class="enchantments-list space-y-3 rounded-xl border border-slate-800/70 bg-slate-900/40 p-3"
+                  class="enchantments-list space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-3"
                   data-enchantments-list
                 >
-                  <p class="text-sm text-slate-500">Verzauberungen werden geladen…</p>
+                  <div class="space-y-2" aria-hidden="true" data-enchantments-skeleton>
+                    <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                    <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                    <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                  </div>
+                  <p class="sr-only">Verzauberungen werden geladen…</p>
+                </div>
+                <p class="text-xs text-rose-400 hidden" data-error-for="enchantments"></p>
+              </div>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <div class="space-y-2">
+                  <input
+                    id="itemLoreImage"
+                    name="itemLoreImage"
+                    type="file"
+                    accept="image/*"
+                    class="sr-only"
+                    data-file-input="itemLoreImage"
+                    aria-describedby="itemLoreImageError"
+                  />
+                  <label
+                    for="itemLoreImage"
+                    class="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-5 text-sm font-medium text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                    data-file-paste-target="itemLoreImage"
+                    tabindex="0"
+                    aria-label="Lore-Bild hinzufügen"
+                  >
+                    <span class="text-base font-semibold">Lore Bild hinzufügen</span>
+                    <span
+                      class="text-xs text-slate-500"
+                      data-file-display="itemLoreImage"
+                      data-file-default="Keine Datei ausgewählt"
+                      aria-live="polite"
+                    >
+                      Keine Datei ausgewählt
+                    </span>
+                  </label>
+                  <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage"></p>
+                </div>
+                <div class="space-y-2">
+                  <input
+                    id="itemImage"
+                    name="itemImage"
+                    type="file"
+                    accept="image/*"
+                    class="sr-only"
+                    data-file-input="itemImage"
+                    aria-describedby="itemImageError"
+                  />
+                  <label
+                    for="itemImage"
+                    class="flex flex-col items-center justify-center gap-2 rounded-xl border border-slate-800 bg-slate-900/70 px-4 py-5 text-sm font-medium text-slate-200 transition hover:border-emerald-400 hover:text-emerald-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
+                    data-file-paste-target="itemImage"
+                    tabindex="0"
+                    aria-label="Item-Bild hinzufügen"
+                  >
+                    <span class="text-base font-semibold">Item Bild hinzufügen</span>
+                    <span
+                      class="text-xs text-slate-500"
+                      data-file-display="itemImage"
+                      data-file-default="Keine Datei ausgewählt"
+                      aria-live="polite"
+                    >
+                      Keine Datei ausgewählt
+                    </span>
+                  </label>
+                  <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage"></p>
                 </div>
               </div>
-              <p class="text-xs text-rose-400 hidden" data-error-for="enchantments"></p>
             </div>
             <div class="flex justify-end gap-3 pt-2">
               <button
@@ -610,7 +521,7 @@
               </button>
               <button
                 type="submit"
-                class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+                class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-emerald-500/0 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                 id="addItemSubmit"
               >
                 <span>Speichern</span>

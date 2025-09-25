@@ -69,8 +69,8 @@ type ImagePreviewDetails = {
 
 const MAX_STAR_LEVEL = 3 as const
 const STAR_LEVEL_VALUES = Array.from(
-  { length: MAX_STAR_LEVEL + 1 },
-  (_, index) => index
+  { length: MAX_STAR_LEVEL },
+  (_, index) => index + 1
 ) as ReadonlyArray<number>
 
 const SUPABASE_AUTH_COOKIE_HINTS = [
@@ -2632,13 +2632,27 @@ function ItemModal({
   }
 
   const updateStarLevel = (nextValue: number) => {
-    const normalized = Math.max(0, Math.min(MAX_STAR_LEVEL, Math.round(nextValue) || 0))
+    const normalized = Math.min(
+      MAX_STAR_LEVEL,
+      Math.max(1, Math.round(nextValue) || 1)
+    )
 
     setStarPreviewValue(null)
-    setFormValues((prev) => ({
-      ...prev,
-      starLevel: String(normalized)
-    }))
+    setFormValues((prev) => {
+      const currentValue = Number(prev.starLevel) || 0
+
+      if (currentValue === normalized) {
+        return {
+          ...prev,
+          starLevel: '0'
+        }
+      }
+
+      return {
+        ...prev,
+        starLevel: String(normalized)
+      }
+    })
 
     setErrors((prev) => {
       if (!prev.starLevel) {
@@ -3079,11 +3093,7 @@ function ItemModal({
                     >
                       Erneut versuchen
                     </button>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-6">
                 <label className="block" htmlFor="modal-item-title">
                   <span className="text-sm font-medium text-slate-300">Name *</span>
                   <input
@@ -3106,95 +3116,100 @@ function ItemModal({
                   )}
                 </label>
 
-                <label className="block" htmlFor="modal-item-type">
-                  <span className="text-sm font-medium text-slate-300">Item-Typ *</span>
-                  <select
-                    id="modal-item-type"
-                    name="itemType"
-                    required
-                    className={getFieldClassName('itemType')}
-                    value={formValues.itemType}
-                    onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.itemType)}
-                    aria-describedby={getErrorId('itemType')}
-                    disabled={metadataSelectDisabled}
-                  >
-                    <option value="">{metadataPlaceholderLabel}</option>
-                    {itemTypeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.itemType && (
-                    <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
-                      {errors.itemType}
-                    </p>
-                  )}
-                </label>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <label className="block" htmlFor="modal-item-type">
+                    <span className="text-sm font-medium text-slate-300">Item-Typ *</span>
+                    <select
+                      id="modal-item-type"
+                      name="itemType"
+                      required
+                      className={getFieldClassName('itemType')}
+                      value={formValues.itemType}
+                      onChange={handleFieldChange}
+                      disabled={metadataSelectDisabled}
+                      aria-invalid={Boolean(errors.itemType)}
+                      aria-describedby={getErrorId('itemType')}
+                    >
+                      <option value="">{metadataPlaceholderLabel}</option>
+                      {itemTypeOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.itemType && (
+                      <p id="item-modal-itemType-error" className="mt-2 text-sm text-rose-400">
+                        {errors.itemType}
+                      </p>
+                    )}
+                  </label>
 
-                <label className="block" htmlFor="modal-item-material">
-                  <span className="text-sm font-medium text-slate-300">Material *</span>
-                  <select
-                    id="modal-item-material"
-                    name="material"
-                    required
-                    className={getFieldClassName('material')}
-                    value={formValues.material}
-                    onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.material)}
-                    aria-describedby={getErrorId('material')}
-                    disabled={metadataSelectDisabled}
-                  >
-                    <option value="">{metadataPlaceholderLabel}</option>
-                    {materialOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.material && (
-                    <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
-                      {errors.material}
-                    </p>
-                  )}
-                </label>
+                  <label className="block" htmlFor="modal-item-material">
+                    <span className="text-sm font-medium text-slate-300">Material *</span>
+                    <select
+                      id="modal-item-material"
+                      name="material"
+                      required
+                      className={getFieldClassName('material')}
+                      value={formValues.material}
+                      onChange={handleFieldChange}
+                      disabled={metadataSelectDisabled}
+                      aria-invalid={Boolean(errors.material)}
+                      aria-describedby={getErrorId('material')}
+                    >
+                      <option value="">{metadataPlaceholderLabel}</option>
+                      {materialOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.material && (
+                      <p id="item-modal-material-error" className="mt-2 text-sm text-rose-400">
+                        {errors.material}
+                      </p>
+                    )}
+                  </label>
 
-                <label className="block" htmlFor="modal-item-rarity">
-                  <span className="text-sm font-medium text-slate-300">Seltenheit *</span>
-                  <select
-                    id="modal-item-rarity"
-                    name="rarity"
-                    required
-                    className={getFieldClassName('rarity')}
-                    value={formValues.rarity}
-                    onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.rarity)}
-                    aria-describedby={getErrorId('rarity')}
-                    disabled={metadataSelectDisabled}
-                  >
-                    <option value="">{metadataPlaceholderLabel}</option>
-                    {rarityOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  {errors.rarity && (
-                    <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
-                      {errors.rarity}
-                    </p>
-                  )}
-                </label>
+                  <label className="block" htmlFor="modal-item-rarity">
+                    <span className="text-sm font-medium text-slate-300">Seltenheit *</span>
+                    <select
+                      id="modal-item-rarity"
+                      name="rarity"
+                      required
+                      className={getFieldClassName('rarity')}
+                      value={formValues.rarity}
+                      onChange={handleFieldChange}
+                      disabled={metadataSelectDisabled}
+                      aria-invalid={Boolean(errors.rarity)}
+                      aria-describedby={getErrorId('rarity')}
+                    >
+                      <option value="">{metadataPlaceholderLabel}</option>
+                      {rarityOptions.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    {errors.rarity && (
+                      <p id="item-modal-rarity-error" className="mt-2 text-sm text-rose-400">
+                        {errors.rarity}
+                      </p>
+                    )}
+                  </label>
+                </div>
 
                 <div>
-                  <span id="modal-item-star-level-label" className="text-sm font-medium text-slate-300">
-                    Stern-Level
-                  </span>
+                  <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                    <span id="item-modal-starLevel-label" className="text-sm font-medium text-slate-300">
+                      Sterne
+                    </span>
+                    <span className="text-xs text-slate-500">Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne</span>
+                  </div>
                   <div
-                    className="mt-2 flex flex-wrap gap-3"
-                    role="radiogroup"
-                    aria-labelledby="modal-item-star-level-label"
+                    className="mt-3 flex flex-wrap gap-3"
+                    role="group"
+                    aria-labelledby="item-modal-starLevel-label"
                     aria-describedby={errors.starLevel ? 'item-modal-starLevel-error' : undefined}
                     aria-invalid={Boolean(errors.starLevel)}
                   >
@@ -3205,12 +3220,7 @@ function ItemModal({
                         { length: MAX_STAR_LEVEL },
                         (_, index) => index < value
                       )
-                      const optionLabel =
-                        value === 0
-                          ? 'Kein Stern'
-                          : value === 1
-                          ? '1 Stern'
-                          : `${value} Sterne`
+                      const optionLabel = value === 1 ? '1 Stern' : `${value} Sterne`
 
                       const optionClassName = [
                         'flex items-center gap-1 rounded-lg border px-3 py-2 transition',
@@ -3252,11 +3262,6 @@ function ItemModal({
                         </label>
                       )
                     })}
-                    <span className="sr-only" aria-live="polite">
-                      {starLevelValue === 0
-                        ? `Kein Stern ausgewählt.`
-                        : `${starLevelValue} von ${MAX_STAR_LEVEL} Sternen ausgewählt.`}
-                    </span>
                   </div>
                   <span className="sr-only" aria-live="polite">
                     {starLevelValue === 0
@@ -3264,7 +3269,7 @@ function ItemModal({
                       : `${starLevelValue} von ${MAX_STAR_LEVEL} Sternen ausgewählt.`}
                   </span>
                   <p className="mt-2 text-xs text-slate-500">
-                    Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne oder setze die Auswahl auf 0, um keine Sterne zu vergeben.
+                    Optional – wähle bis zu {MAX_STAR_LEVEL} Sterne, falls das Item Sterne besitzt.
                   </p>
                   {errors.starLevel && (
                     <p id="item-modal-starLevel-error" className="mt-2 text-sm text-rose-400">
@@ -3272,107 +3277,6 @@ function ItemModal({
                     </p>
                   )}
                 </div>
-
-                <label className="block" htmlFor="modal-item-price">
-                  <span className="text-sm font-medium text-slate-300">Preis</span>
-                  <input
-                    id="modal-item-price"
-                    name="price"
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    inputMode="decimal"
-                    className={getFieldClassName('price')}
-                    placeholder="0.00"
-                    value={formValues.price}
-                    onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.price)}
-                    aria-describedby={getErrorId('price')}
-                  />
-                  {errors.price && (
-                    <p id="item-modal-price-error" className="mt-2 text-sm text-rose-400">
-                      {errors.price}
-                    </p>
-                  )}
-                </label>
-
-                <label className="sm:col-span-2 block" htmlFor="modal-item-image-url">
-                  <span className="text-sm font-medium text-slate-300">Item-Bild URL</span>
-                  <input
-                    id="modal-item-image-url"
-                    name="itemImageUrl"
-                    type="url"
-                    inputMode="url"
-                    className={getFieldClassName('itemImageUrl')}
-                    placeholder="https://..."
-                    value={formValues.itemImageUrl}
-                    onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.itemImageUrl)}
-                    aria-describedby={getErrorId('itemImageUrl')}
-                  />
-                  <p className="mt-2 text-xs text-slate-500">Optional – hinterlege einen direkten Link zum Item-Bild.</p>
-                  {errors.itemImageUrl && (
-                    <p id="item-modal-itemImageUrl-error" className="mt-2 text-sm text-rose-400">
-                      {errors.itemImageUrl}
-                    </p>
-                  )}
-                </label>
-
-                <label className="sm:col-span-2 block" htmlFor="modal-item-lore-image-url">
-                  <span className="text-sm font-medium text-slate-300">Lore-Bild URL</span>
-                  <input
-                    id="modal-item-lore-image-url"
-                    name="itemLoreImageUrl"
-                    type="url"
-                    inputMode="url"
-                    className={getFieldClassName('itemLoreImageUrl')}
-                    placeholder="https://..."
-                    value={formValues.itemLoreImageUrl}
-                    onChange={handleFieldChange}
-                    aria-invalid={Boolean(errors.itemLoreImageUrl)}
-                    aria-describedby={getErrorId('itemLoreImageUrl')}
-                  />
-                  <p className="mt-2 text-xs text-slate-500">Optional – Link zu einem zusätzlichen Lore-Bild.</p>
-                  {errors.itemLoreImageUrl && (
-                    <p id="item-modal-itemLoreImageUrl-error" className="mt-2 text-sm text-rose-400">
-                      {errors.itemLoreImageUrl}
-                    </p>
-                  )}
-                </label>
-
-                <label className="sm:col-span-2 block" htmlFor="modal-item-image">
-                  <span className="text-sm font-medium text-slate-300">Item-Bild hochladen</span>
-                  <input
-                    id="modal-item-image"
-                    name="itemImage"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="mt-1 block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  />
-                  <p className="mt-2 text-xs text-slate-500">
-                    {fileValues.itemImage
-                      ? `Ausgewählte Datei: ${fileValues.itemImage.name}`
-                      : 'Unterstützte Formate: PNG, JPG, GIF'}
-                  </p>
-                </label>
-
-                <label className="sm:col-span-2 block" htmlFor="modal-item-lore-image">
-                  <span className="text-sm font-medium text-slate-300">Lore-Bild hochladen</span>
-                  <input
-                    id="modal-item-lore-image"
-                    name="itemLoreImage"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFileChange}
-                    className="mt-1 block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  />
-                  <p className="mt-2 text-xs text-slate-500">
-                    {fileValues.itemLoreImage
-                      ? `Ausgewählte Datei: ${fileValues.itemLoreImage.name}`
-                      : 'Optional: Lade ein zusätzliches Lore-Bild hoch'}
-                  </p>
-                </label>
               </div>
 
               <div className="space-y-4">
@@ -3509,6 +3413,90 @@ function ItemModal({
                 >
                   {enchantmentError ?? ''}
                 </p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-4">
+                  <label className="block" htmlFor="modal-item-lore-image-url">
+                    <span className="text-sm font-medium text-slate-300">Lore-Bild URL</span>
+                    <input
+                      id="modal-item-lore-image-url"
+                      name="itemLoreImageUrl"
+                      type="url"
+                      inputMode="url"
+                      className={getFieldClassName('itemLoreImageUrl')}
+                      placeholder="https://..."
+                      value={formValues.itemLoreImageUrl}
+                      onChange={handleFieldChange}
+                      aria-invalid={Boolean(errors.itemLoreImageUrl)}
+                      aria-describedby={getErrorId('itemLoreImageUrl')}
+                    />
+                    <p className="mt-2 text-xs text-slate-500">Optional – Link zu einem zusätzlichen Lore-Bild.</p>
+                    {errors.itemLoreImageUrl && (
+                      <p id="item-modal-itemLoreImageUrl-error" className="mt-2 text-sm text-rose-400">
+                        {errors.itemLoreImageUrl}
+                      </p>
+                    )}
+                  </label>
+
+                  <label className="block" htmlFor="modal-item-lore-image">
+                    <span className="text-sm font-medium text-slate-300">Lore-Bild hochladen</span>
+                    <input
+                      id="modal-item-lore-image"
+                      name="itemLoreImage"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="mt-1 block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                      {fileValues.itemLoreImage
+                        ? `Ausgewählte Datei: ${fileValues.itemLoreImage.name}`
+                        : 'Optional: Lade ein zusätzliches Lore-Bild hoch'}
+                    </p>
+                  </label>
+                </div>
+
+                <div className="space-y-4">
+                  <label className="block" htmlFor="modal-item-image-url">
+                    <span className="text-sm font-medium text-slate-300">Item-Bild URL</span>
+                    <input
+                      id="modal-item-image-url"
+                      name="itemImageUrl"
+                      type="url"
+                      inputMode="url"
+                      className={getFieldClassName('itemImageUrl')}
+                      placeholder="https://..."
+                      value={formValues.itemImageUrl}
+                      onChange={handleFieldChange}
+                      aria-invalid={Boolean(errors.itemImageUrl)}
+                      aria-describedby={getErrorId('itemImageUrl')}
+                    />
+                    <p className="mt-2 text-xs text-slate-500">Optional – hinterlege einen direkten Link zum Item-Bild.</p>
+                    {errors.itemImageUrl && (
+                      <p id="item-modal-itemImageUrl-error" className="mt-2 text-sm text-rose-400">
+                        {errors.itemImageUrl}
+                      </p>
+                    )}
+                  </label>
+
+                  <label className="block" htmlFor="modal-item-image">
+                    <span className="text-sm font-medium text-slate-300">Item-Bild hochladen</span>
+                    <input
+                      id="modal-item-image"
+                      name="itemImage"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="mt-1 block w-full cursor-pointer rounded-lg border border-slate-800 bg-slate-900 px-4 py-3 text-sm text-slate-300 file:mr-4 file:rounded-md file:border-0 file:bg-emerald-500 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-emerald-950 hover:file:bg-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
+                    />
+                    <p className="mt-2 text-xs text-slate-500">
+                      {fileValues.itemImage
+                        ? `Ausgewählte Datei: ${fileValues.itemImage.name}`
+                        : 'Unterstützte Formate: PNG, JPG, GIF'}
+                    </p>
+                  </label>
+                </div>
               </div>
 
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-end">
