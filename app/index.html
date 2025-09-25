@@ -249,23 +249,21 @@
     >
         <div class="absolute inset-0" data-modal-overlay></div>
         <div
-          class="relative z-10 w-full max-w-2xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10 modal-viewport"
+          class="relative z-10 w-full max-w-2xl rounded-3xl border border-slate-800/80 bg-slate-950 p-6 text-slate-200 shadow-2xl shadow-emerald-500/10"
           role="document"
         >
-          <div class="flex items-start justify-between gap-4 sticky top-0 z-10 bg-slate-950/95 backdrop-blur supports-[backdrop-filter]:bg-slate-950/80">
+          <div class="flex items-start justify-between gap-4">
             <div>
               <h2 id="addItemModalTitle" class="text-xl font-semibold text-slate-50">Neues Item hinzufügen</h2>
               <p class="mt-1 text-sm text-slate-400">
                 Fülle alle Pflichtfelder aus, um ein Item in die Datenbank zu speichern.
               </p>
-              <p class="text-xs text-slate-500 mt-2">* Pflichtfeld</p>
             </div>
             <button
               type="button"
               class="rounded-full p-2 text-slate-400 transition hover:bg-slate-900 hover:text-slate-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
               data-modal-close
               aria-label="Modal schließen"
-              title="Schließen"
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -283,7 +281,7 @@
               </svg>
             </button>
           </div>
-          <form id="addItemForm" class="mt-6 space-y-8" aria-describedby="addItemFormError" aria-busy="false" novalidate>
+          <form id="addItemForm" class="mt-6 space-y-8" aria-describedby="addItemFormError" novalidate>
             <div
               id="addItemFormError"
               class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
@@ -320,7 +318,7 @@
                   >
                     <span data-character-counter-text>0 / 120 Zeichen</span>
                   </div>
-                  <p id="itemTitleError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="title" role="alert" aria-live="assertive"></p>
+                  <p id="itemTitleError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="title"></p>
                 </div>
                 <div class="grid gap-4 sm:grid-cols-3">
                   <div>
@@ -335,7 +333,7 @@
                       ></select>
                     </label>
                     <p class="mt-1 text-xs text-slate-500">Bestimmt, in welchen Kategorien das Item später gefiltert werden kann.</p>
-                    <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="item_type_id" role="alert" aria-live="assertive"></p>
+                    <p id="itemTypeError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="item_type_id"></p>
                   </div>
                   <div>
                     <label class="block" for="item-material-select">
@@ -349,7 +347,7 @@
                       ></select>
                     </label>
                     <p class="mt-1 text-xs text-slate-500">Wird u.&nbsp;a. für die Textur und im Tooltip angezeigt.</p>
-                    <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material_id" role="alert" aria-live="assertive"></p>
+                    <p id="itemMaterialError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="material_id"></p>
                   </div>
                   <div>
                     <label class="block" for="item-rarity-select">
@@ -363,7 +361,7 @@
                       ></select>
                     </label>
                     <p class="mt-1 text-xs text-slate-500">Legt die Farbgebung und Drop-Chance des Items fest.</p>
-                    <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity_id" role="alert" aria-live="assertive"></p>
+                    <p id="itemRarityError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="rarity_id"></p>
                   </div>
                 </div>
                 <div>
@@ -427,7 +425,7 @@
                       <span aria-hidden="true" data-star-icon>☆</span>
                     </button>
                   </div>
-                  <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars" role="alert" aria-live="assertive"></p>
+                  <p id="itemStarsError" class="mt-1 text-xs text-rose-400 hidden" data-error-for="stars"></p>
                 </div>
               </div>
             </section>
@@ -478,7 +476,7 @@
                   </div>
                 </div>
               </div>
-              <p class="text-xs text-rose-400 hidden" data-error-for="enchantments" role="alert" aria-live="assertive"></p>n
+              <p class="text-xs text-rose-400 hidden" data-error-for="enchantments"></p>n
             </section>
             <section aria-labelledby="addItemFormMedia" class="space-y-4">
               <div class="space-y-1">
@@ -588,7 +586,7 @@
                   <p id="itemImageHelp" class="text-xs text-slate-500">
                     Unterstützte Formate: PNG, JPG, WebP · Maximal 5&nbsp;MB. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
                   </p>
-                  <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage" role="alert" aria-live="assertive"></p>
+                  <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage"></p>
                 </div>
                 <div class="space-y-2">
                   <label class="text-sm font-medium text-slate-300" for="itemLoreImage">Lore-Bild (optional)</label>
@@ -692,7 +690,7 @@
                   <p id="itemLoreImageHelp" class="text-xs text-slate-500">
                     Optionales Zusatzbild für Lore-Ansichten. Unterstützte Formate wie oben. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
                   </p>
-                  <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage" role="alert" aria-live="assertive"></p>
+                  <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage"></p>
                 </div>
               </div>
             </section>
@@ -708,7 +706,6 @@
                 type="submit"
                 class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-emerald-500/0 transition hover:bg-emerald-400 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
                 id="addItemSubmit"
-                aria-busy="false"
               >
                 <span>Speichern</span>
                 <svg

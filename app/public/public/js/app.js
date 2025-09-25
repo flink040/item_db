@@ -997,7 +997,6 @@ function openAddItemModal() {
   if (!elements.addItemModal) return
   elements.addItemModal.classList.remove('hidden')
   elements.addItemModal.setAttribute('aria-hidden', 'false')
-  document.documentElement.style.overflow = 'hidden'
   window.setTimeout(() => {
     const firstField = elements.addItemForm?.querySelector('input, select, textarea')
     if (firstField instanceof HTMLElement) {
@@ -1010,7 +1009,6 @@ function closeAddItemModal() {
   if (!elements.addItemModal) return
   elements.addItemModal.classList.add('hidden')
   elements.addItemModal.setAttribute('aria-hidden', 'true')
-  document.documentElement.style.removeProperty('overflow')
   resetAddItemForm()
 }
 
@@ -1035,15 +1033,9 @@ function resetAddItemForm() {
 }
 
 function toggleSubmitLoading(isLoading) {
-  const form = elements.addItemForm
-  if (form instanceof HTMLFormElement) {
-    form.setAttribute('aria-busy', isLoading ? 'true' : 'false')
-  }
-  const submitButton = elements.submitButton
-  if (submitButton instanceof HTMLButtonElement) {
-    submitButton.disabled = Boolean(isLoading)
-    submitButton.classList.toggle('opacity-75', Boolean(isLoading))
-    submitButton.setAttribute('aria-busy', isLoading ? 'true' : 'false')
+  if (elements.submitButton) {
+    elements.submitButton.disabled = Boolean(isLoading)
+    elements.submitButton.classList.toggle('opacity-75', Boolean(isLoading))
   }
   elements.submitSpinner?.classList.toggle('hidden', !isLoading)
 }
