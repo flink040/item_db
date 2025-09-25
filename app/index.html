@@ -281,7 +281,7 @@
               </svg>
             </button>
           </div>
-          <form id="addItemForm" class="mt-6 space-y-6" aria-describedby="addItemFormError" novalidate>
+          <form id="addItemForm" class="mt-6 space-y-8" aria-describedby="addItemFormError" novalidate>
             <div
               id="addItemFormError"
               class="hidden rounded-xl border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"
@@ -403,8 +403,13 @@
                     aria-label="3 Sterne"
                     aria-checked="false"
                   >
-                    <span aria-hidden="true" data-star-icon>☆</span>
-                  </button>
+                    <div class="space-y-2" aria-hidden="true" data-enchantments-skeleton>
+                      <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                      <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                      <div class="h-10 rounded-lg bg-slate-800/40 animate-pulse"></div>
+                    </div>
+                    <p class="sr-only">Verzauberungen werden geladen…</p>
+                  </div>
                 </div>
                 <p id="itemStarsError" class="text-xs text-rose-400 hidden" data-error-for="stars"></p>
               </div>
