@@ -419,7 +419,12 @@
                     data-file-input="itemImage"
                     aria-describedby="itemImageHelp itemImageError"
                   />
-                  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4">
+                  <div
+                    class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4"
+                    data-file-paste-target="itemImage"
+                    tabindex="0"
+                    aria-label="Item-Bild hinzufügen oder einfügen"
+                  >
                     <label
                       for="itemImage"
                       class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
@@ -473,7 +478,7 @@
                   </div>
                 </div>
                 <p id="itemImageHelp" class="text-xs text-slate-500">
-                  Unterstützte Formate: PNG, JPG, WebP · Maximal 5&nbsp;MB.
+                  Unterstützte Formate: PNG, JPG, WebP · Maximal 5&nbsp;MB. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
                 </p>
                 <p id="itemImageError" class="text-xs text-rose-400 hidden" data-error-for="itemImage"></p>
               </div>
@@ -489,7 +494,12 @@
                     data-file-input="itemLoreImage"
                     aria-describedby="itemLoreImageHelp itemLoreImageError"
                   />
-                  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4">
+                  <div
+                    class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-800/70 bg-slate-900/40 px-3 py-3 sm:px-4"
+                    data-file-paste-target="itemLoreImage"
+                    tabindex="0"
+                    aria-label="Lore-Bild hinzufügen oder einfügen"
+                  >
                     <label
                       for="itemLoreImage"
                       class="inline-flex items-center gap-2 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 transition hover:bg-emerald-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
@@ -543,7 +553,7 @@
                   </div>
                 </div>
                 <p id="itemLoreImageHelp" class="text-xs text-slate-500">
-                  Optionales Zusatzbild für Lore-Ansichten. Unterstützte Formate wie oben.
+                  Optionales Zusatzbild für Lore-Ansichten. Unterstützte Formate wie oben. Sie können auch ein Bild aus der Zwischenablage einfügen (Strg+V).
                 </p>
                 <p id="itemLoreImageError" class="text-xs text-rose-400 hidden" data-error-for="itemLoreImage"></p>
               </div>
