@@ -15,9 +15,3 @@ body,
 body {
   background-color: #020617;
 }
-
-@supports (height: 100svh) {
-  .modal-viewport {
-    max-height: min(66svh, calc(100svh - 3rem));
-  }
-}
