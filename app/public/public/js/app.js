@@ -1278,6 +1278,67 @@ function showFieldError(field, message) {
   }
 }
 
+function getFilesFromDataTransfer(dataTransfer) {
+  if (!dataTransfer) {
+    return []
+  }
+
+  if (dataTransfer.files && dataTransfer.files.length) {
+    return Array.from(dataTransfer.files)
+  }
+
+  if (dataTransfer.items && dataTransfer.items.length) {
+    return Array.from(dataTransfer.items)
+      .map((item) => {
+        if (typeof item?.getAsFile === 'function') {
+          return item.getAsFile()
+        }
+        return null
+      })
+      .filter((file) => file instanceof File)
+  }
+
+  return []
+}
+
+function getImageFilesFromClipboardEvent(event) {
+  if (!event) {
+    return []
+  }
+
+  const files = getFilesFromDataTransfer(event.clipboardData)
+  return files.filter((file) => file && typeof file.type === 'string' && file.type.startsWith('image/'))
+}
+
+function setFilesOnInput(input, files) {
+  if (!(input instanceof HTMLInputElement) || !Array.isArray(files) || files.length === 0) {
+    return false
+  }
+
+  if (typeof DataTransfer !== 'function') {
+    return false
+  }
+
+  const selection = input.multiple ? files : files.slice(0, 1)
+  const dataTransfer = new DataTransfer()
+
+  selection.forEach((file) => {
+    try {
+      dataTransfer.items.add(file)
+    } catch (error) {
+      // Ignore failures for individual files
+    }
+  })
+
+  if (!dataTransfer.files || dataTransfer.files.length === 0) {
+    return false
+  }
+
+  input.files = dataTransfer.files
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  return true
+}
+
 function updateCustomFileInput(entry) {
   if (!entry || !(entry.input instanceof HTMLInputElement) || !(entry.display instanceof HTMLElement)) {
     return
@@ -1323,10 +1384,12 @@ function registerCustomFileInput(input) {
   }
 
   const resetButton = elements.addItemForm?.querySelector(`[data-file-reset="${key}"]`)
+  const pasteTarget = elements.addItemForm?.querySelector(`[data-file-paste-target="${key}"]`)
   const entry = {
     input,
     display,
     resetButton: resetButton instanceof HTMLElement ? resetButton : null,
+    pasteTarget: pasteTarget instanceof HTMLElement ? pasteTarget : null,
     defaultText: display.dataset.fileDefault || display.textContent || 'Keine Datei ausgewählt',
     update: null,
   }
@@ -1341,6 +1404,22 @@ function registerCustomFileInput(input) {
       input.value = ''
       input.dispatchEvent(new Event('change', { bubbles: true }))
       input.focus()
+    })
+  }
+
+  if (entry.pasteTarget) {
+    entry.pasteTarget.dataset.filePasteEnabled = 'true'
+    entry.pasteTarget.addEventListener('paste', (event) => {
+      const files = getImageFilesFromClipboardEvent(event)
+      if (!files.length) {
+        return
+      }
+
+      const applied = setFilesOnInput(input, files)
+      if (applied) {
+        event.preventDefault()
+        entry.update?.()
+      }
     })
   }
 
