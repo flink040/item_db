@@ -619,7 +619,7 @@ async function insertItemWithEnchantments(
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumnErrors = ['description', 'rarity']
+    const legacyColumnErrors = ['description', 'rarity', 'name', 'created_by']
     const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
     if (hasLegacyIssue) {
       result = await executeInsert(starColumn, true)
