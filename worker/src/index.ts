@@ -408,8 +408,11 @@ function normaliseItemPayload(payload: ItemInsert, rawBody: Record<string, unkno
       rawBody.itemLoreImage
     ) ?? null
 
+  const name = pickFirstString(rawBody.name, rawBody.title, title) ?? title
+
   return {
     title,
+    name,
     description: description ?? null,
     item_type_id: payload.item_type_id,
     material_id: payload.material_id,
@@ -523,6 +526,7 @@ async function insertItemWithEnchantments(
   client: SupabaseClient,
   item: {
     title: string
+    name?: string | null
     description?: string | null
     item_type_id: number
     material_id: number
@@ -559,6 +563,13 @@ async function insertItemWithEnchantments(
 
     if (item.title) {
       payload.title = item.title
+    }
+
+    if (!useLegacyFallback) {
+      const resolvedName = item.name ?? item.title
+      if (resolvedName) {
+        payload.name = resolvedName
+      }
     }
 
     if (item.item_image !== undefined) {
@@ -608,7 +619,7 @@ async function insertItemWithEnchantments(
     const message = String(result.error?.message ?? '').toLowerCase()
     const missingStarColumn =
       message.includes('column "stars"') || message.includes('column items.stars')
-    const legacyColumnErrors = ['description', 'rarity']
+    const legacyColumnErrors = ['description', 'rarity', 'name', 'created_by']
     const hasLegacyIssue = legacyColumnErrors.some((column) => message.includes(`column "${column}`))
     if (hasLegacyIssue) {
       result = await executeInsert(starColumn, true)
@@ -1030,6 +1041,7 @@ api.post('/items', async (c) => {
 
   const baseItem = {
     title: normalized.title,
+    name: normalized.name ?? normalized.title,
     description: normalized.description,
     item_type_id: normalized.item_type_id,
     material_id: normalized.material_id,
