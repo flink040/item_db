@@ -1093,6 +1093,14 @@ const extractBooleanFilter = (
 
     const lowered = normalized.toLowerCase()
 
+    if (lowered === 'is.true') {
+      return 'true'
+    }
+
+    if (lowered === 'is.false') {
+      return 'false'
+    }
+
     if (['true', '1', 'yes', 'y', 'on'].includes(lowered)) {
       return 'true'
     }
@@ -1450,8 +1458,7 @@ api.get('/items', async (c) => {
   }
 
   if (isPublishedFilter !== null) {
-    params.delete('is_published')
-    params.append('is_published', `eq.${isPublishedFilter}`)
+    params.set('is_published', `eq.${isPublishedFilter}`)
   }
 
   params.append('order', 'title.asc')
