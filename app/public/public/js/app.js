@@ -588,16 +588,19 @@ function renderItems(items) {
     if (createdAtDate) {
       const created = document.createElement('p')
       created.className = 'item-card__footer'
+      const creatorName = resolveItemCreatorName(item)
       try {
         const formatted = createdAtDate.toLocaleDateString('de-DE', {
           year: 'numeric',
           month: 'short',
           day: 'numeric',
         })
-        created.textContent = `Hinzugefügt am ${formatted}`
+        created.textContent = creatorName
+          ? `Hinzugefügt am ${formatted} von ${creatorName}`
+          : `Hinzugefügt am ${formatted}`
       } catch (error) {
         console.warn('Konnte Datum nicht formatieren.', error)
-        created.textContent = 'Hinzugefügt'
+        created.textContent = creatorName ? `Hinzugefügt von ${creatorName}` : 'Hinzugefügt'
       }
       card.appendChild(created)
     }
@@ -1266,6 +1269,50 @@ function resolveItemCreatedAt(item) {
       }
     }
   }
+  return null
+}
+
+function resolveProfileName(profile) {
+  if (!profile || typeof profile !== 'object') {
+    return null
+  }
+
+  const candidates = ['display_name', 'displayName', 'username', 'name']
+
+  for (const key of candidates) {
+    const value = profile[key]
+    if (typeof value !== 'string') {
+      continue
+    }
+    const trimmed = value.trim()
+    if (trimmed) {
+      return trimmed
+    }
+  }
+
+  return null
+}
+
+function resolveItemCreatorName(item) {
+  if (!item || typeof item !== 'object') {
+    return null
+  }
+
+  const candidates = [
+    item.creator_profile,
+    item.created_by_profile,
+    item.profiles,
+    item.creator,
+    item.owner_profile,
+  ]
+
+  for (const candidate of candidates) {
+    const name = resolveProfileName(candidate)
+    if (name) {
+      return name
+    }
+  }
+
   return null
 }
 
@@ -4339,6 +4386,52 @@ async function loadFiltersAndLists() {
   }
 }
 
+async function fetchProfilesByIds(ids) {
+  if (!supabase || !Array.isArray(ids) || ids.length === 0) {
+    return new Map()
+  }
+
+  const uniqueIds = Array.from(
+    new Set(
+      ids
+        .map((id) => (typeof id === 'string' ? id.trim() : ''))
+        .filter((id) => id.length > 0)
+    )
+  )
+
+  if (uniqueIds.length === 0) {
+    return new Map()
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id,username,display_name')
+      .in('id', uniqueIds)
+
+    if (error) {
+      throw error
+    }
+
+    const map = new Map()
+
+    if (Array.isArray(data)) {
+      data.forEach((profile) => {
+        const id = typeof profile?.id === 'string' ? profile.id.trim() : ''
+        if (!id) {
+          return
+        }
+        map.set(id, profile)
+      })
+    }
+
+    return map
+  } catch (error) {
+    console.warn('[items] Konnte Profil-Informationen nicht laden.', error)
+    return new Map()
+  }
+}
+
 async function loadItems() {
   if (!supabase) {
     renderItemsError('Supabase ist nicht konfiguriert. Bitte Meta-Daten ergänzen.')
@@ -4369,6 +4462,7 @@ async function loadItems() {
       'material_id',
       'rarity_id',
       'owner',
+      'created_by',
       'item_image',
       'item_lore_image',
     ]
@@ -4401,7 +4495,26 @@ async function loadItems() {
     }
 
     const rawItems = Array.isArray(itemsResult.data) ? itemsResult.data : []
-    const enrichedItems = attachItemLookups(rawItems)
+    const creatorIds = rawItems
+      .map((item) => (item?.created_by ?? item?.owner ?? null))
+      .filter((id) => typeof id === 'string' && id.trim().length > 0)
+
+    const creatorProfiles = await fetchProfilesByIds(creatorIds)
+
+    const enrichedItems = attachItemLookups(rawItems).map((item) => {
+      const creatorId = typeof item?.created_by === 'string' && item.created_by.trim().length > 0
+        ? item.created_by
+        : typeof item?.owner === 'string' && item.owner.trim().length > 0
+          ? item.owner
+          : null
+
+      if (!creatorId || !creatorProfiles.has(creatorId)) {
+        return item
+      }
+
+      return { ...item, creator_profile: creatorProfiles.get(creatorId) }
+    })
+
     const normalisedItems = enrichedItems.map(normaliseItemStarFields)
     renderItems(normalisedItems)
   } catch (error) {
