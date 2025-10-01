@@ -711,6 +711,29 @@ const extractPositiveIntegerFilter = (
   return null
 }
 
+const extractBooleanFilter = (
+  ...candidates: Array<string | undefined>
+): 'true' | 'false' | null => {
+  for (const candidate of candidates) {
+    const normalized = normalizeFilterValue(candidate)
+    if (!normalized) {
+      continue
+    }
+
+    const lowered = normalized.toLowerCase()
+
+    if (['true', '1', 'yes', 'y', 'on'].includes(lowered)) {
+      return 'true'
+    }
+
+    if (['false', '0', 'no', 'n', 'off'].includes(lowered)) {
+      return 'false'
+    }
+  }
+
+  return null
+}
+
 const DEFAULT_CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET,POST,PATCH,DELETE,OPTIONS',
@@ -880,6 +903,12 @@ api.get('/items', async (c) => {
     query.material
   )
   const rarityIdFilter = extractPositiveIntegerFilter(query['rarity_id'], query['rarityId'])
+  const isPublishedFilter = extractBooleanFilter(
+    query['is_published'],
+    query['isPublished'],
+    query.published,
+    query['published']
+  )
 
   if (search.length > 0) {
     const pattern = `*${search}*`
@@ -899,6 +928,10 @@ api.get('/items', async (c) => {
 
   if (rarityIdFilter) {
     params.append('rarity_id', `eq.${rarityIdFilter}`)
+  }
+
+  if (isPublishedFilter !== null) {
+    params.append('is_published', `eq.${isPublishedFilter}`)
   }
 
   params.append('order', 'title.asc')
