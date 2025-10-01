@@ -1406,7 +1406,7 @@ api.get('/items', async (c) => {
   const query = c.req.query()
   const params = new URLSearchParams({
     select:
-      '*,item_enchantments(enchantment_id,level,enchantments(id,label,slug,description,max_level))',
+      '*,item_enchantments(enchantment_id,level,enchantments(id,label,description,max_level))',
   })
 
   const search = sanitizeSearchValue(query.search ?? '')
