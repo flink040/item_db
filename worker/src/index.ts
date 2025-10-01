@@ -270,8 +270,44 @@ const cleanupCookieToken = (value: string) => {
   if (!trimmed) {
     return ''
   }
-  const unquoted = trimmed.replace(/^"|"$/g, '')
-  return unquoted.trim()
+
+  const unquoted = trimmed.replace(/^"|"$/g, '').trim()
+  if (!unquoted) {
+    return ''
+  }
+
+  const looksLikeJsonObject = unquoted.startsWith('{') && unquoted.endsWith('}')
+  const looksLikeJsonArray = unquoted.startsWith('[') && unquoted.endsWith(']')
+
+  if (looksLikeJsonObject || looksLikeJsonArray) {
+    try {
+      const parsed = JSON.parse(unquoted) as Record<string, unknown> | null
+      if (parsed && typeof parsed === 'object') {
+        const tokenCandidate =
+          typeof parsed.access_token === 'string'
+            ? parsed.access_token
+            : typeof parsed.accessToken === 'string'
+              ? parsed.accessToken
+              : typeof parsed.token === 'string'
+                ? parsed.token
+                : null
+
+        if (tokenCandidate && tokenCandidate.trim()) {
+          return tokenCandidate.trim()
+        }
+      }
+    } catch (error) {
+      console.warn('[worker:auth:cookie]', 'Failed to parse Supabase cookie payload.', error)
+    }
+
+    return ''
+  }
+
+  if (unquoted.startsWith('{') || unquoted.includes('"access_token"')) {
+    return ''
+  }
+
+  return unquoted
 }
 
 const isSupabaseAccessTokenCookie = (name: string) => {
@@ -279,13 +315,23 @@ const isSupabaseAccessTokenCookie = (name: string) => {
   if (!normalized) {
     return false
   }
-  if (SUPABASE_AUTH_COOKIE_NAMES.has(normalized)) {
+  const base = normalized.replace(/\.[0-9]+$/, '')
+  if (SUPABASE_AUTH_COOKIE_NAMES.has(normalized) || SUPABASE_AUTH_COOKIE_NAMES.has(base)) {
     return true
   }
-  if (normalized.endsWith('-access-token')) {
+  if (normalized.endsWith('-access-token') || normalized.endsWith('-auth-token')) {
     return true
   }
-  return normalized.includes('supabase') && normalized.includes('access') && normalized.includes('token')
+  if (base.endsWith('-access-token') || base.endsWith('-auth-token')) {
+    return true
+  }
+  if (base.startsWith('sb-') && base.includes('auth') && base.includes('token')) {
+    return true
+  }
+  if (base.includes('supabase') && base.includes('token')) {
+    return true
+  }
+  return false
 }
 
 const extractSupabaseTokenFromCookieHeader = (cookieHeader: string | undefined) => {
@@ -293,20 +339,54 @@ const extractSupabaseTokenFromCookieHeader = (cookieHeader: string | undefined) 
     return null
   }
 
+  const candidateParts = new Map<
+    string,
+    { parts: Array<{ index: number; value: string }>; originalNames: Set<string> }
+  >()
+
   const segments = cookieHeader.split(';')
   for (const segment of segments) {
     const separatorIndex = segment.indexOf('=')
     if (separatorIndex === -1) {
       continue
     }
-    const name = segment.slice(0, separatorIndex).trim()
-    if (!isSupabaseAccessTokenCookie(name)) {
+
+    const rawName = segment.slice(0, separatorIndex).trim()
+    if (!rawName) {
+      continue
+    }
+
+    const baseName = rawName.replace(/\.[0-9]+$/, '')
+    if (!isSupabaseAccessTokenCookie(rawName) && !isSupabaseAccessTokenCookie(baseName)) {
+      continue
+    }
+
+    const indexMatch = rawName.match(/\.([0-9]+)$/)
+    const partIndex = indexMatch ? Number.parseInt(indexMatch[1] ?? '0', 10) : 0
+    if (!Number.isFinite(partIndex) || partIndex < 0) {
       continue
     }
 
     const rawValue = segment.slice(separatorIndex + 1)
     const decoded = decodeCookieValue(rawValue)
-    const cleaned = cleanupCookieToken(decoded)
+    if (!decoded || !decoded.trim()) {
+      continue
+    }
+
+    const entry = candidateParts.get(baseName) ?? { parts: [], originalNames: new Set<string>() }
+    entry.parts.push({ index: partIndex, value: decoded })
+    entry.originalNames.add(rawName)
+    candidateParts.set(baseName, entry)
+  }
+
+  for (const { parts } of candidateParts.values()) {
+    if (parts.length === 0) {
+      continue
+    }
+
+    parts.sort((a, b) => a.index - b.index)
+    const combined = parts.map((part) => part.value).join('')
+    const cleaned = cleanupCookieToken(combined)
     if (cleaned) {
       return cleaned
     }
