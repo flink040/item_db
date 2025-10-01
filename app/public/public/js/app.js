@@ -1277,7 +1277,7 @@ function resolveProfileName(profile) {
     return null
   }
 
-  const candidates = ['display_name', 'displayName', 'username', 'name']
+  const candidates = ['mc_name', 'mcName', 'username', 'display_name', 'displayName', 'name']
 
   for (const key of candidates) {
     const value = profile[key]
@@ -4406,7 +4406,7 @@ async function fetchProfilesByIds(ids) {
   try {
     const { data, error } = await supabase
       .from('profiles')
-      .select('id,username,display_name')
+      .select('id,username,mc_name')
       .in('id', uniqueIds)
 
     if (error) {
