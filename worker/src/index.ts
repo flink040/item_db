@@ -1084,7 +1084,7 @@ const extractPositiveIntegerFilter = (
 
 const extractBooleanFilter = (
   ...candidates: Array<string | undefined>
-): 'true' | 'false' | null => {
+): 'TRUE' | 'FALSE' | null => {
   for (const candidate of candidates) {
     const normalized = normalizeFilterValue(candidate)
     if (!normalized) {
@@ -1093,12 +1093,20 @@ const extractBooleanFilter = (
 
     const lowered = normalized.toLowerCase()
 
+    if (lowered === 'is.true') {
+      return 'TRUE'
+    }
+
+    if (lowered === 'is.false') {
+      return 'FALSE'
+    }
+
     if (['true', '1', 'yes', 'y', 'on'].includes(lowered)) {
-      return 'true'
+      return 'TRUE'
     }
 
     if (['false', '0', 'no', 'n', 'off'].includes(lowered)) {
-      return 'false'
+      return 'FALSE'
     }
   }
 
@@ -1450,8 +1458,7 @@ api.get('/items', async (c) => {
   }
 
   if (isPublishedFilter !== null) {
-    params.delete('is_published')
-    params.append('is_published', `is.${isPublishedFilter}`)
+    params.set('is_published', `eq.${isPublishedFilter}`)
   }
 
   params.append('order', 'title.asc')
