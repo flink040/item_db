@@ -45,6 +45,8 @@ cd worker
 npx wrangler deploy
 ```
 
+> Eine ausführlichere Schritt-für-Schritt-Anleitung findest du in [docs/worker-deployment.md](docs/worker-deployment.md).
+
 ### 5) Umgebungsvariablen setzen
 Im Cloudflare Dashboard oder via Wrangler (secrets):
 - `SUPABASE_URL`
