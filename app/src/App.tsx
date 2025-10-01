@@ -2072,7 +2072,8 @@ export default function App() {
             <button
               type="button"
               onClick={() => setShowProfileModal(true)}
-              className="inline-flex items-center gap-4 rounded-full border border-slate-800/80 bg-slate-900/60 px-7 py-2.5 text-base font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500
+              className="inline-flex items-center gap-4 rounded-full border border-slate-800/80 bg-slate-900/60 px-7 py-2.5 text-base font-semibold text-slate-200 transition hover:border-emerald-500/70 hover:text-emerald-200 focus:outline-none focus-visible:ring focus-visible:ring-emerald-500/60"
+            >
               <span className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-emerald-500/10 text-base font-semibold text-emerald-300 ring-1 ring-inset ring-emerald-500/30">
                 U
               </span>
@@ -2445,7 +2446,6 @@ function ProfileModal({ onClose }: ModalProps) {
           </div>
         </div>
       </div>
-    </div>
     </div>
   )
 }

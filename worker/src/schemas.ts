@@ -8,6 +8,7 @@ export const ItemInsertSchema = z.object({
   material_id: z.number().int().positive(),
   star_level: z.number().int().min(0).max(3).optional().default(0),
   rarity_id: z.number().int().positive(),
+  is_published: z.boolean().optional().default(false),
   enchantments: z
     .array(
       z.object({

@@ -1,18 +1,16 @@
-import { createClient } from '@supabase/supabase-js'
 import type { Bindings } from '../bindings'
 
-type MetaEnv = Pick<Bindings, 'SUPABASE_URL' | 'SUPABASE_SERVICE_ROLE_KEY'>
-type ServiceRoleClient = ReturnType<typeof createClient<any, any>>
-type PostgrestQueryResult<T> = {
-  data: T[] | null
-  error: { message?: string } | null
+type MetaEnv = Pick<Bindings, 'SUPABASE_URL' | 'SUPABASE_ANON_KEY'>
+
+type MetaFetchResult<T> = {
   status: number
+  data: T[]
+  etag: string | null
 }
 
-const createServiceRoleClient = (env: MetaEnv): ServiceRoleClient =>
-  createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
-    auth: { persistSession: false },
-  })
+type FetchOptions = {
+  ifNoneMatch?: string | null
+}
 
 const ensureArray = <T>(rows: T[] | null | undefined): T[] =>
   Array.isArray(rows) ? rows : []
@@ -33,42 +31,59 @@ const createMetaError = (scope: string, error: unknown, status: number) => {
   })
 }
 
-const executeListQuery = async <T>(
-  env: MetaEnv,
-  scope: string,
-  queryBuilder: (client: ServiceRoleClient) => Promise<PostgrestQueryResult<T>>
-): Promise<T[]> => {
-  const client = createServiceRoleClient(env)
-  const { data, error, status } = await queryBuilder(client)
+const fetchMeta = async <T>(env: MetaEnv, scope: string, path: string, options?: FetchOptions) => {
+  const url = `${env.SUPABASE_URL}/rest/v1/${path}`
+  const headers = new Headers({
+    apikey: env.SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${env.SUPABASE_ANON_KEY}`,
+    Accept: 'application/json',
+  })
 
-  if (error) {
-    throw createMetaError(scope, error, status)
+  if (options?.ifNoneMatch) {
+    headers.set('If-None-Match', options.ifNoneMatch)
   }
 
-  return ensureArray(data)
+  const response = await fetch(url, { headers })
+
+  if (response.status === 304) {
+    return { status: 304, data: [] as T[], etag: response.headers.get('etag') }
+  }
+
+  if (!response.ok) {
+    const error = await response
+      .clone()
+      .json()
+      .catch(() => ({ message: response.statusText }))
+    throw createMetaError(scope, error, response.status)
+  }
+
+  const payload = await response.json()
+  return {
+    status: response.status,
+    data: ensureArray(payload),
+    etag: response.headers.get('etag'),
+  }
 }
 
-export const fetchMaterialsList = (env: MetaEnv) =>
-  executeListQuery(env, 'materials', (client) =>
-    client
-      .from('materials')
-      .select('id, slug, label')
-      .order('label', { ascending: true })
-  )
+export const fetchMaterialsList = (
+  env: MetaEnv,
+  options?: FetchOptions
+): Promise<MetaFetchResult<{ id: number; slug: string; label: string }>> =>
+  fetchMeta(env, 'materials', 'materials?select=id,slug,label&order=label.asc', options)
 
-export const fetchItemTypesList = (env: MetaEnv) =>
-  executeListQuery(env, 'item_types', (client) =>
-    client
-      .from('item_types')
-      .select('id, slug, label')
-      .order('label', { ascending: true })
-  )
+export const fetchItemTypesList = (
+  env: MetaEnv,
+  options?: FetchOptions
+): Promise<MetaFetchResult<{ id: number; slug: string; label: string }>> =>
+  fetchMeta(env, 'item_types', 'item_types?select=id,slug,label&order=label.asc', options)
 
-export const fetchRaritiesList = (env: MetaEnv) =>
-  executeListQuery(env, 'rarities', (client) =>
-    client
-      .from('rarities')
-      .select('id, slug, label, sort')
-      .order('sort', { ascending: true })
-      .order('label', { ascending: true })
+export const fetchRaritiesList = (
+  env: MetaEnv,
+  options?: FetchOptions
+): Promise<MetaFetchResult<{ id: number; slug: string; label: string; sort?: number }>> =>
+  fetchMeta(
+    env,
+    'rarities',
+    'rarities?select=id,slug,label,sort&order=sort.asc&order=label.asc',
+    options
   )

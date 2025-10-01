@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import type { Context } from 'hono'
 import { createClient } from '@supabase/supabase-js'
+import type { User } from '@supabase/supabase-js'
 import type { Bindings } from './bindings'
 import { fetchItemTypesList, fetchMaterialsList, fetchRaritiesList } from './routes/meta'
 import { ItemInsertSchema, type ItemInsert, coerceInts } from './schemas'
@@ -50,8 +51,67 @@ const SUPABASE_AUTH_COOKIE_NAMES = new Set([
 
 const BEARER_PREFIX = /^bearer\s+/i
 
+const KNOWN_ROLES = ['user', 'moderator', 'admin'] as const
+type KnownRole = (typeof KNOWN_ROLES)[number]
+type UserRole = KnownRole | null
+const KNOWN_ROLE_SET = new Set<string>(KNOWN_ROLES)
+const MODERATION_ROLES = new Set<KnownRole>(['moderator', 'admin'])
+
 const readHeader = (req: RequestLike, name: string) =>
   req.header(name) ?? req.header(name.toLowerCase()) ?? req.header(name.toUpperCase())
+
+const normalizeRoleValue = (value: unknown): UserRole => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const normalized = value.trim().toLowerCase()
+  return KNOWN_ROLE_SET.has(normalized) ? (normalized as KnownRole) : null
+}
+
+const isModeratorRole = (role: UserRole) => (role ? MODERATION_ROLES.has(role) : false)
+
+const maskUserId = (value: string | null | undefined) => {
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  const cleaned = value.replace(/[^a-z0-9]/gi, '').toLowerCase().slice(0, 12)
+  return cleaned ? `uid_${cleaned}` : null
+}
+
+type RouteLogPayload = {
+  method: string
+  status: number
+  durationMs: number
+  cacheStatus?: string | null
+  user?: string | null
+  message?: string
+}
+
+const logRouteEvent = (scope: string, payload: RouteLogPayload) => {
+  console.log(`[worker:${scope}]`, payload)
+}
+
+const SENSITIVE_HEADER_NAMES = new Set([
+  'authorization',
+  'cookie',
+  'x-api-key',
+  'cf-access-jwt-assertion',
+])
+
+const shouldRedactHeader = (name: string) => {
+  const lowered = name.toLowerCase()
+  if (SENSITIVE_HEADER_NAMES.has(lowered)) {
+    return true
+  }
+
+  if (lowered.startsWith('x-auth-') || lowered.endsWith('-token') || lowered.includes('authorization')) {
+    return true
+  }
+
+  return false
+}
 
 const JSON_ERROR_CONTEXT_RADIUS = 20
 
@@ -210,8 +270,44 @@ const cleanupCookieToken = (value: string) => {
   if (!trimmed) {
     return ''
   }
-  const unquoted = trimmed.replace(/^"|"$/g, '')
-  return unquoted.trim()
+
+  const unquoted = trimmed.replace(/^"|"$/g, '').trim()
+  if (!unquoted) {
+    return ''
+  }
+
+  const looksLikeJsonObject = unquoted.startsWith('{') && unquoted.endsWith('}')
+  const looksLikeJsonArray = unquoted.startsWith('[') && unquoted.endsWith(']')
+
+  if (looksLikeJsonObject || looksLikeJsonArray) {
+    try {
+      const parsed = JSON.parse(unquoted) as Record<string, unknown> | null
+      if (parsed && typeof parsed === 'object') {
+        const tokenCandidate =
+          typeof parsed.access_token === 'string'
+            ? parsed.access_token
+            : typeof parsed.accessToken === 'string'
+              ? parsed.accessToken
+              : typeof parsed.token === 'string'
+                ? parsed.token
+                : null
+
+        if (tokenCandidate && tokenCandidate.trim()) {
+          return tokenCandidate.trim()
+        }
+      }
+    } catch (error) {
+      console.warn('[worker:auth:cookie]', 'Failed to parse Supabase cookie payload.', error)
+    }
+
+    return ''
+  }
+
+  if (unquoted.startsWith('{') || unquoted.includes('"access_token"')) {
+    return ''
+  }
+
+  return unquoted
 }
 
 const isSupabaseAccessTokenCookie = (name: string) => {
@@ -219,13 +315,23 @@ const isSupabaseAccessTokenCookie = (name: string) => {
   if (!normalized) {
     return false
   }
-  if (SUPABASE_AUTH_COOKIE_NAMES.has(normalized)) {
+  const base = normalized.replace(/\.[0-9]+$/, '')
+  if (SUPABASE_AUTH_COOKIE_NAMES.has(normalized) || SUPABASE_AUTH_COOKIE_NAMES.has(base)) {
     return true
   }
-  if (normalized.endsWith('-access-token')) {
+  if (normalized.endsWith('-access-token') || normalized.endsWith('-auth-token')) {
     return true
   }
-  return normalized.includes('supabase') && normalized.includes('access') && normalized.includes('token')
+  if (base.endsWith('-access-token') || base.endsWith('-auth-token')) {
+    return true
+  }
+  if (base.startsWith('sb-') && base.includes('auth') && base.includes('token')) {
+    return true
+  }
+  if (base.includes('supabase') && base.includes('token')) {
+    return true
+  }
+  return false
 }
 
 const extractSupabaseTokenFromCookieHeader = (cookieHeader: string | undefined) => {
@@ -233,20 +339,54 @@ const extractSupabaseTokenFromCookieHeader = (cookieHeader: string | undefined) 
     return null
   }
 
+  const candidateParts = new Map<
+    string,
+    { parts: Array<{ index: number; value: string }>; originalNames: Set<string> }
+  >()
+
   const segments = cookieHeader.split(';')
   for (const segment of segments) {
     const separatorIndex = segment.indexOf('=')
     if (separatorIndex === -1) {
       continue
     }
-    const name = segment.slice(0, separatorIndex).trim()
-    if (!isSupabaseAccessTokenCookie(name)) {
+
+    const rawName = segment.slice(0, separatorIndex).trim()
+    if (!rawName) {
+      continue
+    }
+
+    const baseName = rawName.replace(/\.[0-9]+$/, '')
+    if (!isSupabaseAccessTokenCookie(rawName) && !isSupabaseAccessTokenCookie(baseName)) {
+      continue
+    }
+
+    const indexMatch = rawName.match(/\.([0-9]+)$/)
+    const partIndex = indexMatch ? Number.parseInt(indexMatch[1] ?? '0', 10) : 0
+    if (!Number.isFinite(partIndex) || partIndex < 0) {
       continue
     }
 
     const rawValue = segment.slice(separatorIndex + 1)
     const decoded = decodeCookieValue(rawValue)
-    const cleaned = cleanupCookieToken(decoded)
+    if (!decoded || !decoded.trim()) {
+      continue
+    }
+
+    const entry = candidateParts.get(baseName) ?? { parts: [], originalNames: new Set<string>() }
+    entry.parts.push({ index: partIndex, value: decoded })
+    entry.originalNames.add(rawName)
+    candidateParts.set(baseName, entry)
+  }
+
+  for (const { parts } of candidateParts.values()) {
+    if (parts.length === 0) {
+      continue
+    }
+
+    parts.sort((a, b) => a.index - b.index)
+    const combined = parts.map((part) => part.value).join('')
+    const cleaned = cleanupCookieToken(combined)
     if (cleaned) {
       return cleaned
     }
@@ -300,6 +440,35 @@ const resolveSupabaseAuthorizationHeader = (req: RequestLike) => {
   return null
 }
 
+const ROLE_METADATA_KEYS = [
+  'role',
+  'user_role',
+  'userRole',
+  'role_slug',
+  'roleSlug',
+  'role_name',
+  'roleName',
+  'role_id',
+  'roleId',
+] as const
+
+const resolveRoleFromMetadata = (metadata: Record<string, unknown> | null | undefined): UserRole => {
+  if (!metadata || typeof metadata !== 'object') {
+    return null
+  }
+
+  for (const key of ROLE_METADATA_KEYS) {
+    if (key in metadata) {
+      const normalized = normalizeRoleValue((metadata as Record<string, unknown>)[key])
+      if (normalized) {
+        return normalized
+      }
+    }
+  }
+
+  return null
+}
+
 function createSupabaseAdminClient(env: Bindings): SupabaseClient {
   return createClient(env.SUPABASE_URL, env.SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
@@ -315,6 +484,115 @@ function getCachedSupabaseAdminClient(env: Bindings): SupabaseClient {
     supabaseAdminClientCache.set(env, client)
   }
   return client
+}
+
+function createSupabaseUserClient(env: Bindings, accessToken: string): SupabaseClient {
+  return createClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
+    auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
+    global: {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        apikey: env.SUPABASE_ANON_KEY,
+      },
+    },
+  })
+}
+
+async function fetchProfileRole(client: SupabaseClient, userId: string): Promise<UserRole> {
+  const { data, error, status } = await client
+    .from('profiles')
+    .select('role')
+    .eq('id', userId)
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    if (status === 406 || status === 404) {
+      return null
+    }
+    throw Object.assign(new Error('profile_role_lookup_failed'), { cause: error })
+  }
+
+  return normalizeRoleValue(data?.role)
+}
+
+async function resolveUserRole(client: SupabaseClient, user: User): Promise<UserRole> {
+  const profileRole = await fetchProfileRole(client, user.id)
+  if (profileRole) {
+    return profileRole
+  }
+
+  const userMetadataRole = resolveRoleFromMetadata(
+    (user.user_metadata ?? null) as Record<string, unknown> | null
+  )
+  if (userMetadataRole) {
+    return userMetadataRole
+  }
+
+  return resolveRoleFromMetadata((user.app_metadata ?? null) as Record<string, unknown> | null)
+}
+
+type AuthSuccess = {
+  token: string
+  adminClient: SupabaseClient
+  user: User
+  role: UserRole
+}
+
+type AuthFailure = { response: Response }
+
+const isAuthFailure = (value: AuthSuccess | AuthFailure): value is AuthFailure => 'response' in value
+
+async function authenticateRequest(
+  c: Context<{ Bindings: Bindings }>,
+  { requireModerator = false }: { requireModerator?: boolean } = {}
+): Promise<AuthSuccess | AuthFailure> {
+  const token = resolveSupabaseBearerToken(c.req)
+  if (!token) {
+    return {
+      response: c.json(
+        { error: 'auth_required', message: 'Bitte mit einem gültigen Supabase-Token anfragen.' },
+        401,
+        cors()
+      ),
+    }
+  }
+
+  const adminClient = getCachedSupabaseAdminClient(c.env)
+
+  let user: User
+  try {
+    user = await verifyUser(adminClient, token)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'auth_failed'
+    return { response: c.json({ error: 'auth_failed', reason }, 401, cors()) }
+  }
+
+  let role: UserRole
+  try {
+    role = await resolveUserRole(adminClient, user)
+  } catch (error) {
+    console.error('[worker:auth:role]', error)
+    return {
+      response: c.json(
+        { error: 'profile_lookup_failed', message: 'Rolle konnte nicht ermittelt werden.' },
+        500,
+        cors()
+      ),
+    }
+  }
+
+  if (requireModerator && !isModeratorRole(role)) {
+    return {
+      response: c.json(
+        { error: 'forbidden', message: 'Moderatorrechte erforderlich.' },
+        403,
+        cors()
+      ),
+    }
+  }
+
+  return { token, adminClient, user, role }
 }
 
 async function verifyUser(client: SupabaseClient, token: string) {
@@ -422,7 +700,7 @@ function normaliseItemPayload(payload: ItemInsert, rawBody: Record<string, unkno
     image_url: itemImage,
     item_lore_image: itemLoreImage,
     enchantments: normalizeEnchantments(payload.enchantments),
-    is_published: rawBody.is_published === true,
+    is_published: payload.is_published === true,
   }
 }
 
@@ -520,6 +798,99 @@ async function validateEnchantments(
       enchantment_id: entry.enchantment_id,
       level: entry.level,
     }))
+}
+
+type InsertedItemWithEnchantments = {
+  item: Record<string, unknown> & { id: number | string }
+  enchantments: Array<Record<string, unknown>>
+}
+
+const buildItemSnapshot = (
+  result: InsertedItemWithEnchantments
+): { item: Record<string, unknown>; enchantments: Array<Record<string, unknown>> } => {
+  const item = result.item
+  const snapshotItem: Record<string, unknown> = {}
+  const fieldsToPersist = [
+    'id',
+    'title',
+    'name',
+    'description',
+    'item_type_id',
+    'material_id',
+    'rarity_id',
+    'stars',
+    'star_level',
+    'created_by',
+    'item_image',
+    'item_lore_image',
+    'is_published',
+    'slug',
+  ]
+
+  for (const key of fieldsToPersist) {
+    if (key in item) {
+      snapshotItem[key] = (item as Record<string, unknown>)[key]
+    }
+  }
+
+  const enchantments = result.enchantments.map((entry) => ({
+    enchantment_id: (entry as Record<string, unknown>).enchantment_id ?? null,
+    level: (entry as Record<string, unknown>).level ?? null,
+  }))
+
+  return { item: snapshotItem, enchantments }
+}
+
+async function createItemVersionRecord(
+  client: SupabaseClient,
+  payload: { itemId: number | string; snapshot: Record<string, unknown>; changedBy: string }
+) {
+  const { error } = await client.from('item_versions').insert({
+    item_id: payload.itemId,
+    snapshot: payload.snapshot,
+    changed_by: payload.changedBy,
+  })
+
+  if (error) {
+    throw Object.assign(new Error('item_version_insert_failed'), { cause: error })
+  }
+}
+
+async function createAuditLogEntry(
+  client: SupabaseClient,
+  payload: {
+    actor: string
+    action: string
+    entity: string
+    entityId: string | number
+    meta?: Record<string, unknown>
+  }
+) {
+  const { error } = await client.from('audit_log').insert({
+    actor: payload.actor,
+    action: payload.action,
+    entity: payload.entity,
+    entity_id: String(payload.entityId),
+    meta: payload.meta ?? null,
+  })
+
+  if (error) {
+    throw Object.assign(new Error('audit_log_insert_failed'), { cause: error })
+  }
+}
+
+async function rollbackItemCreation(client: SupabaseClient, itemId: number | string) {
+  try {
+    await client.from('item_enchantments').delete().eq('item_id', itemId)
+  } catch (error) {
+    console.error('[worker:items:rollback:enchantments]', error)
+  }
+
+  try {
+    await client.from('items').delete().eq('id', itemId)
+  } catch (error) {
+    console.error('[worker:items:rollback:item]', error)
+  }
 }
 
 async function insertItemWithEnchantments(
@@ -771,27 +1142,75 @@ const META_CACHE_HEADERS = {
 api.get('/health', (c) => c.text('ok'))
 
 // Quick diagnostics for environment configuration
-api.get('/diag', (c) => {
+api.get('/diag', async (c) => {
+  const start = Date.now()
+  const auth = await authenticateRequest(c, { requireModerator: true })
+
+  if (isAuthFailure(auth)) {
+    logRouteEvent('api:diag', {
+      method: 'GET',
+      status: auth.response.status,
+      durationMs: Date.now() - start,
+      user: null,
+    })
+    return auth.response
+  }
+
   const env = c.env
-  return c.json(
+  const maskedUser = maskUserId(auth.user.id)
+  const headers = cors({ 'cache-control': 'no-store' })
+  const response = c.json(
     {
       hasUrl: !!env.SUPABASE_URL,
       hasAnon: !!env.SUPABASE_ANON_KEY,
       hasSrv: !!env.SUPABASE_SERVICE_ROLE_KEY,
     },
     200,
-    cors()
+    headers
   )
+
+  logRouteEvent('api:diag', {
+    method: 'GET',
+    status: 200,
+    durationMs: Date.now() - start,
+    user: maskedUser,
+  })
+
+  return response
 })
 
-// Debug echo endpoint
+// Debug echo endpoint (nur Moderatoren, sensible Header redacted)
 api.all('/debug/echo', async (c) => {
+  const start = Date.now()
+  const auth = await authenticateRequest(c, { requireModerator: true })
+
+  if (isAuthFailure(auth)) {
+    logRouteEvent('api:debug:echo', {
+      method: c.req.method,
+      status: auth.response.status,
+      durationMs: Date.now() - start,
+      user: null,
+    })
+    return auth.response
+  }
+
+  const maskedUser = maskUserId(auth.user.id)
+
   let rawBody = ''
   try {
     rawBody = await c.req.text()
   } catch (error) {
     const reason =
       error instanceof Error ? error.message : 'Unbekannter Fehler beim Lesen des Request-Bodys.'
+
+    logRouteEvent('api:debug:echo', {
+      method: c.req.method,
+      status: 400,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: reason,
+    })
+
     return c.json(
       {
         error: 'body_read_failed',
@@ -799,7 +1218,7 @@ api.all('/debug/echo', async (c) => {
         details: { reason },
       },
       400,
-      cors()
+      cors({ 'cache-control': 'no-store' })
     )
   }
 
@@ -823,7 +1242,7 @@ api.all('/debug/echo', async (c) => {
   const headersRecord = c.req.header() as Record<string, string>
   const headers: Record<string, string> = {}
   for (const [key, value] of Object.entries(headersRecord)) {
-    headers[key] = value
+    headers[key] = shouldRedactHeader(key) ? '[redacted]' : value
   }
 
   const url = new URL(c.req.url)
@@ -847,7 +1266,14 @@ api.all('/debug/echo', async (c) => {
     responsePayload.jsonParseError = jsonParseError
   }
 
-  return c.json(responsePayload, 200, cors())
+  logRouteEvent('api:debug:echo', {
+    method: c.req.method,
+    status: 200,
+    durationMs: Date.now() - start,
+    user: maskedUser,
+  })
+
+  return c.json(responsePayload, 200, cors({ 'cache-control': 'no-store' }))
 })
 
 app.options('*', (c) =>
@@ -856,28 +1282,121 @@ app.options('*', (c) =>
 
 
 app.get('/api/materials', async (c) => {
+  const start = Date.now()
+  const ifNoneMatch = readHeader(c.req, 'if-none-match')
   try {
-    const data = await fetchMaterialsList(c.env)
-    return c.json(data, 200, cors(META_CACHE_HEADERS))
+    const result = await fetchMaterialsList(c.env, { ifNoneMatch })
+    const headers = cors({ ...META_CACHE_HEADERS })
+    headers.vary = headers.vary ? `${headers.vary}, If-None-Match` : 'If-None-Match'
+    if (result.etag) {
+      headers.etag = result.etag
+    }
+
+    const duration = Date.now() - start
+    logRouteEvent('meta:materials', {
+      method: 'GET',
+      status: result.status,
+      durationMs: duration,
+    })
+
+    if (result.status === 304) {
+      return c.body(null, 304, headers)
+    }
+
+    return c.json(result.data, result.status as any, headers)
   } catch (error) {
+    const status =
+      typeof (error as { status?: number } | null)?.status === 'number'
+        ? ((error as { status: number }).status as number)
+        : 500
+
+    logRouteEvent('meta:materials', {
+      method: 'GET',
+      status,
+      durationMs: Date.now() - start,
+      message: error instanceof Error ? error.message : 'unknown_error',
+    })
+
     return handleMetaError(c, 'materials', error, 'Materialien konnten nicht geladen werden.')
   }
 })
 
 app.get('/api/item_types', async (c) => {
+  const start = Date.now()
+  const ifNoneMatch = readHeader(c.req, 'if-none-match')
   try {
-    const data = await fetchItemTypesList(c.env)
-    return c.json(data, 200, cors(META_CACHE_HEADERS))
+    const result = await fetchItemTypesList(c.env, { ifNoneMatch })
+    const headers = cors({ ...META_CACHE_HEADERS })
+    headers.vary = headers.vary ? `${headers.vary}, If-None-Match` : 'If-None-Match'
+    if (result.etag) {
+      headers.etag = result.etag
+    }
+
+    const duration = Date.now() - start
+    logRouteEvent('meta:item_types', {
+      method: 'GET',
+      status: result.status,
+      durationMs: duration,
+    })
+
+    if (result.status === 304) {
+      return c.body(null, 304, headers)
+    }
+
+    return c.json(result.data, result.status as any, headers)
   } catch (error) {
+    const status =
+      typeof (error as { status?: number } | null)?.status === 'number'
+        ? ((error as { status: number }).status as number)
+        : 500
+
+    logRouteEvent('meta:item_types', {
+      method: 'GET',
+      status,
+      durationMs: Date.now() - start,
+      message: error instanceof Error ? error.message : 'unknown_error',
+    })
+
     return handleMetaError(c, 'item_types', error, 'Item-Typen konnten nicht geladen werden.')
   }
 })
 
 app.get('/api/rarities', async (c) => {
+  const start = Date.now()
+  const ifNoneMatch = readHeader(c.req, 'if-none-match')
   try {
-    const data = await fetchRaritiesList(c.env)
-    return c.json(data, 200, cors(META_CACHE_HEADERS))
+    const result = await fetchRaritiesList(c.env, { ifNoneMatch })
+    const headers = cors({ ...META_CACHE_HEADERS })
+    headers.vary = headers.vary ? `${headers.vary}, If-None-Match` : 'If-None-Match'
+    if (result.etag) {
+      headers.etag = result.etag
+    }
+
+    const duration = Date.now() - start
+    logRouteEvent('meta:rarities', {
+      method: 'GET',
+      status: result.status,
+      durationMs: duration,
+    })
+
+    if (result.status === 304) {
+      return c.body(null, 304, headers)
+    }
+
+    return c.json(result.data, result.status as any, headers)
   } catch (error) {
+    const status =
+      typeof (error as { status?: number } | null)?.status === 'number'
+        ? ((error as { status: number }).status as number)
+        : 500
+
+    logRouteEvent('meta:rarities', {
+      method: 'GET',
+      status,
+      durationMs: Date.now() - start,
+      message: error instanceof Error ? error.message : 'unknown_error',
+    })
+
     return handleMetaError(c, 'rarities', error, 'Seltenheiten konnten nicht geladen werden.')
   }
 })
@@ -887,7 +1406,7 @@ api.get('/items', async (c) => {
   const query = c.req.query()
   const params = new URLSearchParams({
     select:
-      '*,item_enchantments(enchantment_id,level,enchantments(id,label,slug,description,max_level))',
+      '*,item_enchantments(enchantment_id,level,enchantments(id,label,description,max_level))',
   })
 
   const search = sanitizeSearchValue(query.search ?? '')
@@ -938,50 +1457,96 @@ api.get('/items', async (c) => {
   params.append('order', 'title.asc')
 
   const url = `${c.env.SUPABASE_URL}/rest/v1/items?${params.toString()}`
-  const supabaseHeaders: Record<string, string> = { apikey: c.env.SUPABASE_ANON_KEY }
+  const supabaseHeaders: Record<string, string> = {
+    apikey: c.env.SUPABASE_ANON_KEY,
+    Accept: 'application/json',
+  }
   const forwardedAuthHeader = resolveSupabaseAuthorizationHeader(c.req)
   if (forwardedAuthHeader) {
     supabaseHeaders.Authorization = forwardedAuthHeader
+  } else {
+    supabaseHeaders.Authorization = `Bearer ${c.env.SUPABASE_ANON_KEY}`
   }
+
+  const ifNoneMatch = readHeader(c.req, 'if-none-match')
+  if (ifNoneMatch) {
+    supabaseHeaders['If-None-Match'] = ifNoneMatch
+  }
+
+  const start = Date.now()
   const res = await fetch(url, {
     headers: supabaseHeaders,
   })
 
-  if (!res.ok) {
-    return c.json({ error: 'supabase_error' }, res.status as any, cors())
+  const etag = res.headers.get('etag')
+  const cacheStatus = res.headers.get('cf-cache-status') ?? res.headers.get('x-cache-status')
+  const headers = cors({
+    'cache-control': 'public, max-age=60, stale-while-revalidate=120',
+  })
+  headers.vary = 'Authorization, If-None-Match'
+  if (etag) {
+    headers.etag = etag
   }
 
-  return c.json(
-    await res.json(),
-    200,
-    cors({ 'cache-control': 'public, max-age=60, stale-while-revalidate=120' })
-  )
+  if (res.status === 304) {
+    logRouteEvent('api:items:get', {
+      method: 'GET',
+      status: 304,
+      durationMs: Date.now() - start,
+      cacheStatus,
+    })
+    return c.body(null, 304, headers)
+  }
+
+  if (!res.ok) {
+    logRouteEvent('api:items:get', {
+      method: 'GET',
+      status: res.status,
+      durationMs: Date.now() - start,
+      cacheStatus,
+      message: res.statusText || 'supabase_error',
+    })
+    return c.json({ error: 'supabase_error' }, res.status as any, headers)
+  }
+
+  const data = await res.json()
+  logRouteEvent('api:items:get', {
+    method: 'GET',
+    status: res.status,
+    durationMs: Date.now() - start,
+    cacheStatus,
+  })
+
+  return c.json(data, res.status as any, headers)
 })
 
-// POST /api/items (validiert + Service-Role)
+// POST /api/items (validiert + RLS-konform)
 api.post('/items', async (c) => {
-  const token = resolveSupabaseBearerToken(c.req)
+  const start = Date.now()
+  const authResult = await authenticateRequest(c)
 
-  if (!token) {
-    return c.json(
-      { error: 'auth_required', message: 'Bitte mit einem gültigen Supabase-Token anfragen.' },
-      401,
-      cors()
-    )
+  if (isAuthFailure(authResult)) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: authResult.response.status,
+      durationMs: Date.now() - start,
+      user: null,
+    })
+    return authResult.response
   }
 
-  const adminClient = getCachedSupabaseAdminClient(c.env)
-
-  let user
-  try {
-    user = await verifyUser(adminClient, token)
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : 'auth_failed'
-    return c.json({ error: 'auth_failed', reason }, 401, cors())
-  }
+  const { token, adminClient, user, role } = authResult
+  const maskedUser = maskUserId(user.id)
 
   const contentType = readHeader(c.req, 'content-type') || ''
   if (!/application\/json/i.test(contentType)) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 415,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'unsupported_media_type',
+    })
     return c.json(
       {
         error: 'unsupported_media_type',
@@ -994,11 +1559,25 @@ api.post('/items', async (c) => {
 
   const bodyResult = await parseJsonBody(c.req)
   if (!bodyResult.success) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: bodyResult.status,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'invalid_json',
+    })
     return c.json(bodyResult.body, bodyResult.status as any, cors())
   }
 
   const rawBody = bodyResult.data
   if (!rawBody || typeof rawBody !== 'object' || Array.isArray(rawBody)) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 400,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'body_not_object',
+    })
     return c.json(
       {
         error: 'validation',
@@ -1011,6 +1590,17 @@ api.post('/items', async (c) => {
 
   const workingBody: Record<string, unknown> = { ...(rawBody as Record<string, unknown>) }
   coerceInts(workingBody, ['rarity_id', 'item_type_id', 'material_id', 'star_level'])
+
+  if (typeof workingBody.is_published === 'string') {
+    const normalized = workingBody.is_published.trim().toLowerCase()
+    if (['true', '1', 'yes', 'y', 'on'].includes(normalized)) {
+      workingBody.is_published = true
+    } else if (['false', '0', 'no', 'n', 'off'].includes(normalized)) {
+      workingBody.is_published = false
+    }
+  } else if (typeof workingBody.is_published === 'number') {
+    workingBody.is_published = workingBody.is_published > 0
+  }
 
   if (Array.isArray(workingBody.enchantments)) {
     workingBody.enchantments = workingBody.enchantments
@@ -1051,12 +1641,26 @@ api.post('/items', async (c) => {
 
   const parsed = ItemInsertSchema.safeParse(workingBody)
   if (!parsed.success) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 400,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'validation_failed',
+    })
     return c.json({ error: 'validation', details: parsed.error.format() }, 400, cors())
   }
 
   const normalized = normaliseItemPayload(parsed.data, workingBody)
 
   if (!Number.isInteger(normalized.rarity_id) || normalized.rarity_id <= 0) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 400,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'rarity_missing',
+    })
     return c.json(
       {
         error: 'validation',
@@ -1069,9 +1673,50 @@ api.post('/items', async (c) => {
     )
   }
 
-  const enchantments = await validateEnchantments(adminClient, normalized.enchantments)
+  if (normalized.is_published && !isModeratorRole(role)) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 403,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'publish_forbidden',
+    })
+    return c.json(
+      { error: 'forbidden', message: 'Nur Moderatoren dürfen Items veröffentlichen.' },
+      403,
+      cors()
+    )
+  }
+
+  let enchantments: Array<{ enchantment_id: number; level: number }>
+  try {
+    enchantments = await validateEnchantments(adminClient, normalized.enchantments)
+  } catch (error) {
+    const status =
+      typeof (error as { status?: number } | null)?.status === 'number'
+        ? ((error as { status: number }).status as number)
+        : 500
+    const message = error instanceof Error ? error.message : 'Verzauberungen konnten nicht validiert werden.'
+
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message,
+    })
+
+    const body =
+      status >= 400 && status < 500
+        ? { error: 'validation', message }
+        : { error: 'supabase_error', message }
+
+    return c.json(body, status as any, cors())
+  }
 
   const dryRun = ['1', 'true', 'yes'].includes((c.req.query('dryRun') || '').toLowerCase())
+  const isModerator = isModeratorRole(role)
+  const resolvedIsPublished = isModerator ? normalized.is_published : false
 
   const baseItem = {
     title: normalized.title,
@@ -1085,53 +1730,160 @@ api.post('/items', async (c) => {
     created_by: user.id,
     item_image: normalized.item_image ?? undefined,
     item_lore_image: normalized.item_lore_image ?? undefined,
-    is_published: normalized.is_published,
+    is_published: resolvedIsPublished,
   }
 
   if (dryRun) {
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 200,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'dry_run',
+    })
     return c.json(
       {
         ok: true,
         dryRun: true,
         item: baseItem,
         enchantments,
-        user: { id: user.id },
+        user: { id: user.id, role },
       },
       200,
       cors()
     )
   }
 
-  try {
-    const inserted = await insertItemWithEnchantments(adminClient, baseItem, enchantments)
-    return c.json({ ...inserted, owner: user.id, method: 'bff' }, 201, cors())
-  } catch (error) {
-    if (error && typeof error === 'object' && 'status' in error && typeof error.status === 'number') {
-      const status = error.status as number
-      const message = error instanceof Error ? error.message : 'Speichern fehlgeschlagen.'
-      return c.json({ error: 'validation', message }, status as any, cors())
-    }
+  const userClient = createSupabaseUserClient(c.env, token)
 
+  let inserted: InsertedItemWithEnchantments
+  try {
+    inserted = await insertItemWithEnchantments(userClient, baseItem, enchantments)
+  } catch (error) {
+    const status =
+      error && typeof error === 'object' && 'status' in error && typeof (error as { status?: number }).status === 'number'
+        ? ((error as { status: number }).status as number)
+        : 500
     const message = error instanceof Error ? error.message : 'Speichern fehlgeschlagen.'
-    return c.json({ error: 'supabase_error', message }, 500, cors())
+
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message,
+    })
+
+    const body =
+      status >= 400 && status < 500 ? { error: 'validation', message } : { error: 'supabase_error', message }
+    return c.json(body, status as any, cors())
   }
+
+  const snapshot = buildItemSnapshot(inserted)
+  try {
+    await createItemVersionRecord(adminClient, {
+      itemId: inserted.item.id,
+      snapshot,
+      changedBy: user.id,
+    })
+    await createAuditLogEntry(adminClient, {
+      actor: user.id,
+      action: 'item.create',
+      entity: 'item',
+      entityId: inserted.item.id,
+      meta: {
+        via: 'worker',
+        role,
+        is_published: resolvedIsPublished,
+      },
+    })
+  } catch (error) {
+    console.error('[worker:items:create:audit]', error)
+    await rollbackItemCreation(adminClient, inserted.item.id)
+
+    logRouteEvent('api:items:post', {
+      method: 'POST',
+      status: 500,
+      durationMs: Date.now() - start,
+      user: maskedUser,
+      message: 'audit_log_failed',
+    })
+
+    return c.json(
+      { error: 'audit_log_failed', message: 'Item konnte nicht protokolliert werden.' },
+      500,
+      cors()
+    )
+  }
+
+  logRouteEvent('api:items:post', {
+    method: 'POST',
+    status: 201,
+    durationMs: Date.now() - start,
+    user: maskedUser,
+  })
+
+  return c.json({ ...inserted, owner: user.id, method: 'bff' }, 201, cors())
 })
 
 // GET /api/enchantments (lange cachen)
 api.get('/enchantments', async (c) => {
-  const res = await fetch(`${c.env.SUPABASE_URL}/rest/v1/enchantments?select=*`, {
-    headers: { apikey: c.env.SUPABASE_ANON_KEY }
-  })
-
-  if (!res.ok) {
-    return c.json({ error: 'supabase_error' }, res.status as any, cors())
+  const start = Date.now()
+  const ifNoneMatch = readHeader(c.req, 'if-none-match')
+  const headers: Record<string, string> = {
+    apikey: c.env.SUPABASE_ANON_KEY,
+    Authorization: `Bearer ${c.env.SUPABASE_ANON_KEY}`,
+    Accept: 'application/json',
   }
 
-  return c.json(
-    await res.json(),
-    200,
-    cors({ 'cache-control': 'public, max-age=3600, stale-while-revalidate=86400' })
-  )
+  if (ifNoneMatch) {
+    headers['If-None-Match'] = ifNoneMatch
+  }
+
+  const res = await fetch(`${c.env.SUPABASE_URL}/rest/v1/enchantments?select=*`, {
+    headers,
+  })
+
+  const etag = res.headers.get('etag')
+  const cacheStatus = res.headers.get('cf-cache-status') ?? res.headers.get('x-cache-status')
+  const responseHeaders = cors({
+    'cache-control': 'public, max-age=3600, stale-while-revalidate=86400',
+  })
+  responseHeaders.vary = 'If-None-Match'
+  if (etag) {
+    responseHeaders.etag = etag
+  }
+
+  if (res.status === 304) {
+    logRouteEvent('api:enchantments:get', {
+      method: 'GET',
+      status: 304,
+      durationMs: Date.now() - start,
+      cacheStatus,
+    })
+    return c.body(null, 304, responseHeaders)
+  }
+
+  if (!res.ok) {
+    logRouteEvent('api:enchantments:get', {
+      method: 'GET',
+      status: res.status,
+      durationMs: Date.now() - start,
+      cacheStatus,
+      message: res.statusText || 'supabase_error',
+    })
+    return c.json({ error: 'supabase_error' }, res.status as any, responseHeaders)
+  }
+
+  const data = await res.json()
+  logRouteEvent('api:enchantments:get', {
+    method: 'GET',
+    status: res.status,
+    durationMs: Date.now() - start,
+    cacheStatus,
+  })
+
+  return c.json(data, res.status as any, responseHeaders)
 })
 
 app.onError((err, c) => {
