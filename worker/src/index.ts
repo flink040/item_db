@@ -931,7 +931,7 @@ api.get('/items', async (c) => {
   }
 
   if (isPublishedFilter !== null) {
-    params.append('is_published', `eq.${isPublishedFilter}`)
+    params.append('is_published', `is.${isPublishedFilter}`)
   }
 
   params.append('order', 'title.asc')
