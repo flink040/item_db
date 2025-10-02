@@ -1190,8 +1190,8 @@ export default function App() {
   const metadataAbortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const supabase = getSupabaseClient()
-    if (!supabase) {
+    const { url, anonKey } = getSupabaseConfig()
+    if (!url || !anonKey) {
       return
     }
 
