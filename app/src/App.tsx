@@ -1178,52 +1178,51 @@ export default function App() {
 
     const loadReferenceData = async () => {
       try {
-        const sessionToken = getSupabaseAccessToken()
-        const headers: HeadersInit = {
-          apikey: anonKey,
-          accept: 'application/json',
-        }
 
-        if (sessionToken) {
-          headers.Authorization = `Bearer ${sessionToken}`
-        }
+        const itemTypesPromise = supabase
+          .from('item_types')
+          .select('id,label,slug,code,value')
+          .abortSignal(controller.signal)
 
-        const requestInit: RequestInit = {
-          headers,
-          signal: controller.signal,
-        }
+        const materialsPromise = supabase
+          .from('materials')
+          .select('id,label,slug,code,value')
+          .abortSignal(controller.signal)
 
-        const [itemTypesResponse, materialsResponse, raritiesResponse] = await Promise.all([
-          fetch(`${url}/rest/v1/item_types?select=*`, requestInit),
-          fetch(`${url}/rest/v1/materials?select=*`, requestInit),
-          fetch(`${url}/rest/v1/rarities?select=*`, requestInit),
-        ])
+        const raritiesPromise = supabase
+          .from('rarities')
+          .select('id,label,slug,code,value')
+          .abortSignal(controller.signal)
 
-        if (!itemTypesResponse.ok || !materialsResponse.ok || !raritiesResponse.ok) {
-          throw new Error('Stammdaten konnten nicht geladen werden.')
-        }
-
-        const [itemTypesJson, materialsJson, raritiesJson] = await Promise.all([
-          itemTypesResponse.json(),
-          materialsResponse.json(),
-          raritiesResponse.json(),
+        const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
+          itemTypesPromise,
+          materialsPromise,
+          raritiesPromise,
         ])
 
         if (controller.signal.aborted || isCancelled) {
           return
         }
 
-        const nextTypeOptions = createReferenceOptionsFromRecords(itemTypesJson, 'Typ')
+        const { data: itemTypesData, error: itemTypesError } = itemTypesResult
+        const { data: materialsData, error: materialsError } = materialsResult
+        const { data: raritiesData, error: raritiesError } = raritiesResult
+
+        if (itemTypesError || materialsError || raritiesError) {
+          throw itemTypesError ?? materialsError ?? raritiesError ?? new Error('Unbekannter Fehler')
+        }
+
+        const nextTypeOptions = createReferenceOptionsFromRecords(itemTypesData ?? [], 'Typ')
         if (nextTypeOptions.length > 0) {
           setTypeOptions([{ value: '', label: 'Alle Item-Typen' }, ...nextTypeOptions])
         }
 
-        const nextMaterialOptions = createReferenceOptionsFromRecords(materialsJson, 'Material')
+        const nextMaterialOptions = createReferenceOptionsFromRecords(materialsData ?? [], 'Material')
         if (nextMaterialOptions.length > 0) {
           setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...nextMaterialOptions])
         }
 
-        const nextRarityOptions = createRarityOptionsFromRecords(raritiesJson)
+        const nextRarityOptions = createRarityOptionsFromRecords(raritiesData ?? [])
         if (nextRarityOptions.length > 0) {
           setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...nextRarityOptions])
         }
@@ -1319,8 +1318,8 @@ export default function App() {
       return
     }
 
-    const { url, anonKey } = getSupabaseConfig()
-    if (!url || !anonKey) {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
       setReferenceError('Supabase-Konfiguration fehlt.')
       setReferenceLoaded(false)
       return
@@ -1333,39 +1332,46 @@ export default function App() {
       setReferenceLoading(true)
 
       try {
-        const sessionToken = getSupabaseAccessToken()
-        const headers: HeadersInit = {
-          apikey: anonKey,
-          accept: 'application/json',
-        }
+        const itemTypesPromise = supabase
+          .from('item_types')
+          .select('id,label,slug,code,value')
+          .abortSignal(controller.signal)
 
-        if (sessionToken) {
-          headers.Authorization = `Bearer ${sessionToken}`
-        }
+        const materialsPromise = supabase
+          .from('materials')
+          .select('id,label,slug,code,value')
+          .abortSignal(controller.signal)
 
-        const [itemTypesResponse, materialsResponse, raritiesResponse] = await Promise.all([
-          fetch(`${url}/rest/v1/item_types?select=*`, { headers, signal: controller.signal }),
-          fetch(`${url}/rest/v1/materials?select=*`, { headers, signal: controller.signal }),
-          fetch(`${url}/rest/v1/rarities?select=*`, { headers, signal: controller.signal }),
-        ])
+        const raritiesPromise = supabase
+          .from('rarities')
+          .select('id,label,slug,code,value')
+          .abortSignal(controller.signal)
 
-        if (!itemTypesResponse.ok || !materialsResponse.ok || !raritiesResponse.ok) {
-          throw new Error('Stammdaten konnten nicht geladen werden.')
-        }
-
-        const [itemTypesJson, materialsJson, raritiesJson] = await Promise.all([
-          itemTypesResponse.json(),
-          materialsResponse.json(),
-          raritiesResponse.json(),
+        const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
+          itemTypesPromise,
+          materialsPromise,
+          raritiesPromise,
         ])
 
         if (controller.signal.aborted) {
           return
         }
 
-        setItemTypeOptionsState(parseReferenceOptions(itemTypesJson, (id) => `Item-Typ #${id}`))
-        setMaterialOptionsState(parseReferenceOptions(materialsJson, (id) => `Material #${id}`))
-        setRarityOptionsState(parseRarityOptions(raritiesJson))
+        const { data: itemTypesData, error: itemTypesError } = itemTypesResult
+        const { data: materialsData, error: materialsError } = materialsResult
+        const { data: raritiesData, error: raritiesError } = raritiesResult
+
+        if (itemTypesError || materialsError || raritiesError) {
+          throw itemTypesError ?? materialsError ?? raritiesError ?? new Error('Stammdaten konnten nicht geladen werden.')
+        }
+
+        setItemTypeOptionsState(
+          parseReferenceOptions(itemTypesData ?? [], (id) => `Item-Typ #${id}`)
+        )
+        setMaterialOptionsState(
+          parseReferenceOptions(materialsData ?? [], (id) => `Material #${id}`)
+        )
+        setRarityOptionsState(parseRarityOptions(raritiesData ?? []))
         setReferenceLoaded(true)
         setReferenceError(null)
       } catch (error) {
