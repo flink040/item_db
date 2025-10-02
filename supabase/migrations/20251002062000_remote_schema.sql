@@ -515,9 +515,9 @@ CREATE POLICY "ien_read_all" ON "public"."item_enchantments" FOR SELECT TO "auth
 
 CREATE POLICY "ien_write_owner_or_mod" ON "public"."item_enchantments" TO "authenticated" USING ((EXISTS ( SELECT 1
    FROM "public"."items" "i"
-  WHERE (("i"."id" = "item_enchantments"."item_id") AND (("i"."owner" = "auth"."uid"()) OR "public"."is_moderator_or_admin"()))))) WITH CHECK ((EXISTS ( SELECT 1
+  WHERE (("i"."id" = "item_enchantments"."item_id") AND (("i"."created_by" = "auth"."uid"()) OR "public"."is_moderator_or_admin"()))))) WITH CHECK ((EXISTS ( SELECT 1
    FROM "public"."items" "i"
-  WHERE (("i"."id" = "item_enchantments"."item_id") AND (("i"."owner" = "auth"."uid"()) OR "public"."is_moderator_or_admin"())))));
+  WHERE (("i"."id" = "item_enchantments"."item_id") AND (("i"."created_by" = "auth"."uid"()) OR "public"."is_moderator_or_admin"())))));
 
 
 
