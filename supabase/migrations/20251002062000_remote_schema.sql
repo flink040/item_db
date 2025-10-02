@@ -254,6 +254,61 @@ ALTER SEQUENCE "public"."items_id_seq" OWNER TO "postgres";
 ALTER SEQUENCE "public"."items_id_seq" OWNED BY "public"."items"."id";
 
 
+CREATE TABLE IF NOT EXISTS "public"."item_versions" (
+    "id" bigint NOT NULL,
+    "item_id" bigint NOT NULL,
+    "snapshot" "jsonb" NOT NULL,
+    "changed_by" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."item_versions" OWNER TO "postgres";
+
+
+CREATE SEQUENCE IF NOT EXISTS "public"."item_versions_id_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE "public"."item_versions_id_seq" OWNER TO "postgres";
+
+
+ALTER SEQUENCE "public"."item_versions_id_seq" OWNED BY "public"."item_versions"."id";
+
+
+CREATE TABLE IF NOT EXISTS "public"."audit_log" (
+    "id" bigint NOT NULL,
+    "actor" "uuid" NOT NULL,
+    "action" "text" NOT NULL,
+    "entity" "text" NOT NULL,
+    "entity_id" "text" NOT NULL,
+    "meta" "jsonb",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."audit_log" OWNER TO "postgres";
+
+
+CREATE SEQUENCE IF NOT EXISTS "public"."audit_log_id_seq"
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+ALTER SEQUENCE "public"."audit_log_id_seq" OWNER TO "postgres";
+
+
+ALTER SEQUENCE "public"."audit_log_id_seq" OWNED BY "public"."audit_log"."id";
+
 
 CREATE TABLE IF NOT EXISTS "public"."materials" (
     "id" smallint NOT NULL,
@@ -345,6 +400,14 @@ ALTER TABLE ONLY "public"."items" ALTER COLUMN "id" SET DEFAULT "nextval"('"publ
 
 
 
+ALTER TABLE ONLY "public"."item_versions" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."item_versions_id_seq"'::"regclass");
+
+
+
+ALTER TABLE ONLY "public"."audit_log" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."audit_log_id_seq"'::"regclass");
+
+
+
 ALTER TABLE ONLY "public"."materials" ALTER COLUMN "id" SET DEFAULT "nextval"('"public"."materials_id_seq"'::"regclass");
 
 
@@ -375,6 +438,16 @@ ALTER TABLE ONLY "public"."item_types"
 
 ALTER TABLE ONLY "public"."item_types"
     ADD CONSTRAINT "item_types_slug_key" UNIQUE ("slug");
+
+
+
+ALTER TABLE ONLY "public"."item_versions"
+    ADD CONSTRAINT "item_versions_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."audit_log"
+    ADD CONSTRAINT "audit_log_pkey" PRIMARY KEY ("id");
 
 
 
@@ -466,6 +539,19 @@ ALTER TABLE ONLY "public"."item_enchantments"
 ALTER TABLE ONLY "public"."items"
     ADD CONSTRAINT "items_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "auth"."users"("id");
 
+
+ALTER TABLE ONLY "public"."item_versions"
+    ADD CONSTRAINT "item_versions_changed_by_fkey" FOREIGN KEY ("changed_by") REFERENCES "public"."profiles"("id");
+
+
+
+ALTER TABLE ONLY "public"."item_versions"
+    ADD CONSTRAINT "item_versions_item_id_fkey" FOREIGN KEY ("item_id") REFERENCES "public"."items"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."audit_log"
+    ADD CONSTRAINT "audit_log_actor_fkey" FOREIGN KEY ("actor") REFERENCES "public"."profiles"("id");
 
 
 ALTER TABLE ONLY "public"."items"
@@ -617,6 +703,28 @@ CREATE POLICY "roles_admin_write" ON "public"."roles" TO "authenticated" USING (
 CREATE POLICY "roles_select_all" ON "public"."roles" FOR SELECT TO "authenticated" USING (true);
 
 
+
+CREATE POLICY "item_versions_insert_mod" ON "public"."item_versions" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_moderator_or_admin"());
+
+
+
+CREATE POLICY "item_versions_select_mod" ON "public"."item_versions" FOR SELECT TO "authenticated" USING ("public"."is_moderator_or_admin"());
+
+
+
+ALTER TABLE "public"."item_versions" ENABLE ROW LEVEL SECURITY;
+
+
+
+CREATE POLICY "audit_log_insert_mod" ON "public"."audit_log" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_moderator_or_admin"());
+
+
+
+CREATE POLICY "audit_log_select_mod" ON "public"."audit_log" FOR SELECT TO "authenticated" USING ("public"."is_moderator_or_admin"());
+
+
+
+ALTER TABLE "public"."audit_log" ENABLE ROW LEVEL SECURITY;
 
 
 
@@ -855,9 +963,32 @@ GRANT ALL ON TABLE "public"."item_types" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."item_versions" TO "anon";
+GRANT ALL ON TABLE "public"."item_versions" TO "authenticated";
+GRANT ALL ON TABLE "public"."item_versions" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."audit_log" TO "anon";
+GRANT ALL ON TABLE "public"."audit_log" TO "authenticated";
+GRANT ALL ON TABLE "public"."audit_log" TO "service_role";
+
+
+
 GRANT ALL ON SEQUENCE "public"."item_types_id_seq" TO "anon";
 GRANT ALL ON SEQUENCE "public"."item_types_id_seq" TO "authenticated";
 GRANT ALL ON SEQUENCE "public"."item_types_id_seq" TO "service_role";
+
+
+
+GRANT ALL ON SEQUENCE "public"."item_versions_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."item_versions_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."item_versions_id_seq" TO "service_role";
+
+
+GRANT ALL ON SEQUENCE "public"."audit_log_id_seq" TO "anon";
+GRANT ALL ON SEQUENCE "public"."audit_log_id_seq" TO "authenticated";
+GRANT ALL ON SEQUENCE "public"."audit_log_id_seq" TO "service_role";
 
 
 
