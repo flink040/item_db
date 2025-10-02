@@ -1518,38 +1518,19 @@ export default function App() {
     [rarityLookupMap, rarityOptionById, rarityOptionByCode, rarityLabelMap]
   )
 
-  const filterTypeOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Alle Item-Typen' },
-      ...itemTypeOptionsState.map((option) => ({
-        value: option.value,
-        label: option.label,
-        supabaseValue: option.supabaseValue,
-      })),
-    ] satisfies FilterOption[]
-  }, [itemTypeOptionsState])
+  const filterTypeOptions = useMemo<FilterOption[]>(() => {
+    return typeOptions.map((option) =>
+      option.value === '' ? { ...option, label: 'Alle Item-Typen' } : option
+    )
+  }, [typeOptions])
 
-  const filterMaterialOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Alle Materialien' },
-      ...materialOptionsState.map((option) => ({
-        value: option.value,
-        label: option.label,
-        supabaseValue: option.supabaseValue,
-      })),
-    ] satisfies FilterOption[]
-  }, [materialOptionsState])
+  const filterMaterialOptions = useMemo<FilterOption[]>(() => {
+    return materialOptions
+  }, [materialOptions])
 
-  const filterRarityOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Alle Seltenheiten' },
-      ...rarityOptionsState.map((option) => ({
-        value: option.value,
-        label: option.label,
-        supabaseValue: option.supabaseValue,
-      })),
-    ] satisfies FilterOption[]
-  }, [rarityOptionsState])
+  const filterRarityOptions = useMemo<FilterOption[]>(() => {
+    return rarityOptions
+  }, [rarityOptions])
 
   const fetchItems = useCallback(
     async ({ search, type, material, rarity }: FetchItemsParams) => {
@@ -1642,7 +1623,7 @@ export default function App() {
         }
       }
     },
-    [itemTypeOptionsState, materialOptionsState, rarityOptionsState]
+    [typeOptions, materialOptions, rarityOptions]
   )
 
   const dismissToast = useCallback((id: number) => {
