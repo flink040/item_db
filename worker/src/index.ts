@@ -1084,7 +1084,7 @@ const extractPositiveIntegerFilter = (
 
 const extractBooleanFilter = (
   ...candidates: Array<string | undefined>
-): 'TRUE' | 'FALSE' | null => {
+): 'true' | 'false' | null => {
   for (const candidate of candidates) {
     const normalized = normalizeFilterValue(candidate)
     if (!normalized) {
@@ -1094,19 +1094,19 @@ const extractBooleanFilter = (
     const lowered = normalized.toLowerCase()
 
     if (lowered === 'is.true') {
-      return 'TRUE'
+      return 'true'
     }
 
     if (lowered === 'is.false') {
-      return 'FALSE'
+      return 'false'
     }
 
     if (['true', '1', 'yes', 'y', 'on'].includes(lowered)) {
-      return 'TRUE'
+      return 'true'
     }
 
     if (['false', '0', 'no', 'n', 'off'].includes(lowered)) {
-      return 'FALSE'
+      return 'false'
     }
   }
 
