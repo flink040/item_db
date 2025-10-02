@@ -546,11 +546,7 @@ CREATE POLICY "items_delete_mod_or_admin" ON "public"."items" FOR DELETE TO "aut
 
 
 
-CREATE POLICY "items_insert_all_auth" ON "public"."items" FOR INSERT TO "authenticated" WITH CHECK (true);
-
-
-
-CREATE POLICY "items_insert_own" ON "public"."items" FOR INSERT TO "authenticated" WITH CHECK (("created_by" = "auth"."uid"()));
+CREATE POLICY "items_insert_own" ON "public"."items" FOR INSERT TO "authenticated" WITH CHECK ((("created_by" = "auth"."uid"()) AND ((NOT "is_published") OR "public"."is_moderator_or_admin"())));
 
 
 
