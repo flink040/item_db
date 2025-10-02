@@ -1168,46 +1168,70 @@ export default function App() {
   const metadataAbortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const supabase = getSupabaseClient()
-    if (!supabase) {
+    const { url, anonKey } = getSupabaseConfig()
+    if (!url || !anonKey) {
       return
     }
 
+    const controller = new AbortController()
     let isCancelled = false
 
     const loadReferenceData = async () => {
       try {
-        const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
-          supabase.from('item_types').select('*').order('label', { ascending: true }),
-          supabase.from('materials').select('*').order('label', { ascending: true }),
-          supabase.from('rarities').select('*').order('label', { ascending: true })
+        const sessionToken = getSupabaseAccessToken()
+        const headers: HeadersInit = {
+          apikey: anonKey,
+          accept: 'application/json',
+        }
+
+        if (sessionToken) {
+          headers.Authorization = `Bearer ${sessionToken}`
+        }
+
+        const requestInit: RequestInit = {
+          headers,
+          signal: controller.signal,
+        }
+
+        const [itemTypesResponse, materialsResponse, raritiesResponse] = await Promise.all([
+          fetch(`${url}/rest/v1/item_types?select=*`, requestInit),
+          fetch(`${url}/rest/v1/materials?select=*`, requestInit),
+          fetch(`${url}/rest/v1/rarities?select=*`, requestInit),
         ])
 
-        if (isCancelled) {
+        if (!itemTypesResponse.ok || !materialsResponse.ok || !raritiesResponse.ok) {
+          throw new Error('Stammdaten konnten nicht geladen werden.')
+        }
+
+        const [itemTypesJson, materialsJson, raritiesJson] = await Promise.all([
+          itemTypesResponse.json(),
+          materialsResponse.json(),
+          raritiesResponse.json(),
+        ])
+
+        if (controller.signal.aborted || isCancelled) {
           return
         }
 
-        if (!itemTypesResult.error && Array.isArray(itemTypesResult.data)) {
-          const options = createReferenceOptionsFromRecords(itemTypesResult.data, 'Typ')
-          if (options.length > 0) {
-            setTypeOptions([{ value: '', label: 'Alle Typen' }, ...options])
-          }
+        const nextTypeOptions = createReferenceOptionsFromRecords(itemTypesJson, 'Typ')
+        if (nextTypeOptions.length > 0) {
+          setTypeOptions([{ value: '', label: 'Alle Item-Typen' }, ...nextTypeOptions])
         }
 
-        if (!materialsResult.error && Array.isArray(materialsResult.data)) {
-          const options = createReferenceOptionsFromRecords(materialsResult.data, 'Material')
-          if (options.length > 0) {
-            setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...options])
-          }
+        const nextMaterialOptions = createReferenceOptionsFromRecords(materialsJson, 'Material')
+        if (nextMaterialOptions.length > 0) {
+          setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...nextMaterialOptions])
         }
 
-        if (!raritiesResult.error && Array.isArray(raritiesResult.data)) {
-          const options = createRarityOptionsFromRecords(raritiesResult.data)
-          if (options.length > 0) {
-            setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...options])
-          }
+        const nextRarityOptions = createRarityOptionsFromRecords(raritiesJson)
+        if (nextRarityOptions.length > 0) {
+          setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...nextRarityOptions])
         }
       } catch (error) {
+        if (controller.signal.aborted || isCancelled) {
+          return
+        }
+
         console.warn('Referenzdaten konnten nicht geladen werden.', error)
       }
     }
@@ -1216,6 +1240,7 @@ export default function App() {
 
     return () => {
       isCancelled = true
+      controller.abort()
     }
   }, [])
 
