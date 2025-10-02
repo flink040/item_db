@@ -705,6 +705,7 @@ CREATE POLICY "roles_select_all" ON "public"."roles" FOR SELECT TO "authenticate
 
 
 CREATE POLICY "item_versions_insert_mod" ON "public"."item_versions" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_moderator_or_admin"());
+CREATE POLICY "item_versions_insert_service" ON "public"."item_versions" FOR INSERT TO "service_role" WITH CHECK (true);
 
 
 
@@ -717,6 +718,7 @@ ALTER TABLE "public"."item_versions" ENABLE ROW LEVEL SECURITY;
 
 
 CREATE POLICY "audit_log_insert_mod" ON "public"."audit_log" FOR INSERT TO "authenticated" WITH CHECK ("public"."is_moderator_or_admin"());
+CREATE POLICY "audit_log_insert_service" ON "public"."audit_log" FOR INSERT TO "service_role" WITH CHECK (true);
 
 
 
