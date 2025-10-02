@@ -498,7 +498,7 @@ ALTER TABLE ONLY "public"."profiles"
 
 
 
-CREATE POLICY "ench_read_all" ON "public"."enchantments" FOR SELECT TO "authenticated" USING (true);
+CREATE POLICY "ench_read_all" ON "public"."enchantments" FOR SELECT TO PUBLIC USING (true);
 
 
 
@@ -527,7 +527,7 @@ ALTER TABLE "public"."item_enchantments" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."item_types" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "item_types_read_all" ON "public"."item_types" FOR SELECT TO "authenticated" USING (true);
+CREATE POLICY "item_types_read_all" ON "public"."item_types" FOR SELECT TO PUBLIC USING (true);
 
 
 
@@ -577,7 +577,7 @@ CREATE POLICY "items_write" ON "public"."items" FOR UPDATE USING ((("created_by"
 ALTER TABLE "public"."materials" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "materials_read_all" ON "public"."materials" FOR SELECT TO "authenticated" USING (true);
+CREATE POLICY "materials_read_all" ON "public"."materials" FOR SELECT TO PUBLIC USING (true);
 
 
 
@@ -603,7 +603,7 @@ CREATE POLICY "profiles_update_self" ON "public"."profiles" FOR UPDATE TO "authe
 ALTER TABLE "public"."rarities" ENABLE ROW LEVEL SECURITY;
 
 
-CREATE POLICY "rarities_read_all" ON "public"."rarities" FOR SELECT TO "authenticated" USING (true);
+CREATE POLICY "rarities_read_all" ON "public"."rarities" FOR SELECT TO PUBLIC USING (true);
 
 
 
