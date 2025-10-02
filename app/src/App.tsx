@@ -732,13 +732,16 @@ const normalizeStringValue = (input: unknown) =>
 
 const createReferenceOptionsFromRecords = (
   entries: unknown[],
-  fallbackLabelPrefix: string
+  fallbackLabelPrefix: string,
+  options: { sortByLabel?: boolean } = {}
 ) => {
+  const { sortByLabel = true } = options
+
   if (!Array.isArray(entries)) {
     return []
   }
 
-  return entries
+  const parsedEntries = entries
     .map((entry) => {
       if (!entry || typeof entry !== 'object') {
         return null
@@ -774,15 +777,27 @@ const createReferenceOptionsFromRecords = (
       return option
     })
     .filter((option): option is FilterOption => option !== null)
-    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+
+  if (!sortByLabel) {
+    return parsedEntries
+  }
+
+  return parsedEntries.sort((a, b) =>
+    a.label.localeCompare(b.label, 'de', { sensitivity: 'base' })
+  )
 }
 
-const createRarityOptionsFromRecords = (entries: unknown[]) => {
+const createRarityOptionsFromRecords = (
+  entries: unknown[],
+  options: { sortByLabel?: boolean } = {}
+) => {
+  const { sortByLabel = true } = options
+
   if (!Array.isArray(entries)) {
     return []
   }
 
-  return entries
+  const parsedEntries = entries
     .map((entry) => {
       if (!entry || typeof entry !== 'object') {
         return null
@@ -817,7 +832,14 @@ const createRarityOptionsFromRecords = (entries: unknown[]) => {
       return option
     })
     .filter((option): option is FilterOption => option !== null)
-    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+
+  if (!sortByLabel) {
+    return parsedEntries
+  }
+
+  return parsedEntries.sort((a, b) =>
+    a.label.localeCompare(b.label, 'de', { sensitivity: 'base' })
+  )
 }
 
 const rarityBadgeClasses: Record<string, string> = {
@@ -1178,20 +1200,23 @@ export default function App() {
 
     const loadReferenceData = async () => {
       try {
-
         const itemTypesPromise = supabase
           .from('item_types')
-          .select('id,label,slug,code,value')
+          .select('id,label,slug')
+          .order('label', { ascending: true, nullsFirst: false })
           .abortSignal(controller.signal)
 
         const materialsPromise = supabase
           .from('materials')
-          .select('id,label,slug,code,value')
+          .select('id,label,slug')
+          .order('id', { ascending: true, nullsFirst: false })
           .abortSignal(controller.signal)
 
         const raritiesPromise = supabase
           .from('rarities')
-          .select('id,label,slug,code,value')
+          .select('id,label,slug,sort')
+          .order('sort', { ascending: true, nullsFirst: false })
+          .order('id', { ascending: true, nullsFirst: false })
           .abortSignal(controller.signal)
 
         const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
@@ -1217,12 +1242,18 @@ export default function App() {
           setTypeOptions([{ value: '', label: 'Alle Item-Typen' }, ...nextTypeOptions])
         }
 
-        const nextMaterialOptions = createReferenceOptionsFromRecords(materialsData ?? [], 'Material')
+        const nextMaterialOptions = createReferenceOptionsFromRecords(
+          materialsData ?? [],
+          'Material',
+          { sortByLabel: false }
+        )
         if (nextMaterialOptions.length > 0) {
           setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...nextMaterialOptions])
         }
 
-        const nextRarityOptions = createRarityOptionsFromRecords(raritiesData ?? [])
+        const nextRarityOptions = createRarityOptionsFromRecords(raritiesData ?? [], {
+          sortByLabel: false,
+        })
         if (nextRarityOptions.length > 0) {
           setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...nextRarityOptions])
         }
@@ -1334,17 +1365,21 @@ export default function App() {
       try {
         const itemTypesPromise = supabase
           .from('item_types')
-          .select('id,label,slug,code,value')
+          .select('id,label,slug')
+          .order('label', { ascending: true, nullsFirst: false })
           .abortSignal(controller.signal)
 
         const materialsPromise = supabase
           .from('materials')
-          .select('id,label,slug,code,value')
+          .select('id,label,slug')
+          .order('id', { ascending: true, nullsFirst: false })
           .abortSignal(controller.signal)
 
         const raritiesPromise = supabase
           .from('rarities')
-          .select('id,label,slug,code,value')
+          .select('id,label,slug,sort')
+          .order('sort', { ascending: true, nullsFirst: false })
+          .order('id', { ascending: true, nullsFirst: false })
           .abortSignal(controller.signal)
 
         const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
