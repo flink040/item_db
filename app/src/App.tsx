@@ -1168,8 +1168,8 @@ export default function App() {
   const metadataAbortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
-    const supabase = getSupabaseClient()
-    if (!supabase) {
+    const { url, anonKey } = getSupabaseConfig()
+    if (!url || !anonKey) {
       return
     }
 
@@ -1178,6 +1178,7 @@ export default function App() {
 
     const loadReferenceData = async () => {
       try {
+
         const itemTypesPromise = supabase
           .from('item_types')
           .select('id,label,slug,code,value')
