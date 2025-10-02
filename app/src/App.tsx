@@ -732,13 +732,16 @@ const normalizeStringValue = (input: unknown) =>
 
 const createReferenceOptionsFromRecords = (
   entries: unknown[],
-  fallbackLabelPrefix: string
+  fallbackLabelPrefix: string,
+  options: { sortByLabel?: boolean } = {}
 ) => {
+  const { sortByLabel = true } = options
+
   if (!Array.isArray(entries)) {
     return []
   }
 
-  return entries
+  const parsedEntries = entries
     .map((entry) => {
       if (!entry || typeof entry !== 'object') {
         return null
@@ -774,15 +777,27 @@ const createReferenceOptionsFromRecords = (
       return option
     })
     .filter((option): option is FilterOption => option !== null)
-    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+
+  if (!sortByLabel) {
+    return parsedEntries
+  }
+
+  return parsedEntries.sort((a, b) =>
+    a.label.localeCompare(b.label, 'de', { sensitivity: 'base' })
+  )
 }
 
-const createRarityOptionsFromRecords = (entries: unknown[]) => {
+const createRarityOptionsFromRecords = (
+  entries: unknown[],
+  options: { sortByLabel?: boolean } = {}
+) => {
+  const { sortByLabel = true } = options
+
   if (!Array.isArray(entries)) {
     return []
   }
 
-  return entries
+  const parsedEntries = entries
     .map((entry) => {
       if (!entry || typeof entry !== 'object') {
         return null
@@ -817,7 +832,14 @@ const createRarityOptionsFromRecords = (entries: unknown[]) => {
       return option
     })
     .filter((option): option is FilterOption => option !== null)
-    .sort((a, b) => a.label.localeCompare(b.label, 'de', { sensitivity: 'base' }))
+
+  if (!sortByLabel) {
+    return parsedEntries
+  }
+
+  return parsedEntries.sort((a, b) =>
+    a.label.localeCompare(b.label, 'de', { sensitivity: 'base' })
+  )
 }
 
 const rarityBadgeClasses: Record<string, string> = {
@@ -1173,41 +1195,73 @@ export default function App() {
       return
     }
 
+    const controller = new AbortController()
     let isCancelled = false
 
     const loadReferenceData = async () => {
       try {
+        const itemTypesPromise = supabase
+          .from('item_types')
+          .select('id,label,slug')
+          .order('label', { ascending: true, nullsFirst: false })
+          .abortSignal(controller.signal)
+
+        const materialsPromise = supabase
+          .from('materials')
+          .select('id,label,slug')
+          .order('id', { ascending: true, nullsFirst: false })
+          .abortSignal(controller.signal)
+
+        const raritiesPromise = supabase
+          .from('rarities')
+          .select('id,label,slug,sort')
+          .order('sort', { ascending: true, nullsFirst: false })
+          .order('id', { ascending: true, nullsFirst: false })
+          .abortSignal(controller.signal)
+
         const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
-          supabase.from('item_types').select('*').order('label', { ascending: true }),
-          supabase.from('materials').select('*').order('label', { ascending: true }),
-          supabase.from('rarities').select('*').order('label', { ascending: true })
+          itemTypesPromise,
+          materialsPromise,
+          raritiesPromise,
         ])
 
-        if (isCancelled) {
+        if (controller.signal.aborted || isCancelled) {
           return
         }
 
-        if (!itemTypesResult.error && Array.isArray(itemTypesResult.data)) {
-          const options = createReferenceOptionsFromRecords(itemTypesResult.data, 'Typ')
-          if (options.length > 0) {
-            setTypeOptions([{ value: '', label: 'Alle Typen' }, ...options])
-          }
+        const { data: itemTypesData, error: itemTypesError } = itemTypesResult
+        const { data: materialsData, error: materialsError } = materialsResult
+        const { data: raritiesData, error: raritiesError } = raritiesResult
+
+        if (itemTypesError || materialsError || raritiesError) {
+          throw itemTypesError ?? materialsError ?? raritiesError ?? new Error('Unbekannter Fehler')
         }
 
-        if (!materialsResult.error && Array.isArray(materialsResult.data)) {
-          const options = createReferenceOptionsFromRecords(materialsResult.data, 'Material')
-          if (options.length > 0) {
-            setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...options])
-          }
+        const nextTypeOptions = createReferenceOptionsFromRecords(itemTypesData ?? [], 'Typ')
+        if (nextTypeOptions.length > 0) {
+          setTypeOptions([{ value: '', label: 'Alle Item-Typen' }, ...nextTypeOptions])
         }
 
-        if (!raritiesResult.error && Array.isArray(raritiesResult.data)) {
-          const options = createRarityOptionsFromRecords(raritiesResult.data)
-          if (options.length > 0) {
-            setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...options])
-          }
+        const nextMaterialOptions = createReferenceOptionsFromRecords(
+          materialsData ?? [],
+          'Material',
+          { sortByLabel: false }
+        )
+        if (nextMaterialOptions.length > 0) {
+          setMaterialOptions([{ value: '', label: 'Alle Materialien' }, ...nextMaterialOptions])
+        }
+
+        const nextRarityOptions = createRarityOptionsFromRecords(raritiesData ?? [], {
+          sortByLabel: false,
+        })
+        if (nextRarityOptions.length > 0) {
+          setRarityOptions([{ value: '', label: 'Alle Seltenheiten' }, ...nextRarityOptions])
         }
       } catch (error) {
+        if (controller.signal.aborted || isCancelled) {
+          return
+        }
+
         console.warn('Referenzdaten konnten nicht geladen werden.', error)
       }
     }
@@ -1216,6 +1270,7 @@ export default function App() {
 
     return () => {
       isCancelled = true
+      controller.abort()
     }
   }, [])
 
@@ -1294,8 +1349,8 @@ export default function App() {
       return
     }
 
-    const { url, anonKey } = getSupabaseConfig()
-    if (!url || !anonKey) {
+    const supabase = getSupabaseClient()
+    if (!supabase) {
       setReferenceError('Supabase-Konfiguration fehlt.')
       setReferenceLoaded(false)
       return
@@ -1308,39 +1363,50 @@ export default function App() {
       setReferenceLoading(true)
 
       try {
-        const sessionToken = getSupabaseAccessToken()
-        const headers: HeadersInit = {
-          apikey: anonKey,
-          accept: 'application/json',
-        }
+        const itemTypesPromise = supabase
+          .from('item_types')
+          .select('id,label,slug')
+          .order('label', { ascending: true, nullsFirst: false })
+          .abortSignal(controller.signal)
 
-        if (sessionToken) {
-          headers.Authorization = `Bearer ${sessionToken}`
-        }
+        const materialsPromise = supabase
+          .from('materials')
+          .select('id,label,slug')
+          .order('id', { ascending: true, nullsFirst: false })
+          .abortSignal(controller.signal)
 
-        const [itemTypesResponse, materialsResponse, raritiesResponse] = await Promise.all([
-          fetch(`${url}/rest/v1/item_types?select=*`, { headers, signal: controller.signal }),
-          fetch(`${url}/rest/v1/materials?select=*`, { headers, signal: controller.signal }),
-          fetch(`${url}/rest/v1/rarities?select=*`, { headers, signal: controller.signal }),
-        ])
+        const raritiesPromise = supabase
+          .from('rarities')
+          .select('id,label,slug,sort')
+          .order('sort', { ascending: true, nullsFirst: false })
+          .order('id', { ascending: true, nullsFirst: false })
+          .abortSignal(controller.signal)
 
-        if (!itemTypesResponse.ok || !materialsResponse.ok || !raritiesResponse.ok) {
-          throw new Error('Stammdaten konnten nicht geladen werden.')
-        }
-
-        const [itemTypesJson, materialsJson, raritiesJson] = await Promise.all([
-          itemTypesResponse.json(),
-          materialsResponse.json(),
-          raritiesResponse.json(),
+        const [itemTypesResult, materialsResult, raritiesResult] = await Promise.all([
+          itemTypesPromise,
+          materialsPromise,
+          raritiesPromise,
         ])
 
         if (controller.signal.aborted) {
           return
         }
 
-        setItemTypeOptionsState(parseReferenceOptions(itemTypesJson, (id) => `Item-Typ #${id}`))
-        setMaterialOptionsState(parseReferenceOptions(materialsJson, (id) => `Material #${id}`))
-        setRarityOptionsState(parseRarityOptions(raritiesJson))
+        const { data: itemTypesData, error: itemTypesError } = itemTypesResult
+        const { data: materialsData, error: materialsError } = materialsResult
+        const { data: raritiesData, error: raritiesError } = raritiesResult
+
+        if (itemTypesError || materialsError || raritiesError) {
+          throw itemTypesError ?? materialsError ?? raritiesError ?? new Error('Stammdaten konnten nicht geladen werden.')
+        }
+
+        setItemTypeOptionsState(
+          parseReferenceOptions(itemTypesData ?? [], (id) => `Item-Typ #${id}`)
+        )
+        setMaterialOptionsState(
+          parseReferenceOptions(materialsData ?? [], (id) => `Material #${id}`)
+        )
+        setRarityOptionsState(parseRarityOptions(raritiesData ?? []))
         setReferenceLoaded(true)
         setReferenceError(null)
       } catch (error) {
@@ -1518,38 +1584,19 @@ export default function App() {
     [rarityLookupMap, rarityOptionById, rarityOptionByCode, rarityLabelMap]
   )
 
-  const filterTypeOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Alle Item-Typen' },
-      ...itemTypeOptionsState.map((option) => ({
-        value: option.value,
-        label: option.label,
-        supabaseValue: option.supabaseValue,
-      })),
-    ] satisfies FilterOption[]
-  }, [itemTypeOptionsState])
+  const filterTypeOptions = useMemo<FilterOption[]>(() => {
+    return typeOptions.map((option) =>
+      option.value === '' ? { ...option, label: 'Alle Item-Typen' } : option
+    )
+  }, [typeOptions])
 
-  const filterMaterialOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Alle Materialien' },
-      ...materialOptionsState.map((option) => ({
-        value: option.value,
-        label: option.label,
-        supabaseValue: option.supabaseValue,
-      })),
-    ] satisfies FilterOption[]
-  }, [materialOptionsState])
+  const filterMaterialOptions = useMemo<FilterOption[]>(() => {
+    return materialOptions
+  }, [materialOptions])
 
-  const filterRarityOptions = useMemo(() => {
-    return [
-      { value: '', label: 'Alle Seltenheiten' },
-      ...rarityOptionsState.map((option) => ({
-        value: option.value,
-        label: option.label,
-        supabaseValue: option.supabaseValue,
-      })),
-    ] satisfies FilterOption[]
-  }, [rarityOptionsState])
+  const filterRarityOptions = useMemo<FilterOption[]>(() => {
+    return rarityOptions
+  }, [rarityOptions])
 
   const fetchItems = useCallback(
     async ({ search, type, material, rarity }: FetchItemsParams) => {
@@ -1642,7 +1689,7 @@ export default function App() {
         }
       }
     },
-    [itemTypeOptionsState, materialOptionsState, rarityOptionsState]
+    [typeOptions, materialOptions, rarityOptions]
   )
 
   const dismissToast = useCallback((id: number) => {
